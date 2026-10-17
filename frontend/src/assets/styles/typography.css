@@ -1,0 +1,52 @@
+/* Auto in Figma maps to CSS normal, not to the style API's 100 fallback. */
+h1,
+.text-heading-1 {
+  font-size: var(--font-size-heading-1);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-heading-1);
+}
+
+h2,
+.text-heading-2 {
+  font-size: var(--font-size-heading-2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-heading-2);
+}
+
+h3,
+.text-heading-3 {
+  font-size: var(--font-size-heading-3);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--font-line-height-auto);
+}
+
+.text-subtitle {
+  font-size: var(--font-size-subtitle);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-line-height-auto);
+}
+
+.text-body-l {
+  font-size: var(--font-size-body-l);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--font-line-height-auto);
+}
+
+.text-body-s {
+  font-size: var(--font-size-body-s);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--font-line-height-auto);
+}
+
+.text-caption {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--font-line-height-auto);
+}
+
+/* User instruction: Geologica everywhere, including the Small style. */
+.text-small {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--font-line-height-auto);
+}

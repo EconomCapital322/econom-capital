@@ -1,0 +1,58 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  /* Bootstrap uses body variables; keep them aligned with the Figma foundation. */
+  --bs-font-sans-serif: var(--font-family), sans-serif;
+  --bs-body-font-family: var(--font-family), sans-serif;
+  --bs-body-font-size: var(--font-size-body-s);
+  --bs-body-font-weight: var(--font-weight-regular);
+  --bs-body-line-height: var(--font-line-height-auto);
+  --bs-body-color: var(--color-text-primary);
+  --bs-body-bg: var(--color-background);
+
+  color-scheme: light;
+  font-family: var(--font-family), sans-serif;
+  font-size: var(--font-size-body-s);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--font-line-height-auto);
+  letter-spacing: var(--font-letter-spacing);
+  color: var(--color-text-primary);
+  background-color: var(--color-background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-inline-size: 0;
+}
+
+#root {
+  min-block-size: 100svh;
+}
+
+:where(h1, h2, h3, h4, h5, h6, p) {
+  margin: 0;
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+:where(button, [role='button']):not(:disabled) {
+  cursor: pointer;
+}
+
+:where(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+}
+
+/* Preserve browser focus outlines until the UI kit defines focus styling. */

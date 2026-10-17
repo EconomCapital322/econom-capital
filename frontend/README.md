@@ -1,75 +1,73 @@
-# React + TypeScript + Vite
+# Economic Capital · Модуль кривых
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Фронтенд команды 2 практики Т1. React + TypeScript + Vite, Bootstrap и TanStack Query. Шрифт Geologica 400/500/600/700 и изображения хедера подключены локально.
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Нужен Node.js 20.19+ (ветка 20) или 22.12+ и npm.
 
-## React Compiler
+Из папки `frontend`:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm ci
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Откройте адрес, который напечатает Vite. Для локальной проверки сборки:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm run typecheck
+npm run lint
+npm run build
+npm run preview
 ```
+
+Сборка создаётся в `dist`. Приложение запускается через Vite/HTTP, не через открытие `index.html` как файла.
+
+## Переменные окружения
+
+При необходимости скопируйте `.env.example` в `.env.local`:
+
+```dotenv
+VITE_API_BASE_URL=
+```
+
+Это базовый адрес будущего API. Пока HTTP-контракта в репозитории нет, используется демонстрационный адаптер. Заполнение переменной **не включает реальные запросы**. Секреты в VITE_* не размещать: эти значения доступны браузеру. После изменения `.env.local` перезапустите Vite.
+
+Порядок подключения сервера и недостающие сведения: [API_INTEGRATION.md](./API_INTEGRATION.md).
+
+## Демонстрационный режим
+
+- Исходная кривая взята из проверенного Excel, срез **31.07.2026, 18:49:59**. Доступны 23 расчётных срока, включая дополнительные сроки экстраполяции.
+- Другие даты показывают отсутствие данных; незаметной подстановки другой даты нет.
+- Расчёт выполняется локально с задержкой 1,2 секунды. Реальных запросов MOEX и подключения к БД нет.
+- Внизу экрана раскрывается «Демонстрация состояний»: обычный расчёт, ошибка при ближайшем запуске, отсутствие исходных данных. После одной искусственной ошибки повторный запуск успешен.
+- При смене даты или демонстрационного режима текущий расчёт отменяется, прошлый результат убирается.
+
+## Реализованные возможности
+
+1. Выбор отчётной даты и получение базовой кривой через заменяемый адаптер.
+2. Изменение P/K/D по кнопке с карандашом. Стандартные параметры — 4/5/3 п.п. Допустимы конечные числа строго больше нуля, произвольного максимума нет. Отмена и Escape не сохраняют черновик.
+3. Запуск всех шести сценариев IRRBB по кнопке. Редактирование параметров само по себе не пересчитывает результат; подпись и CSV используют параметры именно готового результата.
+4. Состояния: данные доступны, выполнение, готовый расчёт, ошибка/повторная попытка и отсутствие данных. Повторный запуск заблокирован во время выполнения.
+5. Выбор сценариев на графике и в таблице. Базовая кривая остаётся видна, масштаб Y фиксирован по полному текущему расчёту. Выбор линий не запускает расчёт.
+6. Подсказки со сроком и ставками при наведении и фокусе. В графике работают стрелки, Home/End и Escape. Вкладки «График/Таблица» переключаются мышью или стрелками/Home/End.
+7. CSV всего комплекта: семь кривых независимо от выбранных линий, дата, сценарий, бакет, тенор, ставка, P/K/D. UTF-8 BOM, разделитель `;`, десятичная запятая, экранирование кавычек и переносов. Выгрузка доступна только для полного готового результата. Окончательный формат согласуется.
+8. Адаптивная компоновка; график и широкая таблица прокручиваются внутри блока. Подписи графика не уменьшаются до нечитаемого размера на мобильном экране.
+
+Ставки выражены в процентах годовых, P/K/D — в процентных пунктах. При сложении параметры не делятся на 100.
+
+## Структура
+
+- `api` — интерфейс адаптера, демонстрационные данные и точка выбора реализации.
+- `hooks` — получение данных, запуск/отмена расчёта и демонстрационные настройки.
+- `store` — контекст внедрения адаптера.
+- `components` — хедер, параметры/модальное окно, результаты и общий Button.
+- `utils` — модели приложения, формулы IRRBB, форматирование и CSV.
+- `assets/styles` — общая система стилей из Figma; `App.css` — основной экран по последнему HTML-прототипу.
+
+## Проверка интерфейса
+
+Проверены ширины 320, 390, 560 и 1366 px; отсутствие горизонтального переполнения страницы и прокрутка содержимого графика/таблицы. Проверен сценарий дата → параметры → запуск → сравнение → таблица → CSV, смена даты во время расчёта, ошибка/повторный запуск, отмена редактирования.
+
+В модальном окне фокус начинается с P, Tab/Shift+Tab остаются внутри; Escape, отмена и применение возвращают фокус на карандаш. Страница 404 не реализована и остаётся отдельной задачей.
