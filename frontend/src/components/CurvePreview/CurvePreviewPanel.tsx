@@ -100,7 +100,13 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
       <div className="results-panel__tabs">
         <div className="nav nav-tabs" role="tablist" aria-label="Вид результатов">
           {(['graph', 'table'] as const).map(type => (
-            <button key={type} id={`${panelId}-${type}`} className={`nav-link ${view === type ? 'active' : ''}`} type="button" role="tab" aria-selected={view === type} aria-controls={panelId} onClick={() => setView(type)}>
+            <button key={type} id={`${panelId}-${type}`} className={`nav-link ${view === type ? 'active' : ''}`} type="button" role="tab" tabIndex={view === type ? 0 : -1} aria-selected={view === type} aria-controls={panelId} onClick={() => setView(type)} onKeyDown={event => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              const nextView = event.key === 'Home' ? 'graph' : event.key === 'End' ? 'table' : type === 'graph' ? 'table' : 'graph'
+              setView(nextView)
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[id="${panelId}-${nextView}"]`)?.focus()
+            }}>
               {type === 'graph' ? 'График' : 'Таблица'}
             </button>
           ))}
@@ -118,7 +124,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
       </div>
       <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${view}`} tabIndex={0}>
         {view === 'graph' ? (
-          <div className="curve-chart">
+          <div className="curve-chart" tabIndex={0} role="region" aria-label="График кривых с горизонтальной прокруткой">
             <p>Доходность, % годовых</p>
             <div className="curve-chart__plot">
             <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${heading} на ${dateLabel}. Выберите срок клавишей Tab, затем используйте стрелки.`}>
@@ -133,7 +139,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
                 {visibleCurves.map(curve => <circle key={curve.code} cx={x(activePoint)} cy={y(curve.points[activePoint].rate)} r="3.5" fill={curve.color} stroke="white" />)}
               </g>}
               {basePoints.map((point, i) => (
-                <rect key={point.label} className="curve-chart__hit" x={x(i) - (W - left - right) / Math.max(1, basePoints.length - 1) / 2} y={top} width={(W - left - right) / Math.max(1, basePoints.length - 1)} height={H - top - bottom} fill="transparent" role="button" tabIndex={0}
+                <rect key={point.label} className="curve-chart__hit" x={x(i) - (W - left - right) / Math.max(1, basePoints.length - 1) / 2} y={top} width={(W - left - right) / Math.max(1, basePoints.length - 1)} height={H - top - bottom} fill="transparent" role="button" tabIndex={i === (focusedPoint ?? 0) ? 0 : -1}
                   aria-label={`${point.label}, тенор ${point.tenorYears} года. ${visibleCurves.map(curve => `${curve.name}: ${formatRate(curve.points[i].rate)}%`).join('; ')}`}
                   aria-describedby={activePoint === i ? tooltipId : undefined}
                   onMouseEnter={() => { setFocusedPoint(null); setHoveredPoint(i) }} onMouseLeave={() => setHoveredPoint(null)}
@@ -158,7 +164,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
             <p className="curve-chart__x">Срок бакета</p>
           </div>
         ) : (
-          <div className="table-responsive curve-table">
+          <div className="table-responsive curve-table" tabIndex={0} role="region" aria-label="Таблица ставок с горизонтальной прокруткой">
             <table className="table mb-0">
               <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор, лет</th>{visibleCurves.map(curve => <th key={curve.code} scope="col">{curve.name}{SCENARIO_DETAILS[curve.code as StressScenarioCode] && <small>{SCENARIO_DETAILS[curve.code as StressScenarioCode]}</small>}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
               <tbody>{basePoints.map((point, i) => (

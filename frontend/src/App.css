@@ -179,3 +179,22 @@
 @media (max-width: 600px) { .results-panel__header { flex-direction: column; gap: 14px; } .result-export { text-align: left; } }
 
 .source-state { padding: 28px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--page-border); border-radius: var(--page-panel-radius); background: var(--color-white); font-size: 12px; color: var(--page-muted); }
+
+/* QA: keep the original layout and assets within intermediate/mobile widths. */
+.parameters-control__value > span { min-width: 0; overflow-wrap: anywhere; }
+.result-parameters { overflow-wrap: anywhere; }
+.curve-chart__plot, .curve-chart svg { min-width: 1000px; }
+@media (max-width: 780px) {
+  .app-header__title { min-width: 0; max-width: calc(100% - 172.8px); }
+  .brand-lockup { width: 198.4px; margin-left: -49.6px; }
+}
+@media (max-width: 640px) {
+  .calculation-controls { grid-template-columns: 1fr; gap: 17px; padding: 19px; }
+  .run-calculation { grid-column: auto; justify-self: stretch; }
+}
+@media (max-width: 520px) {
+  .app-header__title { max-width: 100%; }
+}
+
+.curve-chart:focus-visible, .curve-table:focus-visible { outline: 3px solid var(--page-focus); outline-offset: -3px; }
+.curve-chart, .curve-table { overscroll-behavior-x: contain; }
