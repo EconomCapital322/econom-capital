@@ -118,3 +118,26 @@
 @media (max-width: 1050px) { .app-header { padding-inline: 22px; } .curve-page { padding-inline: 22px; } .app-footer { padding-inline: 22px; } .results-panel__tabs > span { display: none; } }
 @media (max-width: 780px) { .app-header__title { width: 390px; height: auto; max-width: 70%; } .brand-lockup { transform: scale(.75); transform-origin: right center; width: 149px; } .curve-page__heading { align-items: start; } .curve-page__heading h1 { font-size: 30px; } .curve-page__heading p { font-size: 13px; } .prototype-tag { display: none; } .calculation-controls { grid-template-columns: 180px minmax(230px, 1fr); gap: 18px; } .parameters-control__value { font-size: 13px; gap: 10px; } .curve-chart { padding-inline: 15px; } .results-panel__header { padding: 20px; } }
 @media (max-width: 520px) { .app-header { padding: 20px; } .app-header__title { max-width: 100%; width: 100%; } .brand-lockup { display: none; } .calculation-controls { grid-template-columns: 1fr; gap: 17px; padding: 19px; } .parameters-control__value { justify-content: space-between; font-size: 14px; } .parameter-help__content { left: -135px; } .data-availability { font-size: 10px; } .parameters-modal .modal-content { padding: 24px; } .parameters-modal .modal-footer { flex-wrap: nowrap; } .parameters-modal .app-button { flex: 1; padding-inline: 12px; } }
+
+/* Stress calculation controls; colors follow the last HTML prototype. */
+.curve-app {
+  --chart-parallel-up: #109fd5;
+  --chart-parallel-down: #0877af;
+  --chart-steepener: #8166b5;
+  --chart-flattener: #cc8057;
+  --chart-short-up: #4c9c86;
+  --chart-short-down: #be6e98;
+}
+.calculation-controls { grid-template-columns: 190px minmax(250px, 1fr) auto; }
+.run-calculation { white-space: nowrap; min-height: 43px; }
+.calculation-hint { margin: -8px 4px 18px; font-size: 11px; line-height: 1.5; color: #92633c; }
+.calculation-error { margin: -8px 0 18px; border: 1px solid var(--color-text-error); background: var(--color-error-input); color: #b03b17; font-size: 12px; }
+.result-parameters { font-variant-numeric: tabular-nums; }
+.curve-legend { display: grid; grid-template-columns: 1fr; gap: 12px 24px; padding: 15px 25px 18px; border-top: 1px solid var(--page-line); font-size: 11px; }
+.curve-legend--multiple { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.curve-legend > div { display: flex; align-items: center; gap: 9px; }
+.curve-legend svg { flex-shrink: 0; }
+.run-calculation:disabled { --bs-btn-disabled-bg: var(--color-primary); --bs-btn-disabled-color: #123849; --bs-btn-disabled-border-color: var(--color-primary); }
+@media (max-width: 1050px) { .calculation-controls { grid-template-columns: 190px minmax(250px, 1fr); gap: 18px; } .run-calculation { grid-column: 1 / -1; justify-self: end; } }
+@media (max-width: 780px) { .curve-legend--multiple { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .calculation-controls { grid-template-columns: 1fr; gap: 17px; } .run-calculation { grid-column: auto; justify-self: stretch; } .curve-legend--multiple { grid-template-columns: 1fr; } }
