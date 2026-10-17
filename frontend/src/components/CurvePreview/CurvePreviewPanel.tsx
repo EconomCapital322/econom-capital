@@ -2,6 +2,8 @@ import { useId, useState } from 'react'
 import type { CurveCalculation, CurvePreview, StressScenarioCode } from '../../utils/curveTypes'
 import { STRESS_SCENARIOS } from '../../utils/calculateStressCurves'
 import { formatRate } from '../../utils/parameters'
+import { canExportCurveCalculation, downloadCurveCsv } from '../../utils/curveCsv'
+import { Button } from '../ui/Button'
 
 const SCENARIO_DETAILS: Partial<Record<StressScenarioCode, string>> = {
   steepener: 'короткие вниз, длинные вверх',
@@ -49,6 +51,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
 
   // Only a result belonging to this date can appear beside the source curve.
   const result = calculation?.reportDate === preview.reportDate ? calculation : null
+  const exportAvailable = canExportCurveCalculation(result)
   const basePoints = result?.baseCurve ?? preview.points
   const curves = [
     { code: 'base', name: 'Базовая кривая', points: basePoints, color: 'var(--chart-base)', dash: undefined as string | undefined },
@@ -88,6 +91,10 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
           <h2>{heading}</h2>
           <p>{dateLabel} · {basePoints.length} расчётных срока{result ? ' · 7 кривых' : ''}</p>
           {result && <p className="result-parameters" aria-live="polite">Параметры расчёта: P = {formatRate(result.parameters.p)}, K = {formatRate(result.parameters.k)}, D = {formatRate(result.parameters.d)} п.п.</p>}
+        </div>
+        <div className="result-export">
+          <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveCsv(result) }} aria-describedby={`${panelId}-export-note`}>Скачать CSV</Button>
+          <small id={`${panelId}-export-note`}>CSV — формат прототипа.<br />Окончательный формат ещё согласуется.</small>
         </div>
       </div>
       <div className="results-panel__tabs">
