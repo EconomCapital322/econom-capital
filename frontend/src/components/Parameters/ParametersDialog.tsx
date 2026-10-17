@@ -48,7 +48,7 @@ export function ParametersDialog({ initialValue, onApply, onClose }: ParametersD
     const next = { p: Number(draft.p), k: Number(draft.k), d: Number(draft.d) }
     const nextErrors: typeof errors = {}
     for (const { key } of PARAMETER_FIELDS) {
-      if (draft[key].trim() === '' || !isPositiveParameter(next[key])) nextErrors[key] = 'Введите число больше нуля'
+      if (draft[key].trim() === '' || !isPositiveParameter(next[key])) nextErrors[key] = 'Введите конечное число строго больше нуля'
     }
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) {

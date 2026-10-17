@@ -161,3 +161,13 @@
 .curve-chart__tooltip strong { display: block; margin-bottom: 7px; font-weight: 500; }
 .curve-chart__tooltip > div { display: flex; justify-content: space-between; gap: 12px; }
 .curve-chart__tooltip b { font-weight: 500; white-space: nowrap; }
+
+.calculation-status { margin: -7px 4px 17px; color: var(--page-muted); font-size: 12px; line-height: 1.6; }
+.calculation-status--error { padding: 12px 16px; border-radius: 12px; background: var(--color-error-input); color: #b03b17; }
+.run-calculation { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
+.demo-tools { margin: 20px 4px 0; font-size: 11px; color: var(--page-muted); line-height: 1.6; }
+.demo-tools summary { cursor: pointer; width: fit-content; }
+.demo-tools summary:focus-visible { outline: 3px solid var(--page-focus); outline-offset: 3px; }
+.demo-tools label { display: block; margin-top: 12px; margin-bottom: 5px; }
+.demo-tools .form-select { max-width: 320px; font-size: 12px; color: var(--color-text-primary); }
+.demo-tools p { max-width: 680px; margin-top: 9px; }
