@@ -5,6 +5,15 @@
 }
 
 :root {
+  /* Bootstrap uses body variables; keep them aligned with the Figma foundation. */
+  --bs-font-sans-serif: var(--font-family), sans-serif;
+  --bs-body-font-family: var(--font-family), sans-serif;
+  --bs-body-font-size: var(--font-size-body-s);
+  --bs-body-font-weight: var(--font-weight-regular);
+  --bs-body-line-height: var(--font-line-height-auto);
+  --bs-body-color: var(--color-text-primary);
+  --bs-body-bg: var(--color-background);
+
   color-scheme: light;
   font-family: var(--font-family), sans-serif;
   font-size: var(--font-size-body-s);
