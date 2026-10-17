@@ -3,6 +3,11 @@ import type { CurveCalculation, CurvePreview, StressScenarioCode } from '../../u
 import { STRESS_SCENARIOS } from '../../utils/calculateStressCurves'
 import { formatRate } from '../../utils/parameters'
 
+const SCENARIO_DETAILS: Partial<Record<StressScenarioCode, string>> = {
+  steepener: 'короткие вниз, длинные вверх',
+  flattener: 'короткие вверх, длинные вниз',
+}
+
 const SCENARIO_STYLES: Record<StressScenarioCode, { color: string; dash?: string }> = {
   'parallel-up': { color: 'var(--chart-parallel-up)' },
   'parallel-down': { color: 'var(--chart-parallel-down)', dash: '7 4' },
@@ -19,7 +24,17 @@ interface CurvePreviewPanelProps {
 
 export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelProps) {
   const [view, setView] = useState<'graph' | 'table'>('graph')
+  const [hiddenScenarios, setHiddenScenarios] = useState<StressScenarioCode[]>([])
+  const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
+  const [focusedPoint, setFocusedPoint] = useState<number | null>(null)
   const panelId = useId()
+  const tooltipId = `${panelId}-tooltip`
+
+  function toggleScenario(code: StressScenarioCode) {
+    setHiddenScenarios(current => current.includes(code)
+      ? current.filter(value => value !== code)
+      : [...current, code])
+  }
 
   if (!preview) return (
     <section className="results-panel" aria-live="polite">
@@ -44,6 +59,9 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
       ...SCENARIO_STYLES[curve.code],
     })) ?? []),
   ]
+  const visibleCurves = curves.filter(curve => curve.code === 'base' || !hiddenScenarios.includes(curve.code as StressScenarioCode))
+  const activePoint = hoveredPoint ?? focusedPoint
+  const selectedPoint = activePoint !== null ? basePoints[activePoint] : null
   const dateLabel = new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(' г.', '')
   const heading = result ? 'Базовая и стрессовые кривые' : 'Базовая кривая'
   const W = 1000, H = 365, left = 45, right = 18, top = 15, bottom = 42
@@ -82,39 +100,72 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
         </div>
         <span>RUB · исходные ставки MOEX</span>
       </div>
+      <div className={`curve-legend ${result ? 'curve-legend--multiple' : ''}`} aria-label="Выбор сценариев">
+        {curves.map(curve => (
+          <label key={curve.code} className={`scenario-option ${curve.code === 'base' ? 'scenario-option--base' : ''}`}>
+            {curve.code !== 'base' && <input className="form-check-input" type="checkbox" checked={!hiddenScenarios.includes(curve.code as StressScenarioCode)} onChange={() => toggleScenario(curve.code as StressScenarioCode)} />}
+            <svg width="23" height="10" viewBox="0 0 23 10" aria-hidden="true"><path d="M0 5H23" stroke={curve.color} strokeWidth="2.5" strokeDasharray={curve.dash} /></svg>
+            <span>{curve.name}{curve.code === 'base' ? <small>Всегда видна</small> : SCENARIO_DETAILS[curve.code as StressScenarioCode] && <small>{SCENARIO_DETAILS[curve.code as StressScenarioCode]}</small>}</span>
+          </label>
+        ))}
+      </div>
       <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${view}`} tabIndex={0}>
         {view === 'graph' ? (
           <div className="curve-chart">
             <p>Доходность, % годовых</p>
-            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${heading} на ${dateLabel}`}>
+            <div className="curve-chart__plot">
+            <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${heading} на ${dateLabel}. Выберите срок клавишей Tab, затем используйте стрелки.`}>
               <title>{result ? 'Базовая кривая и шесть сценариев IRRBB' : 'Ставки на теноры бакетов, включая интерполяцию и экстраполяцию из Excel'}</title>
               {ticks.map((tick, i) => <g key={i}><path d={`M${left} ${y(tick)}H${W - right}`} stroke="var(--chart-grid)" /><text x={left - 12} y={y(tick) + 4} textAnchor="end">{formatTick(tick)}</text></g>)}
               {basePoints.map((point, i) => <text key={point.label} x={x(i)} y={H - 15} textAnchor="middle">{point.label}</text>)}
-              {curves.map(curve => (
+              {visibleCurves.map(curve => (
                 <polyline key={curve.code} data-scenario={curve.code} points={curve.points.map((point, i) => `${x(i)},${y(point.rate)}`).join(' ')} fill="none" stroke={curve.color} strokeWidth={curve.code === 'base' ? '2.8' : '2.1'} strokeDasharray={curve.dash} strokeLinejoin="round" />
               ))}
+              {selectedPoint && activePoint !== null && <g aria-hidden="true" pointerEvents="none">
+                <path d={`M${x(activePoint)} ${top}V${H - bottom}`} stroke="var(--page-muted)" strokeDasharray="3 4" />
+                {visibleCurves.map(curve => <circle key={curve.code} cx={x(activePoint)} cy={y(curve.points[activePoint].rate)} r="3.5" fill={curve.color} stroke="white" />)}
+              </g>}
+              {basePoints.map((point, i) => (
+                <rect key={point.label} className="curve-chart__hit" x={x(i) - (W - left - right) / Math.max(1, basePoints.length - 1) / 2} y={top} width={(W - left - right) / Math.max(1, basePoints.length - 1)} height={H - top - bottom} fill="transparent" role="button" tabIndex={0}
+                  aria-label={`${point.label}, тенор ${point.tenorYears} года. ${visibleCurves.map(curve => `${curve.name}: ${formatRate(curve.points[i].rate)}%`).join('; ')}`}
+                  aria-describedby={activePoint === i ? tooltipId : undefined}
+                  onMouseEnter={() => { setFocusedPoint(null); setHoveredPoint(i) }} onMouseLeave={() => setHoveredPoint(null)}
+                  onFocus={() => { setHoveredPoint(null); setFocusedPoint(i) }} onBlur={() => setFocusedPoint(null)}
+                  onKeyDown={event => {
+                    if (event.key === 'Escape') { setHoveredPoint(null); setFocusedPoint(null) }
+                    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                      event.preventDefault()
+                      const next = event.key === 'Home' ? 0 : event.key === 'End' ? basePoints.length - 1 : Math.max(0, Math.min(basePoints.length - 1, i + (event.key === 'ArrowRight' ? 1 : -1)))
+                      const target = event.currentTarget.parentElement?.querySelectorAll<SVGRectElement>('.curve-chart__hit')[next]
+                      target?.focus()
+                    }
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setFocusedPoint(i) }
+                  }} />
+              ))}
             </svg>
+            {selectedPoint && activePoint !== null && <div className={`curve-chart__tooltip ${activePoint > basePoints.length / 2 ? 'curve-chart__tooltip--left' : ''}`} id={tooltipId} role="tooltip" style={{ left: `${x(activePoint) / W * 100}%` }}>
+              <strong>{selectedPoint.label} · тенор {new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(selectedPoint.tenorYears)} года</strong>
+              {visibleCurves.map(curve => <div key={curve.code}><span>{curve.name}</span><b>{formatRate(curve.points[activePoint].rate)}%</b></div>)}
+            </div>}
+            </div>
             <p className="curve-chart__x">Срок бакета</p>
           </div>
         ) : (
           <div className="table-responsive curve-table">
             <table className="table mb-0">
-              <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор, лет</th>{curves.map(curve => <th key={curve.code} scope="col">{curve.name}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
+              <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор, лет</th>{visibleCurves.map(curve => <th key={curve.code} scope="col">{curve.name}{SCENARIO_DETAILS[curve.code as StressScenarioCode] && <small>{SCENARIO_DETAILS[curve.code as StressScenarioCode]}</small>}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
               <tbody>{basePoints.map((point, i) => (
                 <tr key={point.label}>
                   <th scope="row">{point.label}</th>
                   <td>{new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(point.tenorYears)}</td>
-                  {curves.map(curve => <td key={curve.code}>{formatRate(curve.points[i].rate)}</td>)}
+                  {visibleCurves.map(curve => <td key={curve.code}>{formatRate(curve.points[i].rate)}</td>)}
                 </tr>
               ))}</tbody>
             </table>
           </div>
         )}
       </div>
-      <div className={`curve-legend ${result ? 'curve-legend--multiple' : ''}`} aria-label="Кривые на графике">
-        {curves.map(curve => <div key={curve.code}><svg width="23" height="10" viewBox="0 0 23 10" aria-hidden="true"><path d="M0 5H23" stroke={curve.color} strokeWidth="2.5" strokeDasharray={curve.dash} /></svg>{curve.name}</div>)}
-      </div>
-      <div className="results-panel__footer">{result ? 'Рассчитан полный комплект из 7 кривых · ' : ''}Сроки бакетов · теноры указаны в таблице{result ? ' · Ставки в % годовых' : ''}</div>
+      <div className="results-panel__footer">{result ? `Показано ${visibleCurves.length} из 7 кривых · Масштаб рассчитан по всем сценариям · ` : ''}Сроки бакетов · теноры указаны в таблице{result ? ' · Ставки в % годовых' : ''}</div>
     </section>
   )
 }
