@@ -44,7 +44,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
       <div className="empty-state">
         <div className="empty-state__symbol" aria-hidden="true">⌁</div>
         <h2>Нет исходных данных</h2>
-        <p>За выбранную дату ставки не загружены.<br />В прототипе доступен срез 31.07.2026.</p>
+        <p>За выбранную дату ставки не загружены.<br />Выберите другую дату или повторите позже.</p>
       </div>
     </section>
   )

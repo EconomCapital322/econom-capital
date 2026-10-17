@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { runDemoCalculation } from '../api/demoCalculation'
-import type { CurveCalculation, CurvePreview, ScenarioParameters } from '../utils/curveTypes'
+import { useCurvesApi } from './useCurvesApi'
+import type { CurveCalculation, ScenarioParameters } from '../utils/curveTypes'
 
 type CalculationState =
   | { status: 'idle' }
@@ -9,6 +9,7 @@ type CalculationState =
   | { status: 'error'; message: string }
 
 export function useCurveCalculation() {
+  const { adapter } = useCurvesApi()
   const [state, setState] = useState<CalculationState>({ status: 'idle' })
   const controller = useRef<AbortController | null>(null)
 
@@ -20,14 +21,14 @@ export function useCurveCalculation() {
     setState({ status: 'idle' })
   }
 
-  async function run(source: CurvePreview, parameters: ScenarioParameters, fail: boolean) {
+  async function run(reportDate: string, parameters: ScenarioParameters) {
     // Ref also prevents a second launch before React commits the disabled button.
     if (controller.current) return
     const current = new AbortController()
     controller.current = current
     setState({ status: 'running' })
     try {
-      const result = await runDemoCalculation(source, parameters, { signal: current.signal, fail })
+      const result = await adapter.calculateCurves({ reportDate, parameters: { ...parameters } }, { signal: current.signal })
       if (controller.current === current && !current.signal.aborted) setState({ status: 'ready', result })
     } catch (error) {
       if (controller.current === current && !current.signal.aborted) {

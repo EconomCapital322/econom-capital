@@ -1,8 +1,10 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Header } from './components/Header/Header'
 import { ParametersControl } from './components/Parameters/ParametersControl'
 import { CurvePreviewPanel } from './components/CurvePreview/CurvePreviewPanel'
-import { getCurvePreview } from './api/curvePreview'
+import { useCurvePreview } from './hooks/useCurvePreview'
+import { useDemonstration } from './hooks/useDemonstration'
+import type { DemoMode } from './api/types'
 import { STANDARD_PARAMETERS } from './utils/parameters'
 import { Button } from './components/ui/Button'
 import { useCurveCalculation } from './hooks/useCurveCalculation'
@@ -12,10 +14,11 @@ import './App.css'
 function App() {
   const [reportDate, setReportDate] = useState('2026-07-31')
   const [parameters, setParameters] = useState<ScenarioParameters>({ ...STANDARD_PARAMETERS })
-  const [demoMode, setDemoMode] = useState('normal')
-  const demoErrorPending = useRef(false)
+  const demonstration = useDemonstration()
+  const demoMode = demonstration.mode
+  const sourceQuery = useCurvePreview(reportDate, demonstration.available ? demoMode : 'api')
   const { state, run, reset } = useCurveCalculation()
-  const preview = demoMode === 'no-data' ? null : getCurvePreview(reportDate)
+  const preview = sourceQuery.data ?? null
   const isRunning = state.status === 'running'
   const displayedCalculation = state.status === 'ready' && state.result.reportDate === reportDate ? state.result : null
   const parametersChanged = displayedCalculation !== null &&
@@ -31,22 +34,19 @@ function App() {
 
   function runCalculation() {
     if (!preview || isRunning) return
-    const fail = demoErrorPending.current
-    demoErrorPending.current = false
-    void run(preview, parameters, fail)
+    void run(reportDate, parameters)
   }
 
-  function changeDemoMode(value: string) {
+  function changeDemoMode(value: DemoMode) {
     reset()
-    setDemoMode(value)
-    demoErrorPending.current = value === 'error-once'
+    demonstration.changeMode(value)
   }
 
   return (
     <div className="curve-app">
       <Header />
       <main className="curve-page">
-        <div className="curve-page__heading"><div><h1>Кривые доходности</h1><p>Базовая кривая и шесть сценариев изменения ставок</p></div><span className="prototype-tag">Интерактивный прототип</span></div>
+        <div className="curve-page__heading"><div><h1>Кривые доходности</h1><p>Базовая кривая и шесть сценариев изменения ставок</p></div>{demonstration.available && <span className="prototype-tag">Интерактивный прототип</span>}</div>
         <section className="calculation-controls" aria-label="Настройка расчёта">
           <div className="report-date"><label className="form-label" htmlFor="report-date">Отчётная дата</label><input className="form-control" id="report-date" type="date" value={reportDate} onChange={event => changeDate(event.currentTarget.value)} onInput={event => changeDate(event.currentTarget.value)} /></div>
           <ParametersControl value={parameters} onChange={setParameters} disabled={!preview || isRunning} />
@@ -59,21 +59,23 @@ function App() {
           {state.status === 'ready' && 'Расчёт готов: базовая и шесть стрессовых кривых.'}
           {state.status === 'error' && state.message}
         </div>}
-        <div aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} /></div>
-        <details className="demo-tools">
+        {sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
+          : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={() => { void sourceQuery.refetch() }}>Повторить получение данных</Button></div>
+          : <div aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} /></div>}
+        {demonstration.available && <details className="demo-tools">
           <summary>Демонстрация состояний · без подключения к серверу</summary>
           <label htmlFor="demo-mode">Сценарий прототипа</label>
-          <select id="demo-mode" className="form-select form-select-sm" value={demoMode} onChange={event => changeDemoMode(event.target.value)}>
+          <select id="demo-mode" className="form-select form-select-sm" value={demoMode} onChange={event => changeDemoMode(event.target.value as DemoMode)}>
             <option value="normal">Обычный расчёт</option>
             <option value="error-once">Ошибка при ближайшем запуске</option>
             <option value="no-data">Нет исходных данных</option>
           </select>
           <p>Расчёт выполняется локально с демонстрационной задержкой. Ошибка возникает один раз: повторная попытка доступна сразу. Данные Excel есть только за 31.07.2026.</p>
           {demoMode === 'no-data' && <p role="status">Отсутствие данных показано для демонстрации.</p>}
-        </details>
-        <div className="data-availability" role="status">{preview ? <><span>Ставки за дату доступны</span><span>MOEX · 31.07.2026, {preview.sourceTime}</span></> : <span>Нет ставок за выбранную дату</span>}</div>
+        </details>}
+        <div className="data-availability" role="status">{preview ? <><span>Ставки за дату доступны</span><span>{preview.source} · {new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU')}, {preview.sourceTime}</span></> : <span>{sourceQuery.isFetching ? 'Получаем исходные ставки' : sourceQuery.isError ? 'Исходные ставки недоступны' : 'Нет ставок за выбранную дату'}</span>}</div>
       </main>
-      <footer className="app-footer"><span>Демонстрационные значения из Excel. Подключение к MOEX и БД не выполняется.</span><span>Методика IRRBB · Банк России, 8-МР</span></footer>
+      <footer className="app-footer"><span>{demonstration.available ? 'Демонстрационные значения из Excel. Подключение к MOEX и БД не выполняется.' : 'Данные предоставлены сервером модуля кривых.'}</span><span>Методика IRRBB · Банк России, 8-МР</span></footer>
     </div>
   )
 }

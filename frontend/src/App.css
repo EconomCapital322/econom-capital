@@ -177,3 +177,5 @@
 .result-export small { display: block; margin-top: 7px; font-size: 10px; color: var(--page-muted); line-height: 1.5; }
 .result-export .app-button:disabled { --bs-btn-disabled-color: var(--page-muted); --bs-btn-disabled-bg: var(--color-white); --bs-btn-disabled-border-color: var(--page-border); }
 @media (max-width: 600px) { .results-panel__header { flex-direction: column; gap: 14px; } .result-export { text-align: left; } }
+
+.source-state { padding: 28px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--page-border); border-radius: var(--page-panel-radius); background: var(--color-white); font-size: 12px; color: var(--page-muted); }
