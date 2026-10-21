@@ -235,6 +235,11 @@ build/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
 
 # Logs
 *.log
+
+# Local project documentation
+/docs/
