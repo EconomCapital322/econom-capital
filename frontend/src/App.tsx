@@ -59,7 +59,7 @@ function App() {
     <div className="curve-app">
       <Header />
       <main className="curve-page">
-        <div className="curve-page__heading"><div><h1>Кривые доходности</h1><p>Базовая кривая и шесть сценариев изменения ставок</p></div>{demonstration.available && <span className="prototype-tag">Интерактивный прототип</span>}</div>
+        <div className="curve-page__heading"><div><h1>Кривые доходности</h1><p>Базовая кривая и шесть сценариев изменения ставок</p></div></div>
         <section className="calculation-controls" aria-label="Настройка расчёта">
           <div className="report-date"><label className="form-label" htmlFor="report-date">Отчётная дата</label><input className="form-control" id="report-date" type="date" value={reportDate} onChange={event => changeDate(event.currentTarget.value)} onInput={event => changeDate(event.currentTarget.value)} /></div>
           <ParametersControl value={parameters} onChange={setParameters} disabled={!preview || isRunning} />
@@ -74,7 +74,7 @@ function App() {
         </div>}
         {!validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
           : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={checkSource} disabled={sourceQuery.isFetching}>Повторить получение данных</Button></div>
-          : <div aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} /></div>}
+          : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} /></div>}
         {demonstration.available && <details className="demo-tools">
           <summary>Демонстрация состояний · без подключения к серверу</summary>
           <label htmlFor="demo-mode">Сценарий прототипа</label>

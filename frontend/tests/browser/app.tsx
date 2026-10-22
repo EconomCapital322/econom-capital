@@ -104,12 +104,13 @@ async function runTests() {
   check(exportAvailable(), 'Готов результат по последней версии кривой')
   await click('Редактировать параметры')
   await input('[name="p"]', '.001')
-  await click('Применить')
+  await click('ПРИМЕНИТЬ')
   check(calculations.length === 3 && hasText('P = 0,001') && hasText('Параметры изменены'), 'Малый параметр виден точно; сохранение не запускает расчёт')
   await click('Пересчитать кривые')
   check(calculations[3].request.parameters.p === .001, 'Ручной расчёт получает точное дробное значение')
   await complete()
   check(hasText('Параметры расчёта: P = 0,001'), 'Подпись результата сохраняет дробный параметр')
+  await act(async () => { fixture.querySelector<HTMLElement>('.result-tools summary')!.click() })
   await act(async () => { fixture.querySelector<HTMLInputElement>('.scenario-option input')!.click() })
   const createUrl = URL.createObjectURL
   const anchorClick = HTMLAnchorElement.prototype.click
@@ -128,7 +129,7 @@ async function runTests() {
   check(fixture.querySelectorAll('tbody tr').length === 2, 'Таблица показывает сроки текущего результата')
   await click('Редактировать параметры')
   await input('[name="p"]', '9')
-  await click('Отмена')
+  await click('ОТМЕНА')
   check(hasText('P = 0,001') && document.activeElement?.getAttribute('aria-label') === 'Редактировать параметры', 'Отмена не меняет параметры и возвращает фокус')
   await click('Редактировать параметры')
   await input('[name="p"]', '8')
