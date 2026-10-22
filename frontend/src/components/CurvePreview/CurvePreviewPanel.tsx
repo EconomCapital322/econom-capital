@@ -1,7 +1,7 @@
+import exportIcon from '../../assets/images/export.svg'
 import { useId, useState } from 'react'
 import type { CurveCalculation, CurvePreview, StressScenarioCode } from '../../utils/curveTypes'
-import { STRESS_SCENARIOS } from '../../utils/calculateStressCurves'
-import { formatRate } from '../../utils/parameters'
+import { formatRate, formatParameter } from '../../utils/parameters'
 import { canExportCurveCalculation, downloadCurveCsv } from '../../utils/curveCsv'
 import { Button } from '../ui/Button'
 
@@ -9,6 +9,14 @@ const SCENARIO_DETAILS: Partial<Record<StressScenarioCode, string>> = {
   steepener: 'короткие вниз, длинные вверх',
   flattener: 'короткие вверх, длинные вниз',
 }
+
+const SCENARIO_NAMES: Record<StressScenarioCode, string> = {
+  'parallel-up': 'Параллельный сдвиг вверх',
+  'parallel-down': 'Параллельный сдвиг вниз',
+  steepener: 'Увеличение наклона', flattener: 'Уменьшение наклона',
+  'short-up': 'Краткосрочные вверх', 'short-down': 'Краткосрочные вниз',
+}
+const DISPLAY_ORDER: StressScenarioCode[] = ['parallel-down', 'parallel-up', 'steepener', 'flattener', 'short-up', 'short-down']
 
 const SCENARIO_STYLES: Record<StressScenarioCode, { color: string; dash?: string }> = {
   'parallel-up': { color: 'var(--chart-parallel-up)' },
@@ -25,7 +33,7 @@ interface CurvePreviewPanelProps {
 }
 
 export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelProps) {
-  const [view, setView] = useState<'graph' | 'table'>('graph')
+  const [view, setView] = useState<'graph' | 'table'>('table')
   const [hiddenScenarios, setHiddenScenarios] = useState<StressScenarioCode[]>([])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [focusedPoint, setFocusedPoint] = useState<number | null>(null)
@@ -40,7 +48,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
 
   if (!preview) return (
     <section className="results-panel" aria-live="polite">
-      <div className="results-panel__header"><h2>Результаты расчёта</h2></div>
+      <div className="results-panel__header"><h2>Результаты</h2></div>
       <div className="empty-state">
         <div className="empty-state__symbol" aria-hidden="true">⌁</div>
         <h2>Нет исходных данных</h2>
@@ -55,17 +63,17 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
   const basePoints = result?.baseCurve ?? preview.points
   const curves = [
     { code: 'base', name: 'Базовая кривая', points: basePoints, color: 'var(--chart-base)', dash: undefined as string | undefined },
-    ...(result?.stressCurves.map(curve => ({
+    ...([...(result?.stressCurves ?? [])].sort((a, b) => DISPLAY_ORDER.indexOf(a.code) - DISPLAY_ORDER.indexOf(b.code)).map(curve => ({
       code: curve.code,
-      name: STRESS_SCENARIOS.find(scenario => scenario.code === curve.code)!.name,
+      name: SCENARIO_NAMES[curve.code],
       points: curve.points,
       ...SCENARIO_STYLES[curve.code],
-    })) ?? []),
+    }))),
   ]
   const visibleCurves = curves.filter(curve => curve.code === 'base' || !hiddenScenarios.includes(curve.code as StressScenarioCode))
   const activePoint = hoveredPoint ?? focusedPoint
   const selectedPoint = activePoint !== null ? basePoints[activePoint] : null
-  const dateLabel = new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(' г.', '')
+  const dateLabel = new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', }).replace(' г.', '')
   const heading = result ? 'Базовая и стрессовые кривые' : 'Базовая кривая'
   const W = 1000, H = 365, left = 45, right = 18, top = 15, bottom = 42
   const rates = curves.flatMap(curve => curve.points.map(point => point.rate))
@@ -88,17 +96,11 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
     <section className="results-panel" aria-label={heading}>
       <div className="results-panel__header">
         <div>
-          <h2>{heading}</h2>
+          <h2>Результаты</h2>
           <p>{dateLabel} · {basePoints.length} расчётных срока{result ? ' · 7 кривых' : ''}</p>
-          {result && <p className="result-parameters" aria-live="polite">Параметры расчёта: P = {formatRate(result.parameters.p)}, K = {formatRate(result.parameters.k)}, D = {formatRate(result.parameters.d)} п.п.</p>}
+
         </div>
-        <div className="result-export">
-          <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveCsv(result) }} aria-describedby={`${panelId}-export-note`}>Скачать CSV</Button>
-          <small id={`${panelId}-export-note`}>CSV — формат прототипа.<br />Окончательный формат ещё согласуется.</small>
-        </div>
-      </div>
-      <div className="results-panel__tabs">
-        <div className="nav nav-tabs" role="tablist" aria-label="Вид результатов">
+        <div className="nav nav-tabs results-view-tabs" role="tablist" aria-label="Вид результатов">
           {(['graph', 'table'] as const).map(type => (
             <button key={type} id={`${panelId}-${type}`} className={`nav-link ${view === type ? 'active' : ''}`} type="button" role="tab" tabIndex={view === type ? 0 : -1} aria-selected={view === type} aria-controls={panelId} onClick={() => setView(type)} onKeyDown={event => {
               if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -111,16 +113,11 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
             </button>
           ))}
         </div>
-        <span>RUB · исходные ставки MOEX</span>
-      </div>
-      <div className={`curve-legend ${result ? 'curve-legend--multiple' : ''}`} aria-label="Выбор сценариев">
-        {curves.map(curve => (
-          <label key={curve.code} className={`scenario-option ${curve.code === 'base' ? 'scenario-option--base' : ''}`}>
-            {curve.code !== 'base' && <input className="form-check-input" type="checkbox" checked={!hiddenScenarios.includes(curve.code as StressScenarioCode)} onChange={() => toggleScenario(curve.code as StressScenarioCode)} />}
-            <svg width="23" height="10" viewBox="0 0 23 10" aria-hidden="true"><path d="M0 5H23" stroke={curve.color} strokeWidth="2.5" strokeDasharray={curve.dash} /></svg>
-            <span>{curve.name}{curve.code === 'base' ? <small>Всегда видна</small> : SCENARIO_DETAILS[curve.code as StressScenarioCode] && <small>{SCENARIO_DETAILS[curve.code as StressScenarioCode]}</small>}</span>
-          </label>
-        ))}
+        <div className="result-export">
+          <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveCsv(result) }} aria-describedby={`${panelId}-export-note`}>
+            <img src={exportIcon} alt="" width="18" height="20" />Скачать CSV
+          </Button>
+        </div>
       </div>
       <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${view}`} tabIndex={0}>
         {view === 'graph' ? (
@@ -166,7 +163,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
         ) : (
           <div className="table-responsive curve-table" tabIndex={0} role="region" aria-label="Таблица ставок с горизонтальной прокруткой">
             <table className="table mb-0">
-              <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор, лет</th>{visibleCurves.map(curve => <th key={curve.code} scope="col">{curve.name}{SCENARIO_DETAILS[curve.code as StressScenarioCode] && <small>{SCENARIO_DETAILS[curve.code as StressScenarioCode]}</small>}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
+              <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор (лет)</th>{visibleCurves.map(curve => <th key={curve.code} scope="col">{curve.name}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
               <tbody>{basePoints.map((point, i) => (
                 <tr key={point.label}>
                   <th scope="row">{point.label}</th>
@@ -178,6 +175,20 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
           </div>
         )}
       </div>
+      <details className="result-tools" open={view === 'graph' ? true : undefined}>
+        <summary>Сценарии и параметры расчёта</summary>
+        {result && <p className="result-parameters" aria-live="polite">Параметры расчёта: P = {formatParameter(result.parameters.p)}, K = {formatParameter(result.parameters.k)}, D = {formatParameter(result.parameters.d)} п.п.</p>}
+      <div className={`curve-legend ${result ? 'curve-legend--multiple' : ''}`} aria-label="Выбор сценариев">
+        {curves.map(curve => (
+          <label key={curve.code} className={`scenario-option ${curve.code === 'base' ? 'scenario-option--base' : ''}`}>
+            {curve.code !== 'base' && <input className="form-check-input" type="checkbox" checked={!hiddenScenarios.includes(curve.code as StressScenarioCode)} onChange={() => toggleScenario(curve.code as StressScenarioCode)} />}
+            <svg width="23" height="10" viewBox="0 0 23 10" aria-hidden="true"><path d="M0 5H23" stroke={curve.color} strokeWidth="2.5" strokeDasharray={curve.dash} /></svg>
+            <span>{curve.name}{curve.code === 'base' ? <small>Всегда видна</small> : SCENARIO_DETAILS[curve.code as StressScenarioCode] && <small>{SCENARIO_DETAILS[curve.code as StressScenarioCode]}</small>}</span>
+          </label>
+        ))}
+      </div>
+        <p className="export-note" id={`${panelId}-export-note`}>CSV — формат прототипа. Окончательный формат ещё согласуется.</p>
+      </details>
       <div className="results-panel__footer">{result ? `Показано ${visibleCurves.length} из 7 кривых · Масштаб рассчитан по всем сценариям · ` : ''}Сроки бакетов · теноры указаны в таблице{result ? ' · Ставки в % годовых' : ''}</div>
     </section>
   )

@@ -22,3 +22,10 @@ export function formatRate(value: number): string {
     maximumFractionDigits: 2,
   }).format(value)
 }
+
+/** Preserve the selected number, including tiny positive shocks. Rate labels
+ * have their own deliberate two-decimal rounding and remain unchanged.
+ */
+export function formatParameter(value: number): string {
+  return String(value).replace('.', ',')
+}

@@ -47,3 +47,18 @@
 
   --shadow-inset-glow: inset 0px 2px 250px 0px rgb(0 180 251 / 20%);
 }
+
+/* Main screen and parameter dialog exported as SVG on 23.10.2026. */
+:root {
+  --curve-controls-bg: #f5f5f5;
+  --curve-results-bg: rgb(198 198 198 / 17%);
+  --curve-table-head-bg: rgb(0 180 251 / 10%);
+  --curve-dialog-text: #28303f;
+  --curve-dialog-muted: #6e7889;
+  --curve-dialog-input-bg: #eef3f6;
+  --curve-dialog-input-border: #dee2e6;
+  --curve-page-gutter: 26px;
+  --curve-panel-radius: 20px;
+  --curve-label-size: 20px;
+  --curve-parameter-size: 28px;
+}

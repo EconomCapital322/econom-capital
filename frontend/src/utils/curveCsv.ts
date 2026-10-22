@@ -1,18 +1,8 @@
 import type { CurveCalculation } from './curveTypes'
 import { STRESS_SCENARIOS } from './calculateStressCurves'
 
-/** A complete result contains every scenario on the same grid as its base. */
-export function canExportCurveCalculation(result: CurveCalculation | null): result is CurveCalculation {
-  if (!result || !result.baseCurve.length || result.stressCurves.length !== STRESS_SCENARIOS.length) return false
-  if (![result.parameters.p, result.parameters.k, result.parameters.d].every(value => Number.isFinite(value) && value > 0)) return false
-  if (result.baseCurve.some(point => !Number.isFinite(point.rate) || !Number.isFinite(point.tenorYears) || point.tenorYears < 0)) return false
-  return STRESS_SCENARIOS.every(({ code }) => {
-    const matches = result.stressCurves.filter(curve => curve.code === code)
-    return matches.length === 1 && matches[0].points.length === result.baseCurve.length &&
-      matches[0].points.every((point, i) => Number.isFinite(point.rate) &&
-        point.label === result.baseCurve[i].label && point.tenorYears === result.baseCurve[i].tenorYears)
-  })
-}
+export { isCompleteCalculation as canExportCurveCalculation } from './validateCurves'
+import { isCompleteCalculation as canExportCurveCalculation } from './validateCurves'
 
 // Semicolon-separated CSV with decimal commas suits Russian Excel.
 // Quote every value, double embedded quotes and preserve full numeric precision.
