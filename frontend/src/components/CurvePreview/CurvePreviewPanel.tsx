@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import type { CurveCalculation, CurvePreview, StressScenarioCode } from '../../utils/curveTypes'
 import { STRESS_SCENARIOS } from '../../utils/calculateStressCurves'
-import { formatRate } from '../../utils/parameters'
+import { formatRate, formatParameter } from '../../utils/parameters'
 import { canExportCurveCalculation, downloadCurveCsv } from '../../utils/curveCsv'
 import { Button } from '../ui/Button'
 
@@ -90,7 +90,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
         <div>
           <h2>{heading}</h2>
           <p>{dateLabel} · {basePoints.length} расчётных срока{result ? ' · 7 кривых' : ''}</p>
-          {result && <p className="result-parameters" aria-live="polite">Параметры расчёта: P = {formatRate(result.parameters.p)}, K = {formatRate(result.parameters.k)}, D = {formatRate(result.parameters.d)} п.п.</p>}
+          {result && <p className="result-parameters" aria-live="polite">Параметры расчёта: P = {formatParameter(result.parameters.p)}, K = {formatParameter(result.parameters.k)}, D = {formatParameter(result.parameters.d)} п.п.</p>}
         </div>
         <div className="result-export">
           <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveCsv(result) }} aria-describedby={`${panelId}-export-note`}>Скачать CSV</Button>

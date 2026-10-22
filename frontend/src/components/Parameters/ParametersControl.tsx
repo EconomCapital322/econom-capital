@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react'
 import type { ScenarioParameters } from '../../utils/curveTypes'
-import { formatRate } from '../../utils/parameters'
+import { formatParameter } from '../../utils/parameters'
 import { ParametersDialog } from './ParametersDialog'
 
 interface ParametersControlProps {
@@ -34,7 +34,7 @@ export function ParametersControl({ value, onChange, disabled = false }: Paramet
         </span>
       </div>
       <div className="parameters-control__value">
-        <span>P = {formatRate(value.p)} · K = {formatRate(value.k)} · D = {formatRate(value.d)} п.п.</span>
+        <span>P = {formatParameter(value.p)} · K = {formatParameter(value.k)} · D = {formatParameter(value.d)} п.п.</span>
         <button ref={editRef} className="pencil-button" type="button" onClick={() => setIsOpen(true)} disabled={disabled} aria-label="Редактировать параметры" title="Редактировать параметры">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>

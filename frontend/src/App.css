@@ -198,3 +198,6 @@
 
 .curve-chart:focus-visible, .curve-table:focus-visible { outline: 3px solid var(--page-focus); outline-offset: -3px; }
 .curve-chart, .curve-table { overscroll-behavior-x: contain; }
+
+.data-availability .source-refresh { margin-left: auto; font-size: 12px; }
+@media (max-width: 640px) { .data-availability .source-refresh { margin-left: 0; } }
