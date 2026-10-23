@@ -100,7 +100,7 @@ export function ParametersDialog({ initialValue, onApply, onClose }: ParametersD
                 ))}
 
               </div>
-              <div className="modal-footer"><Button variant="outline" onClick={onClose}>ОТМЕНА</Button><Button type="submit">ПРИМЕНИТЬ</Button></div>
+              <div className="modal-footer"><Button variant="outline" onClick={onClose}>Отмена</Button><Button type="submit">Применить</Button></div>
             </form>
           </div>
         </div>
