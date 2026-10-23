@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FormEvent } from 'react'
 import type { ScenarioParameters } from '../../utils/curveTypes'
-import { isPositiveParameter, PARAMETER_FIELDS } from '../../utils/parameters'
+import { isPositiveParameter, PARAMETER_FIELDS, MAX_SCENARIO_PARAMETER, PARAMETER_ERROR, STANDARD_PARAMETERS } from '../../utils/parameters'
 import { Button } from '../ui/Button'
 
 interface ParametersDialogProps {
@@ -20,6 +20,11 @@ function toDraft(value: Readonly<ScenarioParameters>): Draft {
 
 export function ParametersDialog({ initialValue, onApply, onClose }: ParametersDialogProps) {
   const [draft, setDraft] = useState(() => toDraft(initialValue))
+  const [edited, setEdited] = useState<Record<keyof ScenarioParameters, boolean>>(() => ({
+    p: initialValue.p !== STANDARD_PARAMETERS.p,
+    k: initialValue.k !== STANDARD_PARAMETERS.k,
+    d: initialValue.d !== STANDARD_PARAMETERS.d,
+  }))
   const [errors, setErrors] = useState<Partial<Record<keyof ScenarioParameters, string>>>({})
   const dialogRef = useRef<HTMLDivElement>(null)
   const firstInputRef = useRef<HTMLInputElement>(null)
@@ -51,6 +56,7 @@ export function ParametersDialog({ initialValue, onApply, onClose }: ParametersD
     if (!Number.isFinite(next)) return
     // These controls add/subtract one point; manual entry still accepts any
     // positive fraction (step="any"). They do not impose a minimum or round.
+    setEdited(previous => ({ ...previous, [key]: true }))
     setDraft(previous => ({ ...previous, [key]: String(next) }))
     setErrors(previous => ({ ...previous, [key]: undefined }))
   }
@@ -60,7 +66,7 @@ export function ParametersDialog({ initialValue, onApply, onClose }: ParametersD
     const next = { p: Number(draft.p), k: Number(draft.k), d: Number(draft.d) }
     const nextErrors: typeof errors = {}
     for (const { key } of PARAMETER_FIELDS) {
-      if (draft[key].trim() === '' || !isPositiveParameter(next[key])) nextErrors[key] = 'Введите конечное число строго больше нуля'
+      if (draft[key].trim() === '' || !isPositiveParameter(next[key])) nextErrors[key] = PARAMETER_ERROR
     }
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) {
@@ -87,8 +93,8 @@ export function ParametersDialog({ initialValue, onApply, onClose }: ParametersD
                 {PARAMETER_FIELDS.map(({ key, name, symbol }, i) => (
                   <div className="parameter-field" key={key}>
                     <label className="form-label" htmlFor={`${titleId}-${key}`}><span>{name} ({symbol})</span></label>
-                    <div className={`input-group parameter-input ${errors[key] ? 'parameter-input--invalid' : ''}`}>
-                      <input ref={i === 0 ? firstInputRef : undefined} className={`form-control ${errors[key] ? 'is-invalid' : ''}`} id={`${titleId}-${key}`} name={key} type="number" step="any" inputMode="decimal" style={{ width: `${Math.max(draft[key].length, 1)}ch` }} value={draft[key]} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${titleId}-${key}-error` : undefined} onChange={(event) => { setDraft((prev) => ({ ...prev, [key]: event.target.value })); setErrors((prev) => ({ ...prev, [key]: undefined })) }} />
+                    <div className={`input-group parameter-input ${edited[key] ? 'parameter-input--edited' : ''} ${errors[key] ? 'parameter-input--invalid' : ''}`}>
+                      <input ref={i === 0 ? firstInputRef : undefined} className={`form-control ${errors[key] ? 'is-invalid' : ''}`} id={`${titleId}-${key}`} name={key} type="number" step="any" max={MAX_SCENARIO_PARAMETER} inputMode="decimal" style={{ width: `${Math.max(draft[key].length, 1)}ch` }} value={draft[key]} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${titleId}-${key}-error` : undefined} onChange={(event) => { setEdited(prev => ({ ...prev, [key]: true })); setDraft((prev) => ({ ...prev, [key]: event.target.value })); setErrors((prev) => ({ ...prev, [key]: undefined })) }} />
                       <span className="input-group-text">п. п.</span>
                       <span className="parameter-stepper">
                         <button type="button" aria-label={`Увеличить ${symbol}`} onClick={() => adjust(key, 1)}><svg viewBox="0 0 16 9" aria-hidden="true"><path d="m1 8 7-7 7 7" /></svg></button>
@@ -100,7 +106,7 @@ export function ParametersDialog({ initialValue, onApply, onClose }: ParametersD
                 ))}
 
               </div>
-              <div className="modal-footer"><Button variant="outline" onClick={onClose}>ОТМЕНА</Button><Button type="submit">ПРИМЕНИТЬ</Button></div>
+              <div className="modal-footer"><Button variant="outline" onClick={onClose}>Отмена</Button><Button type="submit">Применить</Button></div>
             </form>
           </div>
         </div>

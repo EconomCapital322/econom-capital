@@ -35,7 +35,16 @@ test('all six shocks use percent/percentage-point units and independent referenc
 })
 test('fractional positive parameters are accepted; invalid parameters are rejected', () => {
   assert.equal(isCompleteCalculation(calculateStressCurves(source(), { p: .5, k: 1.25, d: .125 })), true)
-  for (const value of [0, -1, NaN, Infinity]) assert.throws(() => calculateStressCurves(source(), { ...parameters(), p: value }))
+  for (const value of [0, -1, NaN, Infinity, 50.001, 51]) assert.throws(() => calculateStressCurves(source(), { ...parameters(), p: value }))
+})
+test('parameter limit includes 50 and applies to every shock and API response', () => {
+  assert.equal(isCompleteCalculation(calculateStressCurves(source(), { p: 50, k: 50, d: 50 })), true)
+  for (const key of ['p', 'k', 'd']) {
+    assert.throws(() => calculateStressCurves(source(), { ...parameters(), [key]: 50.001 }))
+    const invalid = result()
+    invalid.parameters[key] = 50.001
+    assert.equal(isCompleteCalculation(invalid), false)
+  }
 })
 test('a calculated result owns copies of rates and parameters', () => {
   const input = source(), params = parameters(), calculated = calculateStressCurves(input, params)

@@ -12,8 +12,11 @@ export const PARAMETER_FIELDS = [
   { key: 'd', name: 'Долгосрочный шок', symbol: 'D' },
 ] as const
 
+export const MAX_SCENARIO_PARAMETER = 50
+export const PARAMETER_ERROR = 'Число должно быть положительным и меньше 50'
+
 export function isPositiveParameter(value: number): boolean {
-  return Number.isFinite(value) && value > 0
+  return Number.isFinite(value) && value > 0 && value <= MAX_SCENARIO_PARAMETER
 }
 
 export function formatRate(value: number): string {
