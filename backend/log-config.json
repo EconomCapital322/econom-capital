@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "console": {
+      "()": "core.logging.RedactingFormatter",
+      "format": "%(asctime)sZ %(levelname)s %(name)s pid=%(process)d %(message)s",
+      "datefmt": "%Y-%m-%dT%H:%M:%S"
+    }
+  },
+  "handlers": {
+    "console": {
+      "class": "logging.StreamHandler",
+      "formatter": "console",
+      "stream": "ext://sys.stdout"
+    }
+  },
+  "root": {"handlers": ["console"], "level": "INFO"}
+}
