@@ -30,9 +30,10 @@ const SCENARIO_STYLES: Record<StressScenarioCode, { color: string; dash?: string
 interface CurvePreviewPanelProps {
   preview: CurvePreview | null
   calculation: CurveCalculation | null
+  error?: string
 }
 
-export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelProps) {
+export function CurvePreviewPanel({ preview, calculation, error }: CurvePreviewPanelProps) {
   const [view, setView] = useState<'graph' | 'table'>('table')
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
@@ -47,6 +48,12 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
     setHoveredPoint(null)
     setFocusedPoint(null)
   }
+
+  if (error) return (
+    <section className="results-panel results-panel--error" role="alert" aria-label="Ошибка расчёта">
+      <p>{error}</p>
+    </section>
+  )
 
   if (!preview) return (
     <section className="results-panel" aria-live="polite">
@@ -186,7 +193,6 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
             </table>
           </div>
         )}
-      </div>
       {view === 'graph' && <div className="curve-legend" aria-label="Выбор кривых">
         {legendCurves.map(curve => (
           <button key={curve.code} type="button" className={`scenario-option ${curve.code === 'base' ? 'scenario-option--base' : ''}`} aria-pressed={selectedCurves.includes(curve.code)} onClick={() => toggleScenario(curve.code)} title={SCENARIO_DETAILS[curve.code as StressScenarioCode]}>
@@ -195,6 +201,7 @@ export function CurvePreviewPanel({ preview, calculation }: CurvePreviewPanelPro
           </button>
         ))}
       </div>}
+      </div>
       {result && <p className="result-parameters" aria-label="Параметры расчёта" aria-live="polite"><span className="visually-hidden">Параметры расчёта: </span>P = {formatParameter(result.parameters.p)} п. п. · K = {formatParameter(result.parameters.k)} п. п. · D = {formatParameter(result.parameters.d)} п. п. · RUB</p>}
       <p className="visually-hidden" id={`${panelId}-export-note`}>CSV — формат прототипа. Окончательный формат ещё согласуется.</p>
     </section>

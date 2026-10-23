@@ -1,3 +1,4 @@
+import { isPositiveParameter, PARAMETER_ERROR } from './parameters'
 import type {
   CurveCalculation,
   CurvePreview,
@@ -33,8 +34,8 @@ export function calculateStressCurves(
   source: CurvePreview,
   parameters: Readonly<ScenarioParameters>,
 ): CurveCalculation {
-  if (![parameters.p, parameters.k, parameters.d].every(value => Number.isFinite(value) && value > 0)) {
-    throw new Error('P, K и D должны быть конечными числами больше нуля.')
+  if (![parameters.p, parameters.k, parameters.d].every(isPositiveParameter)) {
+    throw new Error(PARAMETER_ERROR)
   }
   if (!source.points.length) throw new Error('Нет ставок для расчёта.')
   if (source.points.some(point => !Number.isFinite(point.rate) || !Number.isFinite(point.tenorYears) || point.tenorYears < 0)) {

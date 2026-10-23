@@ -1,3 +1,4 @@
+import { isPositiveParameter } from './parameters'
 import type { CurveCalculation, CurvePoint, CurvePreview } from './curveTypes'
 
 const SCENARIO_CODES = ['parallel-up', 'parallel-down', 'steepener', 'flattener', 'short-up', 'short-down'] as const
@@ -37,7 +38,7 @@ export function isCompleteCalculation(value: unknown): value is CurveCalculation
   if (!isRecord(value) || !isReportDate(value.reportDate) || !isPointGrid(value.baseCurve) ||
     !isRecord(value.parameters) || !['p', 'k', 'd'].every(key => {
       const parameter = (value.parameters as Record<string, unknown>)[key]
-      return typeof parameter === 'number' && Number.isFinite(parameter) && parameter > 0
+      return typeof parameter === 'number' && isPositiveParameter(parameter)
     }) || !Array.isArray(value.stressCurves) || value.stressCurves.length !== SCENARIO_CODES.length) return false
   const base = value.baseCurve
   const curves = value.stressCurves

@@ -103,6 +103,11 @@ async function runTests() {
   await complete(2)
   check(exportAvailable(), 'Готов результат по последней версии кривой')
   await click('Редактировать параметры')
+  await input('[name="p"]', '50.001')
+  await click('Применить')
+  check(!!document.querySelector('[name="p"][aria-invalid="true"]') && !!document.querySelector('.parameter-error') && calculations.length === 3, 'Параметр больше 50 не применяется и показывает ошибку у поля')
+  await input('[name="k"]', '50')
+  await input('[name="d"]', '50')
   await input('[name="p"]', '.001')
   await click('Применить')
   check(calculations.length === 3 && hasText('P = 0,001') && hasText('Параметры изменены'), 'Малый параметр виден точно; сохранение не запускает расчёт')
@@ -144,6 +149,7 @@ async function runTests() {
   } finally { URL.createObjectURL = createUrl; HTMLAnchorElement.prototype.click = anchorClick }
   await click('Таблица')
   check(fixture.querySelectorAll('tbody tr').length === 2, 'Таблица показывает сроки текущего результата')
+  check(fixture.querySelector('.results-panel')?.getBoundingClientRect().height === 509, 'Высота результатов фиксирована: 509 px')
   await click('Редактировать параметры')
   await input('[name="p"]', '9')
   await click('Отмена')
@@ -155,7 +161,7 @@ async function runTests() {
   await click('Пересчитать кривые')
   const pending = calculations.at(-1)!
   await complete(calculations.length - 1, calculateStressCurves(source('2026-07-31', 99), pending.request.parameters))
-  check(hasText('Базовая кривая результата не соответствует') && !exportAvailable(), 'Полный результат с чужой базовой кривой отклоняется')
+  check(hasText('Базовая кривая результата не соответствует') && !!fixture.querySelector('.results-panel--error[role="alert"]') && !exportAvailable(), 'Полный результат с чужой базовой кривой отклоняется')
   await click('Повторить расчёт')
   await complete()
   check(exportAvailable(), 'После несовпадения базы доступен успешный повтор')

@@ -66,15 +66,14 @@ function App() {
           <Button className="run-calculation" onClick={runCalculation} disabled={!preview || isRunning}>{isRunning ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Выполняется…</> : state.status === 'error' ? 'Повторить расчёт' : 'Пересчитать кривые'}</Button>
         </section>
         {parametersChanged && <p className="calculation-hint" role="status">Параметры изменены. Нажмите «Пересчитать кривые», чтобы применить их к новому расчёту.</p>}
-        {preview && <div className={`calculation-status calculation-status--${state.status}`} role={state.status === 'error' ? 'alert' : 'status'}>
+        {preview && state.status !== 'error' && <div className={`calculation-status calculation-status--${state.status}`} role="status">
           {state.status === 'idle' && 'Исходные данные доступны. Расчёт начнётся автоматически.'}
           {state.status === 'running' && 'Подготавливаем базовую и шесть стрессовых кривых. Результаты появятся после завершения.'}
           {state.status === 'ready' && 'Расчёт готов: базовая и шесть стрессовых кривых.'}
-          {state.status === 'error' && state.message}
         </div>}
         {!validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
           : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={checkSource} disabled={sourceQuery.isFetching}>Повторить получение данных</Button></div>
-          : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} /></div>}
+          : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} error={state.status === 'error' ? state.message : undefined} /></div>}
         {demonstration.available && <details className="demo-tools">
           <summary>Демонстрация состояний · без подключения к серверу</summary>
           <label htmlFor="demo-mode">Сценарий прототипа</label>

@@ -210,3 +210,15 @@
   .parameters-modal .app-button { font-size: 16px; }
   .parameter-field .form-label { font-size: 16px; }
 }
+
+/* Results occupy the same fixed frame in every state. Content scrolls inside it. */
+.results-panel { height: var(--curve-results-height); display: flex; flex-direction: column; }
+.results-panel__header { flex-shrink: 0; }
+.results-panel > [role="tabpanel"] { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.curve-table { height: 100%; }
+.curve-table thead { position: sticky; top: 0; z-index: 1; }
+.curve-table thead th { background: var(--curve-table-head-bg); }
+.curve-table thead { background: var(--color-white); }
+.result-parameters { flex-shrink: 0; }
+.results-panel--error { align-items: center; justify-content: center; text-align: center; padding: 24px; }
+.results-panel--error p { margin: 0; max-width: 640px; overflow-wrap: anywhere; font-size: 16px; line-height: 1.6; color: var(--color-text-secondary-strong); }
