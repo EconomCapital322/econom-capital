@@ -103,9 +103,15 @@ async function runTests() {
   await complete(2)
   check(exportAvailable(), 'Готов результат по последней версии кривой')
   await click('Редактировать параметры')
+  const dialogGeometry = () => [...document.querySelectorAll('.modal-content, .parameter-input, .modal-footer')].map(element => {
+    const { x, y, width, height } = element.getBoundingClientRect()
+    return { x, y, width, height }
+  })
+  const geometryBeforeError = JSON.stringify(dialogGeometry())
   await input('[name="p"]', '50.001')
   await click('Применить')
   check(!!document.querySelector('[name="p"][aria-invalid="true"]') && !!document.querySelector('.parameter-error') && calculations.length === 3, 'Параметр больше 50 не применяется и показывает ошибку у поля')
+  check(JSON.stringify(dialogGeometry()) === geometryBeforeError, 'Ошибка параметра не сдвигает окно, поля и кнопки')
   await input('[name="k"]', '50')
   await input('[name="d"]', '50')
   await input('[name="p"]', '.001')
@@ -115,11 +121,25 @@ async function runTests() {
   check(calculations[3].request.parameters.p === .001, 'Ручной расчёт получает точное дробное значение')
   await complete()
   check(hasText('P = 0,001 п. п.'), 'Подпись результата сохраняет дробный параметр')
+  const exportPosition = () => {
+    const box = button('Скачать CSV').getBoundingClientRect()
+    return JSON.stringify({ x: box.x, y: box.y, width: box.width, height: box.height })
+  }
+  const tableExportPosition = exportPosition()
   await click('График')
+  check(exportPosition() === tableExportPosition, 'Кнопка CSV остаётся на месте при переключении вида')
   const selected = () => fixture.querySelectorAll('.scenario-option[aria-pressed="true"]').length
   const lines = () => fixture.querySelectorAll('polyline[data-scenario]').length
   const ticks = () => [...fixture.querySelectorAll('.curve-chart svg > g text')].map(node => node.textContent).join(',')
   const originalTicks = ticks()
+  check(button('Свернуть выбор кривых').getAttribute('aria-expanded') === 'true', 'Выбор кривых изначально развёрнут')
+  await click('Свернуть выбор кривых')
+  check(!!fixture.querySelector('.curve-legend[hidden]') && lines() === 1, 'Шеврон скрывает выбор без отключения линий')
+  await click('Таблица')
+  check(!fixture.querySelector('.curve-legend') && !fixture.querySelector('.curve-legend-toggle') && fixture.querySelector('.results-panel')!.getBoundingClientRect().height === 509, 'В таблице нет выбора кривых и шеврона, высота блока сохраняется')
+  await click('График')
+  check(button('Развернуть выбор кривых').getAttribute('aria-expanded') === 'false', 'При возврате к графику состояние сворачивания сохранено')
+  await click('Развернуть выбор кривых')
   check(selected() === 1 && lines() === 1 && fixture.querySelector('.scenario-option--base')?.getAttribute('aria-pressed') === 'true', 'Изначально выбрана только базовая кривая из нового макета')
   check(!fixture.querySelector('.curve-legend input'), 'В выборе кривых нет чекбоксов')
   await click('Параллельный вверх')
@@ -134,6 +154,7 @@ async function runTests() {
   check(selected() === 0 && lines() === 0 && hasText('Выберите кривую для отображения'), 'Все кривые выключаются с понятным пустым состоянием')
   await click('Краткосрочные вверх')
   check(lines() === 1 && ticks() === originalTicks, 'После пустого состояния выбор восстанавливает тот же масштаб')
+  check(!fixture.querySelector('[data-scenario="short-up"]')!.hasAttribute('stroke-dasharray'), 'Краткосрочные вверх отображаются сплошной линией')
   const createUrl = URL.createObjectURL
   const anchorClick = HTMLAnchorElement.prototype.click
   let downloaded: Blob | null = null
