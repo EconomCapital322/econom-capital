@@ -1,0 +1,79 @@
+name: Go CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'stress/**'
+      - '.github/workflows/go-ci.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: stress/go.mod
+          cache-dependency-path: stress/go.sum
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: stress
+          install-only: true
+
+      - name: Lint
+        working-directory: stress
+        run: golangci-lint run --config=.golangci.yaml --timeout=5m
+
+      - name: Check formatting
+        working-directory: stress
+        run: |
+          format_diff="$(golangci-lint fmt --diff --color=never --config=.golangci.yaml)"
+          if [[ -n "$format_diff" ]]; then
+            printf '%s\n' "$format_diff"
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: stress/go.mod
+          cache-dependency-path: stress/go.sum
+
+      - name: Race tests and coverage
+        id: tests
+        working-directory: stress
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Test summary
+        if: always()
+        working-directory: stress
+        env:
+          TEST_RESULT: ${{ steps.tests.outcome }}
+        run: |
+          coverage="n/a"
+          if [[ -f coverage.out ]]; then
+            coverage="$(go tool cover -func=coverage.out | awk '$1 == "total:" { print $3 }')"
+          fi
+          {
+            echo '## Go tests'
+            echo
+            echo "- Result: $TEST_RESULT"
+            echo "- Statement coverage: ${coverage:-n/a}"
+          } >> "$GITHUB_STEP_SUMMARY"
