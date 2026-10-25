@@ -31,6 +31,24 @@ REPORT_DATE = date(2026, 7, 31)
 AS_OF = datetime(2026, 7, 31, 16, tzinfo=UTC)
 
 
+@pytest.fixture(scope="session")
+def base_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    binary = tmp_path_factory.mktemp("base-bin") / "base-curve"
+    subprocess.run(
+        ["go", "build", "-o", str(binary), "./cmd/base-curve"],
+        cwd=ROOT.parent / "base",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return binary
+
+
+@pytest.fixture
+def base_binary_on_path(base_binary: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", str(base_binary.parent) + os.pathsep + os.environ.get("PATH", ""))
+
+
 async def migrate(dsn: str, revision: str = "head", *, downgrade: bool = False) -> None:
     env = {**os.environ, "DATABASE__DSN": dsn}
     proc = await asyncio.create_subprocess_exec(

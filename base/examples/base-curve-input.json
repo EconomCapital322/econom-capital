@@ -1,0 +1,7 @@
+{
+  "points": [
+    {"tenor_years": "3", "rate_percent": "1"},
+    {"tenor_years": "0.5", "rate_percent": "2"},
+    {"tenor_years": "1.5", "rate_percent": "4"}
+  ]
+}

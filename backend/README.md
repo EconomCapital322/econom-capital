@@ -1,6 +1,6 @@
 # Backend модуля кривых IRRBB
 
-Реализованы PostgreSQL/asyncpg/Alembic, классы репозиториев с `@classmethod`, все шесть операций HTTP API, независимые Calculation Worker и MOEX Loader. Реальных функций MOEX, интерполяции/экстраполяции и стрессов пока нет: их подключение явно настраивается после получения кода Егора и Славы. Тестовые реализации находятся только в `tests/fakes`.
+Реализованы PostgreSQL/asyncpg/Alembic, классы репозиториев с `@classmethod`, все шесть операций HTTP API, независимые Calculation Worker и MOEX Loader. Построение базовой кривой реализовано: [линейная интерполяция/экстраполяция, подключение и формат для yyeart](BASE_CURVE.md). MOEX-коннектор и адаптер стрессов подключаются отдельно. Тестовые реализации находятся только в `tests/fakes`.
 
 Подробное объяснение PostgreSQL, пула и обеих миграций: [учебный документ](../docs/how-postgres-and-migrations-work.md). Контракт: [api.md](../docs/api.md). Архитектурные решения: [план](../docs/backend-implementation-plan.md).
 
@@ -76,11 +76,11 @@ uv run python -m web.processes.calculation_worker
 Настройки реальных функций:
 
 ```dotenv
-INTEGRATIONS__BASE_FUNCTION=your_package.module:build_base_curve
+INTEGRATIONS__BASE_FUNCTION=web.calculations.base_curve:build_base_curve
 INTEGRATIONS__STRESS_FUNCTION=your_package.module:build_stress_curves
 ```
 
-Это примеры имён, пока модулей нет. Без реализации принятый запуск становится failed с кодом BASE_CURVE_FAILED/CALCULATION_FAILED и сообщением о неподключённой реализации; фиктивный ready не выдаётся.
+Базовый адаптер доступен в репозитории; необходимо собрать Go-бинарник из `../base` и добавить его в PATH процесса Worker, см. [подключение](BASE_CURVE.md). В спецификации нужны `base_version="linear-v1"` и `method="linear"`. `your_package.module:build_stress_curves` — место для отдельно подключаемого стрессового адаптера. Без настроенной реализации соответствующий этап становится failed с кодом BASE_CURVE_FAILED/CALCULATION_FAILED; фиктивный ready не выдаётся.
 
 Один активный Worker на одном POSIX-хосте. Локальный process lock отклоняет второй экземпляр для того же подключённого адреса/порта сервера и имени БД, даже если отличаются credentials, схема postgres/postgresql или параметры DSN. Для определения ключа пул кратко выдаёт соединение и сразу получает его обратно; файловая блокировка соединение не удерживает. PostgreSQL дополнительно сериализует claim, не позволяет выбрать queued при живом running и использует SKIP LOCKED. Поддержка распределённого множества Worker не заявлена. Каждый claim имеет UUID-токен и lease; heartbeat продлевает только своё действующее владение. Поздние записи отклоняются даже если восстановление ещё не началось.
 
@@ -105,7 +105,7 @@ uv run python -m web.processes.moex_loader --report-date 2026-07-31
 
 `src/web/integrations/contracts.py` содержит FetchRates, BuildBase и BuildStress. Канонические модели данных — `src/web/repositories/models.py`; они не импортируют PostgreSQL/FastAPI. Егор получает дату и возвращает полный проверенный MarketRates, а для базы принимает tuple RatePoint и CalculationSpec. Слава получает Curve, ScenarioParameters, algorithm_version и возвращает ровно шесть Curve. Все сроки — Decimal в годах, ставки — Decimal в процентах годовых, P/K/D — п.п. Стрессовые коды и сетки проверяются до публикации.
 
-Перед реальным запуском необходимо согласовать сетку/day count, доступные версии алгоритмов, источник/срез, правила ошибок MOEX, точность Decimal и допуск сверки с Excel. Адаптеры проверяют форму, дату и результат; они не реализуют математику или MOEX-коннектор.
+Перед реальным запуском необходимо согласовать сетку/day count, доступные версии алгоритмов, источник/срез, правила ошибок MOEX, точность Decimal и допуск сверки с Excel. Адаптеры проверяют форму, дату и результат; математика базы находится в Go-модуле `../base`, а `src/web/calculations/base_curve.py` связывает его с Worker. Совместимый с Go-стрессами JSON-пример и правила точности описаны в [документации модуля](../base/README.md).
 
 ## Проверки и изоляция
 

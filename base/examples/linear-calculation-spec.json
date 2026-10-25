@@ -1,0 +1,15 @@
+{
+  "base_version": "linear-v1",
+  "stress_version": "example-stress-v1",
+  "method": "linear",
+  "day_count": "ACT/365F",
+  "grid": [
+    {"bucket_label": "3m", "tenor_years": "0.25"},
+    {"bucket_label": "6m", "tenor_years": "0.5"},
+    {"bucket_label": "1y", "tenor_years": "1"},
+    {"bucket_label": "18m", "tenor_years": "1.5"},
+    {"bucket_label": "2y", "tenor_years": "2"},
+    {"bucket_label": "3y", "tenor_years": "3"},
+    {"bucket_label": "4y", "tenor_years": "4"}
+  ]
+}

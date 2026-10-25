@@ -1,0 +1,217 @@
+{
+  "source": {
+    "file": "практика_Т1_спринт1 (3).xlsx",
+    "sha256": "c36f36b30b862f4fc887ef10a06c18ecb00390f4425a53c6d422b644907f05c8",
+    "sheet": "Лист1",
+    "source_tenors": "B15:T15",
+    "source_rates": "B4:T4",
+    "bucket_labels": "B2:X2",
+    "bucket_tenors": "B3:X3",
+    "expected_rates": "B17:X17",
+    "note": "Saved workbook values; no recalculation. Y:AC excluded: no complete bucket grid; Y16 references blank Y3."
+  },
+  "absolute_tolerance_percent": "0.000000000001",
+  "points": [
+    {
+      "tenor_years": "0.0028",
+      "rate_percent": "14.45"
+    },
+    {
+      "tenor_years": "0.083333",
+      "rate_percent": "14.07"
+    },
+    {
+      "tenor_years": "0.25",
+      "rate_percent": "13.59"
+    },
+    {
+      "tenor_years": "0.5",
+      "rate_percent": "13.35"
+    },
+    {
+      "tenor_years": "0.75",
+      "rate_percent": "13.42"
+    },
+    {
+      "tenor_years": "1",
+      "rate_percent": "13.63"
+    },
+    {
+      "tenor_years": "1.5",
+      "rate_percent": "14.15"
+    },
+    {
+      "tenor_years": "2",
+      "rate_percent": "14.58"
+    },
+    {
+      "tenor_years": "3",
+      "rate_percent": "15.06"
+    },
+    {
+      "tenor_years": "4",
+      "rate_percent": "15.28"
+    },
+    {
+      "tenor_years": "5",
+      "rate_percent": "15.42"
+    },
+    {
+      "tenor_years": "6",
+      "rate_percent": "15.51"
+    },
+    {
+      "tenor_years": "7",
+      "rate_percent": "15.57"
+    },
+    {
+      "tenor_years": "8",
+      "rate_percent": "15.62"
+    },
+    {
+      "tenor_years": "9",
+      "rate_percent": "15.66"
+    },
+    {
+      "tenor_years": "10",
+      "rate_percent": "15.69"
+    },
+    {
+      "tenor_years": "15",
+      "rate_percent": "15.84"
+    },
+    {
+      "tenor_years": "20",
+      "rate_percent": "15.95"
+    },
+    {
+      "tenor_years": "30",
+      "rate_percent": "16.1"
+    }
+  ],
+  "spec": {
+    "base_version": "linear-v1",
+    "stress_version": "example-stress-v1",
+    "method": "linear",
+    "day_count": "workbook-year-fractions",
+    "grid": [
+      {
+        "bucket_label": "1d",
+        "tenor_years": "0.0028"
+      },
+      {
+        "bucket_label": "1m",
+        "tenor_years": "0.0417"
+      },
+      {
+        "bucket_label": "3m",
+        "tenor_years": "0.1667"
+      },
+      {
+        "bucket_label": "6m",
+        "tenor_years": "0.375"
+      },
+      {
+        "bucket_label": "9m",
+        "tenor_years": "0.625"
+      },
+      {
+        "bucket_label": "1y",
+        "tenor_years": "0.875"
+      },
+      {
+        "bucket_label": "1,5y",
+        "tenor_years": "1.25"
+      },
+      {
+        "bucket_label": "2y",
+        "tenor_years": "1.75"
+      },
+      {
+        "bucket_label": "3y",
+        "tenor_years": "2.5"
+      },
+      {
+        "bucket_label": "4y",
+        "tenor_years": "3.5"
+      },
+      {
+        "bucket_label": "5y",
+        "tenor_years": "4.5"
+      },
+      {
+        "bucket_label": "6y",
+        "tenor_years": "5.5"
+      },
+      {
+        "bucket_label": "7y",
+        "tenor_years": "6.5"
+      },
+      {
+        "bucket_label": "8y",
+        "tenor_years": "7.5"
+      },
+      {
+        "bucket_label": "9y",
+        "tenor_years": "8.5"
+      },
+      {
+        "bucket_label": "10y",
+        "tenor_years": "9.5"
+      },
+      {
+        "bucket_label": "15y",
+        "tenor_years": "12.5"
+      },
+      {
+        "bucket_label": "20y",
+        "tenor_years": "17.5"
+      },
+      {
+        "bucket_label": "30y",
+        "tenor_years": "25"
+      },
+      {
+        "bucket_label": "35y",
+        "tenor_years": "32.5"
+      },
+      {
+        "bucket_label": "40y",
+        "tenor_years": "37.5"
+      },
+      {
+        "bucket_label": "45y",
+        "tenor_years": "42.5"
+      },
+      {
+        "bucket_label": "50y",
+        "tenor_years": "47.5"
+      }
+    ]
+  },
+  "expected_rates": [
+    "14.45",
+    "14.26644791576124",
+    "13.82990352019296",
+    "13.469999999999999",
+    "13.385",
+    "13.525",
+    "13.89",
+    "14.365",
+    "14.82",
+    "15.17",
+    "15.35",
+    "15.465",
+    "15.54",
+    "15.594999999999999",
+    "15.64",
+    "15.675",
+    "15.765",
+    "15.895",
+    "16.025",
+    "16.137500000000003",
+    "16.212500000000002",
+    "16.287500000000005",
+    "16.362500000000004"
+  ]
+}

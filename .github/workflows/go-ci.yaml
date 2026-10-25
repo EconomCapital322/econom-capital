@@ -7,6 +7,7 @@ on:
       - develop
     paths:
       - 'stress/**'
+      - 'base/**'
       - '.github/workflows/go-ci.yaml'
 
 permissions:
@@ -46,6 +47,12 @@ jobs:
             exit 1
           fi
 
+      - name: Check base module formatting and vet
+        working-directory: base
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +67,10 @@ jobs:
         id: tests
         working-directory: stress
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Base curve race tests
+        working-directory: base
+        run: go test -race ./...
 
       - name: Test summary
         if: always()

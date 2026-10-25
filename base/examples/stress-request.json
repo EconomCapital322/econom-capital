@@ -1,0 +1,15 @@
+{
+  "base": {
+    "curve_code": "base",
+    "points": [
+      {"bucket_label": "3m", "tenor_years": "0.25", "rate_percent": "1.5", "is_interpolated": false, "is_extrapolated": true},
+      {"bucket_label": "6m", "tenor_years": "0.5", "rate_percent": "2", "is_interpolated": false, "is_extrapolated": false},
+      {"bucket_label": "1y", "tenor_years": "1", "rate_percent": "3", "is_interpolated": true, "is_extrapolated": false},
+      {"bucket_label": "18m", "tenor_years": "1.5", "rate_percent": "4", "is_interpolated": false, "is_extrapolated": false},
+      {"bucket_label": "2y", "tenor_years": "2", "rate_percent": "3", "is_interpolated": true, "is_extrapolated": false},
+      {"bucket_label": "3y", "tenor_years": "3", "rate_percent": "1", "is_interpolated": false, "is_extrapolated": false},
+      {"bucket_label": "4y", "tenor_years": "4", "rate_percent": "-1", "is_interpolated": false, "is_extrapolated": true}
+    ]
+  },
+  "parameters": {"mode": "standard", "p": "4", "k": "5", "d": "3"}
+}
