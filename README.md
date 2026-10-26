@@ -3,6 +3,7 @@
 Модуль кривых IRRBB проекта Economic Capital.
 
 - [Backend: PostgreSQL, миграции, репозитории и проверки](backend/README.md)
+- [Stress: Go-сервис расчёта стрессовых кривых](stress/README.md)
 - [План реализации backend](docs/backend-implementation-plan.md)
 - [Frontend: запуск демонстрационного интерфейса](frontend/README.md)
 
