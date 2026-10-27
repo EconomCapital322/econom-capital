@@ -221,7 +221,7 @@
 .results-panel--error { align-items: center; justify-content: center; text-align: center; padding: 24px; }
 .results-panel--error p { margin: 0; max-width: 640px; overflow-wrap: anywhere; font-size: 16px; line-height: 1.6; color: var(--color-text-secondary-strong); }
 
-/* Collapsing selection gives its space to the plot/table inside the 509px frame. */
+/* Collapsing selection gives its space to the plot/table inside the 499px frame. */
 .results-panel > [role="tabpanel"] { display: flex; flex-direction: column; }
 .curve-table { flex: 1; min-height: 0; height: auto; }
 .curve-chart { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -265,3 +265,5 @@
 .curve-table tr > :nth-child(6), .curve-table tr > :nth-child(7) { width: calc(100% * 145 / 1378); }
 .curve-table tr > :nth-child(8) { width: calc(100% * 175 / 1378); }
 .curve-table tbody:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+
+.results-panel--error[role="alert"] p { color: var(--color-text-error); }
