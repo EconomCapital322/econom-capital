@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useCurvesApi } from './useCurvesApi'
 import { isCurvePreview, isReportDate } from '../utils/validateCurves'
 
-export function useCurvePreview(reportDate: string, scope: string) {
+export function useCurvePreview(reportDate: string, scope: string, enabled = true) {
   const { adapter } = useCurvesApi()
   return useQuery({
     queryKey: ['base-curve', scope, reportDate],
@@ -13,7 +13,7 @@ export function useCurvePreview(reportDate: string, scope: string) {
       }
       return preview
     },
-    enabled: isReportDate(reportDate),
+    enabled: enabled && isReportDate(reportDate),
     // Never show another date's cached data while this date is loading.
     placeholderData: undefined,
     retry: false,
