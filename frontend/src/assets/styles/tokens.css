@@ -62,6 +62,10 @@
   --curve-page-gutter: 26px;
   --curve-panel-radius: 20px;
   --curve-results-height: 499px;
-  --curve-label-size: 20px;
-  --curve-parameter-size: 24px;
+  --curve-label-size: 14px;
+  --curve-parameter-size: 20px;
+  --curve-heading-size: 36px;
+  --curve-subtitle-size: 18px;
+  --curve-section-gap: 24px;
+  --curve-header-height: 64px;
 }
