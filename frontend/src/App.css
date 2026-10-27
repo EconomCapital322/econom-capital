@@ -1,5 +1,4 @@
-/* Layout and dimensions follow главная.svg (1440 × 1024).
-   Foundations and local Geologica fonts are shared with the existing UI kit. */
+/* Shared Geologica UI, compact page layout and scrollable results. */
 .curve-app {
   --page-line: #e7ebef;
   --page-border: #dfe9ef;
@@ -22,23 +21,23 @@
 }
 .curve-app::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; box-shadow: var(--shadow-inset-glow); }
 .app-header, .curve-page, .app-footer { max-width: 1440px; margin-inline: auto; }
-.app-header { height: 125px; padding: 40px 55px 0 32px; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.app-header__title { width: 400px; height: 32px; min-width: 0; max-width: calc(100% - 140px); object-fit: contain; object-position: left center; }
-.app-header__logo { width: 111px; height: 87px; margin-top: 1px; flex-shrink: 0; }
-.curve-page { padding: 0 var(--curve-page-gutter) 32px; }
-.curve-page__heading { margin-bottom: 24px; }
-.curve-page__heading h1 { margin: 0 0 8px; color: var(--color-text-primary); font-size: 56px; font-weight: 700; line-height: 70px; letter-spacing: 0; }
-.curve-page__heading p { margin: 0; font-size: 28px; font-weight: 600; color: var(--color-text-secondary); line-height: 40px; }
-.calculation-controls { display: grid; grid-template-columns: 290px minmax(0, 1fr) 326px; column-gap: 31px; align-items: start; min-height: 121px; padding: 12px 23px 17px 30px; margin: 0 5px 24px 1px; border: 1px solid var(--color-dark-gray); background: var(--curve-controls-bg); border-radius: 25px; }
-.curve-app .form-label, .parameters-control__label { display: flex; align-items: center; gap: 8px; margin: 0 0 9px; font-size: var(--curve-label-size); font-weight: 500; color: var(--color-primary); line-height: 28px; }
-.report-date .form-control { width: 178px; max-width: 100%; height: 53px; padding: 12px 13px 12px 20px; border: 0; border-radius: 20px; font: 500 20px/29px var(--font-family), sans-serif; color: var(--color-text-secondary-strong); background: var(--color-white) url('./assets/images/calendar.svg') no-repeat right 13px center / 20px 20px; }
+.app-header { height: var(--curve-header-height); padding: 16px 30px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.app-header__title { width: 320px; height: 26px; min-width: 0; max-width: calc(100% - 140px); object-fit: contain; object-position: left center; }
+.app-header__logo { width: 56px; height: 44px; margin-top: 0; flex-shrink: 0; }
+.curve-page { padding: 0 var(--curve-page-gutter) 8px; }
+.curve-page__heading { margin-bottom: var(--curve-section-gap); }
+.curve-page__heading h1 { margin: 0 0 4px; color: var(--color-text-primary); font-size: var(--curve-heading-size); font-weight: 700; line-height: 44px; letter-spacing: 0; }
+.curve-page__heading p { margin: 0; font-size: var(--curve-subtitle-size); font-weight: 500; color: var(--color-text-secondary); line-height: 24px; }
+.calculation-controls { display: grid; grid-template-columns: 210px minmax(0, 1fr) 240px; column-gap: 24px; align-items: start; min-height: 82px; padding: 10px 19px 10px 23px; margin: 0 5px var(--curve-section-gap) 1px; border: 1px solid var(--color-dark-gray); background: var(--curve-controls-bg); border-radius: 25px; }
+.curve-app .form-label, .parameters-control__label { display: flex; align-items: center; gap: 8px; margin: 0 0 5px; font-size: var(--curve-label-size); font-weight: 500; color: var(--color-primary); line-height: 20px; }
+.report-date .form-control { width: 156px; max-width: 100%; height: 40px; padding: 8px 12px; border: 0; border-radius: 20px; font: 500 16px/24px var(--font-family), sans-serif; color: var(--color-text-secondary-strong); background: var(--color-white) url('./assets/images/calendar.svg') no-repeat right 13px center / 20px 20px; }
 .report-date input::-webkit-calendar-picker-indicator { opacity: 0; width: 20px; height: 20px; margin: 0; padding: 0; cursor: pointer; }
 .parameters-control { min-width: 0; }
-.parameters-control__value { display: flex; align-items: center; gap: 19px; min-height: 53px; color: var(--color-text-secondary-strong); font-size: var(--curve-parameter-size); font-weight: 600; line-height: 40px; font-variant-numeric: tabular-nums; }
-.parameter-values { display: flex; align-items: center; flex-wrap: wrap; gap: 0 19px; min-width: 0; overflow-wrap: anywhere; }
+.parameters-control__value { display: flex; align-items: center; gap: 14px; min-height: 40px; color: var(--color-text-secondary-strong); font-size: var(--curve-parameter-size); font-weight: 500; line-height: 28px; font-variant-numeric: tabular-nums; }
+.parameter-values { display: flex; align-items: center; flex-wrap: wrap; gap: 0 14px; min-width: 0; overflow-wrap: anywhere; }
 .parameter-values > span { min-width: 0; letter-spacing: -.4px; }
 .parameter-values i { color: var(--color-text-secondary); font-style: normal; }
-.pencil-button { display: grid; place-items: center; width: 41px; height: 37px; padding: 0; margin-top: -8px; border: 0; border-radius: 10px; color: var(--color-primary); background: rgb(0 180 251 / 10%); flex-shrink: 0; }
+.pencil-button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; margin-top: 0; border: 0; border-radius: 10px; color: var(--color-primary); background: rgb(0 180 251 / 10%); flex-shrink: 0; }
 .pencil-button svg { width: 25px; height: 25px; }
 .pencil-button:hover:not(:disabled) { background: rgb(0 180 251 / 18%); }
 .pencil-button:disabled { opacity: .45; }
@@ -52,7 +51,7 @@
 .app-button { --bs-btn-border-width: 2px; --bs-btn-border-radius: 30px; --bs-btn-bg: var(--color-primary); --bs-btn-color: var(--color-white); --bs-btn-border-color: var(--color-primary); --bs-btn-hover-bg: var(--color-primary); --bs-btn-hover-border-color: var(--color-primary); --bs-btn-hover-color: var(--color-white); --bs-btn-active-bg: var(--color-primary); --bs-btn-active-color: var(--color-white); --bs-btn-active-border-color: var(--color-primary); --bs-btn-font-size: 20px; --bs-btn-font-weight: 500; --bs-btn-padding-x: 20px; --bs-btn-padding-y: 10px; font-family: var(--font-family), sans-serif; line-height: 1.5; }
 .app-button--outline { --bs-btn-bg: var(--color-white); --bs-btn-color: var(--color-primary); --bs-btn-border-color: var(--color-primary); --bs-btn-hover-bg: var(--color-white); --bs-btn-hover-color: var(--color-primary); --bs-btn-active-bg: var(--color-white); --bs-btn-active-color: var(--color-primary); }
 .app-button:hover:not(:disabled) { filter: brightness(.97); }
-.run-calculation { display: inline-flex; justify-content: center; align-items: center; gap: 9px; width: 326px; font-size: 24px; min-height: 65px; align-self: center; position: relative; top: 3px; white-space: nowrap; }
+.run-calculation { display: inline-flex; justify-content: center; align-items: center; gap: 9px; width: 240px; font-size: 18px; min-height: 46px; align-self: center; position: relative; top: 0; white-space: nowrap; }
 .run-calculation:disabled { --bs-btn-disabled-bg: var(--color-primary); --bs-btn-disabled-color: var(--color-white); --bs-btn-disabled-border-color: var(--color-primary); }
 .curve-app input:focus-visible, .curve-app button:focus-visible, .curve-app summary:focus-visible, .parameters-modal button:focus-visible { outline: 3px solid var(--page-focus, #8cdcff); outline-offset: 3px; }
 .calculation-hint, .calculation-status { margin: -12px 4px 18px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
@@ -113,14 +112,14 @@
 .empty-state__symbol { font-size: 32px; color: var(--color-primary); margin-bottom: 15px; }
 .empty-state p { font-size: 14px; line-height: 1.6; color: var(--color-text-secondary); margin: 12px 0 0; }
 .source-state { padding: 28px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-radius: var(--curve-panel-radius); background: var(--curve-controls-bg); font-size: 14px; color: var(--color-text-secondary); }
-.data-availability { margin: 18px 2px 0; padding: 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 15px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
-.data-availability .source-refresh { margin-left: auto; font-size: 12px; }
+.data-availability { margin: 8px 2px 0; padding: 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 15px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
+.data-availability .source-refresh { --bs-btn-padding-x: 12px; --bs-btn-padding-y: 4px; margin-left: auto; font-size: 12px; line-height: 20px; }
 .demo-tools { margin: 20px 4px 0; font-size: 12px; color: var(--color-text-secondary); line-height: 1.6; }
 .demo-tools summary { cursor: pointer; width: fit-content; }
 .demo-tools label { display: block; margin-top: 12px; margin-bottom: 5px; }
 .demo-tools .form-select { max-width: 320px; font-size: 12px; }
 .demo-tools p { max-width: 680px; margin-top: 9px; }
-.app-footer { padding: 0 var(--curve-page-gutter) 25px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
+.app-footer { padding: 0 var(--curve-page-gutter) 8px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
 
 /* change parametres.svg: 542 × 555, with error rows allowed to grow. */
 .parameters-backdrop { --bs-backdrop-bg: #142331; --bs-backdrop-opacity: .48; }
@@ -154,15 +153,15 @@
 .parameters-modal .app-button--outline { color: var(--color-primary); }
 
 @media (max-width: 1250px) {
-  .calculation-controls { grid-template-columns: 235px minmax(0, 1fr) 270px; column-gap: 20px; }
-  .run-calculation { width: 270px; font-size: 17px; }
-  .parameters-control__value { font-size: 24px; gap: 10px; }
+  .calculation-controls { grid-template-columns: 190px minmax(0, 1fr) 220px; column-gap: 20px; }
+  .run-calculation { width: 220px; font-size: 17px; }
+  .parameters-control__value { font-size: var(--curve-parameter-size); gap: 10px; }
   .parameter-values { gap: 0 10px; }
   .results-view-tabs .nav-link { width: 130px; }
 }
 @media (max-width: 1020px) {
-  .curve-page__heading h1 { font-size: 46px; line-height: 60px; }
-  .curve-page__heading p { font-size: 22px; line-height: 32px; }
+  .curve-page__heading h1 { font-size: 32px; line-height: 40px; }
+  .curve-page__heading p { font-size: 17px; line-height: 24px; }
   .calculation-controls { grid-template-columns: 210px minmax(0, 1fr); row-gap: 18px; }
   .run-calculation { grid-column: 1 / -1; justify-self: end; top: 0; }
   .results-panel__header { grid-template-columns: minmax(0, 1fr) auto; gap: 14px 20px; }
@@ -172,15 +171,15 @@
   .scenario-option--base { grid-row: auto; }
 }
 @media (max-width: 640px) {
-  .app-header { height: 104px; padding: 24px 20px 0; gap: 16px; }
+  .app-header { height: 72px; padding: 16px 20px 0; gap: 16px; }
   .app-header__title { max-width: calc(100% - 64px); width: 400px; height: auto; min-height: 32px; }
   .app-header__logo { width: 48px; height: auto; }
-  .curve-page { padding: 12px 16px 24px; }
-  .curve-page__heading { margin-bottom: 24px; }
-  .curve-page__heading h1 { font-size: 34px; line-height: 42px; margin-bottom: 12px; }
-  .curve-page__heading p { font-size: 17px; line-height: 26px; font-weight: 500; }
-  .calculation-controls { grid-template-columns: minmax(0, 1fr); margin: 0 0 24px; padding: 20px; gap: 20px; }
-  .curve-app .form-label, .parameters-control__label { font-size: 17px; line-height: 25px; }
+  .curve-page { padding: 0 16px 16px; }
+  .curve-page__heading { margin-bottom: var(--curve-section-gap); }
+  .curve-page__heading h1 { font-size: 28px; line-height: 36px; margin-bottom: 6px; }
+  .curve-page__heading p { font-size: 15px; line-height: 22px; font-weight: 500; }
+  .calculation-controls { grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--curve-section-gap); padding: 16px; gap: 16px; }
+  .curve-app .form-label, .parameters-control__label { font-size: 14px; line-height: 20px; }
   .parameters-control__value { font-size: var(--curve-parameter-size); line-height: 29px; justify-content: space-between; }
   .parameter-values { gap: 0 8px; }
   .parameter-values i { display: none; }
@@ -221,7 +220,7 @@
 .results-panel--error { align-items: center; justify-content: center; text-align: center; padding: 24px; }
 .results-panel--error p { margin: 0; max-width: 640px; overflow-wrap: anywhere; font-size: 16px; line-height: 1.6; color: var(--color-text-secondary-strong); }
 
-/* Collapsing selection gives its space to the plot/table inside the 509px frame. */
+/* Collapsing selection gives its space to the plot/table inside the 499px frame. */
 .results-panel > [role="tabpanel"] { display: flex; flex-direction: column; }
 .curve-table { flex: 1; min-height: 0; height: auto; }
 .curve-chart { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -265,3 +264,20 @@
 .curve-table tr > :nth-child(6), .curve-table tr > :nth-child(7) { width: calc(100% * 145 / 1378); }
 .curve-table tr > :nth-child(8) { width: calc(100% * 175 / 1378); }
 .curve-table tbody:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+
+.results-panel--error[role="alert"] p { color: var(--color-text-error); }
+
+/* Use the laptop viewport for the page, without clipping long result content. */
+@media (min-width: 1021px) {
+  .curve-app { height: 100dvh; min-height: 640px; display: flex; flex-direction: column; }
+  .app-header { flex-shrink: 0; width: 100%; }
+  .curve-page { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+  .curve-page__heading, .calculation-controls, .calculation-hint, .calculation-status, .demo-tools, .data-availability { flex-shrink: 0; }
+  .calculation-status--ready { flex: none; }
+  .results-region { flex: 1; min-height: 260px; max-height: var(--curve-results-height); }
+  .results-region > .results-panel { height: 100%; }
+  .app-footer { flex-shrink: 0; width: 100%; }
+  .result-parameters, .results-panel--table .result-parameters { margin-top: 8px; margin-bottom: 6px; line-height: 14px; }
+  .curve-chart__plot, .curve-chart__empty { min-height: 170px; }
+  .empty-state { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
+}
