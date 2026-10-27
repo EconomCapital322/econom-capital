@@ -21,6 +21,7 @@ export interface CurvesAdapter {
 export type DemoMode = 'normal' | 'error-once' | 'no-data'
 export interface DemoControls { setMode(mode: DemoMode): void }
 export interface CurvesService {
+  remote?: import('./httpAdapter').RemoteCurvesApi
   adapter: CurvesAdapter
   demonstration?: DemoControls
 }
