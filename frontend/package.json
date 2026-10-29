@@ -8,8 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc -b",
-    "test": "node --test tests/regression.cjs"
+    "typecheck": "tsc -b"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.13.0",

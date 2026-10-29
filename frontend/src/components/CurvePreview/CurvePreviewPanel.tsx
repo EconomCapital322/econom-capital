@@ -32,9 +32,10 @@ interface CurvePreviewPanelProps {
   preview: CurvePreview | null
   calculation: CurveCalculation | null
   error?: string
+  message?: string
 }
 
-export function CurvePreviewPanel({ preview, calculation, error }: CurvePreviewPanelProps) {
+export function CurvePreviewPanel({ preview, calculation, error, message }: CurvePreviewPanelProps) {
   const [view, setView] = useState<'graph' | 'table'>('table')
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
@@ -68,6 +69,10 @@ export function CurvePreviewPanel({ preview, calculation, error }: CurvePreviewP
     <section className="results-panel results-panel--error" role="alert" aria-label="Ошибка расчёта">
       <p>{error}</p>
     </section>
+  )
+
+  if (message) return (
+    <section className="results-panel results-panel--error" role="status"><p>{message}</p></section>
   )
 
   if (!preview) return (

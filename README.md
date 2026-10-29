@@ -4,6 +4,7 @@
 
 - [Backend: PostgreSQL, миграции, репозитории и проверки](backend/README.md)
 - [Базовая кривая на Go: расчёт, примеры и формат для yyeart](base/README.md)
+- [Stress: Go-сервис расчёта стрессовых кривых](stress/README.md)
 - [План реализации backend](docs/backend-implementation-plan.md)
 - [Frontend: запуск демонстрационного интерфейса](frontend/README.md)
 
