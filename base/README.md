@@ -108,7 +108,7 @@ stderr, при неверном входе stdout пуст.
 | `is_interpolated` | Обязательный JSON boolean |
 | `is_extrapolated` | Обязательный JSON boolean |
 | `parameters.mode` | `standard` либо `custom` |
-| `parameters.p/k/d` | Десятичные строки в п.п., (0, 25]; standard: 4/5/3 |
+| `parameters.p/k/d` | Десятичные строки в п.п.; требуемый диапазон custom: (0, 50]; standard: 4/5/3 |
 
 У исходного узла оба признака `false`; у интерполированного — `true/false`,
 у экстраполированного — `false/true`. Комбинация `true/true` недопустима.

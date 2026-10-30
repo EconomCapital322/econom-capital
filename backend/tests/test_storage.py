@@ -8,11 +8,13 @@ from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 
 from core.config import DatabaseSettings, Settings
 from core.database import Database, DBConnection
-from tests.conftest import AS_OF, REPORT_DATE, migrate
+from tests.conftest import AS_OF, REPORT_DATE, ROOT, migrate
 from web.exceptions.curve_run import InputDataNotReady, StaleClaim
 from web.repositories import curve_runs, curves, input_rates
 from web.repositories.models import (
@@ -88,10 +90,8 @@ async def test_migrations_roundtrip(connection: Conn, database_dsn: str) -> None
     await migrate(database_dsn, "base", downgrade=True)
     assert await connection.fetchval("SELECT to_regclass('public.curve_run')") is None
     await migrate(database_dsn)
-    assert (
-        await connection.fetchval("SELECT version_num FROM alembic_version")
-        == "0004_result_parameters"
-    )
+    head = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_current_head()
+    assert await connection.fetchval("SELECT version_num FROM alembic_version") == head
 
 
 async def test_snapshot_and_exact_json(
@@ -173,7 +173,9 @@ async def test_atomic_rollback(
         {},
         {"mode": "standard", "p": 3, "k": 5, "d": 3},
         {"mode": "custom", "p": 0, "k": 5, "d": 3},
-        {"mode": "custom", "p": 26, "k": 5, "d": 3},
+        {"mode": "custom", "p": 51, "k": 5, "d": 3},
+        {"mode": "custom", "p": 4, "k": 51, "d": 3},
+        {"mode": "custom", "p": 4, "k": 5, "d": 51},
         {"mode": "custom", "p": "NaN", "k": 5, "d": 3},
         {"mode": "custom", "p": 4, "k": None, "d": 3},
         {"mode": "custom", "p": 4, "k": 5, "d": 3, "extra": 1},
@@ -191,6 +193,15 @@ async def test_database_parameters(
         await connection.execute(
             "UPDATE curve_run SET scenario_parameters=$2 WHERE id=$1", run_id, payload
         )
+
+
+async def test_database_accepts_parameter_upper_boundary(
+    connection: Conn, rates: MarketRates, spec: CalculationSpec
+) -> None:
+    parameters = ScenarioParameters(mode="custom", p=Decimal(50), k=Decimal(50), d=Decimal(50))
+    run_id = await seed_run(connection, rates, parameters, spec)
+    row = await curve_runs.CurveRunsRepository.get_run(connection, run_id)
+    assert row is not None and row.scenario_parameters == parameters
 
 
 @pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])

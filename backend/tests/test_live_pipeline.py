@@ -5,7 +5,7 @@ import os
 import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 import httpx
@@ -200,10 +200,23 @@ async def test_live_user_calculation_recalculation_and_api_restart(
                 "k": 5,
                 "d": 3,
             }
+            standard_id = response.json()["runId"]
+            reused = await client.post(
+                "/api/v1/curve-runs",
+                json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
+            )
+            assert reused.status_code == 200
+            assert reused.json() == {"runId": standard_id, "status": "ready"}
+
+            later_date = REPORT_DATE + timedelta(days=1)
+            later_rates = rates.model_copy(update={"report_date": later_date})
+            await InputRatesRepository.replace_current(
+                connection, later_rates, loaded_at=datetime.now(UTC)
+            )
             # Commit through POST, then close the client AND API while Worker is alive.
             queued_response = await client.post(
                 "/api/v1/curve-runs",
-                json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
+                json={"reportDate": str(later_date), "scenarioParameters": {"mode": "standard"}},
             )
             assert queued_response.status_code == 202
             queued = UUID(queued_response.json()["runId"])
@@ -223,7 +236,11 @@ async def test_live_user_calculation_recalculation_and_api_restart(
             history = (await restarted.get("/api/v1/curve-runs?reportDate=2026-07-31")).json()[
                 "runs"
             ]
-            assert len(history) == 4
+            assert len(history) == 3
+            later_history = (
+                await restarted.get(f"/api/v1/curve-runs?reportDate={later_date}")
+            ).json()["runs"]
+            assert len(later_history) == 1 and later_history[0]["runId"] == str(queued)
 
 
 @pytest.mark.usefixtures("base_binary_on_path")

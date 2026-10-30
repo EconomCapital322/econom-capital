@@ -82,7 +82,7 @@ func validateAndConvert(
 }
 
 func isValidScenarioParameter(value *big.Rat) bool {
-	return value.Sign() > 0 && value.Cmp(big.NewRat(25, 1)) <= 0
+	return value.Sign() > 0 && value.Cmp(big.NewRat(stress.MaxScenarioParameter, 1)) <= 0
 }
 
 func getBaseCurvePoints(

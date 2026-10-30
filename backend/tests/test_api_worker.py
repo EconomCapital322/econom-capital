@@ -7,7 +7,7 @@ import signal
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import date, timedelta
 from threading import Event
 from typing import Any
 from uuid import UUID, uuid4
@@ -58,10 +58,10 @@ async def client_context(settings: Settings) -> AsyncIterator[tuple[httpx.AsyncC
         root.handlers, root.level = handlers, level
 
 
-async def create(client: httpx.AsyncClient) -> UUID:
+async def create(client: httpx.AsyncClient, report_date: date = REPORT_DATE) -> UUID:
     response = await client.post(
         "/api/v1/curve-runs",
-        json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
+        json={"reportDate": str(report_date), "scenarioParameters": {"mode": "standard"}},
     )
     assert response.status_code == 202, response.text
     value = UUID(response.json()["runId"])
@@ -93,7 +93,11 @@ async def test_http_and_complete_fake_flow(
             "points": [],
         }
         run_id = await create(client)
-        other = await create(client)
+        later_date = REPORT_DATE + timedelta(days=1)
+        await InputRatesRepository.replace_current(
+            connection, rates.model_copy(update={"report_date": later_date}), loaded_at=AS_OF
+        )
+        other = await create(client, later_date)
         queued = (await client.get(f"/api/v1/curve-runs/{run_id}")).json()
         assert queued["status"] == "queued" and queued["stage"] == "base"
         assert queued["usedParameters"] == {"mode": "standard", "p": 4, "k": 5, "d": 3}
@@ -113,7 +117,9 @@ async def test_http_and_complete_fake_flow(
         assert result.status_code == 200 and len(result.json()["curves"]) == 7
         assert len(result.json()["curves"][0]["points"]) == 2
         listing = (await client.get("/api/v1/curve-runs?reportDate=2026-07-31")).json()
-        assert [r["runId"] for r in listing["runs"]] == [str(other), str(run_id)]
+        assert [r["runId"] for r in listing["runs"]] == [str(run_id)]
+        other_listing = (await client.get(f"/api/v1/curve-runs?reportDate={later_date}")).json()
+        assert [r["runId"] for r in other_listing["runs"]] == [str(other)]
         updated = rates.model_copy(
             update={
                 "source_as_of": AS_OF + timedelta(hours=1),
@@ -155,6 +161,12 @@ async def test_http_validation_and_no_partial_runs(
     api_settings: Settings, connection: DBConnection
 ) -> None:
     async with client_context(api_settings) as (client, app):
+        schema = (await client.get("/openapi.json")).json()
+        request_schema = schema["paths"]["/api/v1/curve-runs"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        alternatives = request_schema["properties"]["scenarioParameters"]["oneOf"]
+        assert alternatives[1]["properties"]["p"]["maximum"] == 50
         assert (
             await client.post(
                 "/api/v1/curve-runs",
@@ -166,7 +178,7 @@ async def test_http_validation_and_no_partial_runs(
             {"mode": "standard", "p": 4},
             {"mode": "other"},
             {"mode": "custom", "p": 0, "k": 1, "d": 1},
-            {"mode": "custom", "p": 26, "k": 1, "d": 1},
+            {"mode": "custom", "p": 51, "k": 1, "d": 1},
             {"mode": "custom", "p": True, "k": 1, "d": 1},
             {"mode": "custom", "p": "4", "k": 1, "d": 1},
             {"mode": "custom", "p": None, "k": 1, "d": 1},
@@ -262,13 +274,14 @@ async def test_custom_decimal_and_missing_spec(
         r = await client.post(
             "/api/v1/curve-runs",
             content='{"reportDate":"2026-07-31",'
-            '"scenarioParameters":{"mode":"custom","p":4.12345678901234567890123456789,"k":25,"d":0.5}}',
+            '"scenarioParameters":{"mode":"custom","p":4.12345678901234567890123456789,"k":50,"d":0.5}}',
             headers={"Content-Type": "application/json; charset=utf-8"},
         )
         assert r.status_code == 202
         state = await client.get(r.headers["Location"])
         data = simplejson.loads(state.content, use_decimal=True)
         assert str(data["usedParameters"]["p"]) == "4.12345678901234567890123456789"
+        assert data["usedParameters"]["k"] == 50
         app.state.settings.calculation.spec_file = None
         missing = await client.post(
             "/api/v1/curve-runs",
@@ -390,7 +403,11 @@ async def test_killed_worker_recovery_and_second_process_guard(
     await InputRatesRepository.replace_current(connection, rates, loaded_at=AS_OF)
     async with client_context(api_settings) as (client, app):
         run_id = await create(client)
-        other = await create(client)
+        later_date = REPORT_DATE + timedelta(days=1)
+        await InputRatesRepository.replace_current(
+            connection, rates.model_copy(update={"report_date": later_date}), loaded_at=AS_OF
+        )
+        other = await create(client, later_date)
         env = worker_environment(api_settings)
         process = await asyncio.create_subprocess_exec(
             sys.executable,

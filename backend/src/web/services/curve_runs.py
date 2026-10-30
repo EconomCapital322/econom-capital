@@ -14,7 +14,7 @@ from web.integrations.specification import load_specification
 from web.repositories.curve_runs import CurveRunsRepository
 from web.repositories.curves import CurvesRepository
 from web.repositories.input_rates import InputRatesRepository
-from web.repositories.models import CalculationSpec, Curve, ScenarioParameters, StoredRun
+from web.repositories.models import CalculationSpec, Curve, RunStatus, ScenarioParameters, StoredRun
 from web.schemas.responses import (
     BucketPoint,
     CurveResponse,
@@ -82,7 +82,9 @@ class RunService:
         except ImplementationUnavailable as exc:
             raise ApiError(503, "SERVICE_UNAVAILABLE", str(exc)) from None
 
-    async def create(self, report_date: date, parameters: ScenarioParameters) -> UUID:
+    async def create(
+        self, report_date: date, parameters: ScenarioParameters
+    ) -> tuple[UUID, RunStatus]:
         # Absence has priority over a missing specification; no speculative run is saved.
         async with self.database.connection() as connection:
             if await InputRatesRepository.read_current(connection, report_date) is None:
@@ -92,9 +94,17 @@ class RunService:
         spec = self.calculation_spec()
         try:
             async with self.database.transaction() as connection:
-                return await CurveRunsRepository.create_run(
-                    connection, report_date=report_date, parameters=parameters, spec=spec
+                run_id = await CurveRunsRepository.create_run(
+                    connection,
+                    report_date=report_date,
+                    parameters=parameters,
+                    spec=spec,
+                    run_origin="automatic" if parameters.mode == "standard" else "manual",
                 )
+                run = await CurveRunsRepository.get_run(connection, run_id)
+                if run is None:
+                    raise RuntimeError("Accepted calculation run was not found")
+                return run_id, run.status
         except InputDataNotReady:
             raise ApiError(
                 409, "INPUT_DATA_NOT_READY", "No validated input rates for this date"
