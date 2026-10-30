@@ -16,6 +16,7 @@ export function buildCurveCsv(result: CurveCalculation): string {
   const rows: (string | number)[][] = [[
     'Отчётная дата', 'Сценарий', 'Бакет', 'Расчётный тенор, лет',
     'Доходность, % годовых', 'P, п.п.', 'K, п.п.', 'D, п.п.',
+    'Происхождение данных', 'Способ запуска',
   ]]
   const curves = [
     { name: 'Базовая кривая', points: result.baseCurve },
@@ -27,7 +28,9 @@ export function buildCurveCsv(result: CurveCalculation): string {
   for (const curve of curves) {
     for (const point of curve.points) {
       rows.push([result.reportDate, curve.name, point.label, point.tenorYears, point.rate,
-        result.parameters.p, result.parameters.k, result.parameters.d])
+        result.parameters.p, result.parameters.k, result.parameters.d,
+        result.dataProvenance === 'synthetic' ? 'Синтетические' : result.dataProvenance === 'market' ? 'Рыночные' : 'Не указано',
+        result.runOrigin === 'automatic' ? 'Автоматический' : result.runOrigin === 'manual' ? 'Ручной' : 'Не указан'])
     }
   }
   return '\uFEFF' + rows.map(row => row.map(csvCell).join(';')).join('\r\n') + '\r\n'

@@ -1,3 +1,6 @@
+export type DataProvenance = 'market' | 'synthetic'
+export type RunOrigin = 'manual' | 'automatic'
+
 export interface ScenarioParameters {
   p: number
   k: number
@@ -31,6 +34,8 @@ export interface StressCurve {
 }
 
 export interface CurveCalculation {
+  readonly dataProvenance?: DataProvenance
+  readonly runOrigin?: RunOrigin
   readonly reportDate: string
   readonly parameters: Readonly<ScenarioParameters>
   readonly baseCurve: readonly CurvePoint[]

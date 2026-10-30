@@ -4,9 +4,17 @@ import { useCurvesApi } from './useCurvesApi'
 import { isReportDate } from '../utils/validateCurves'
 import { ApiRequestError } from '../api/httpAdapter'
 import { calculationError, inputPreview } from '../api/httpContract'
+import type { RemoteSnapshot } from '../api/httpContract'
 import type { ScenarioParameters, CurveCalculation } from '../utils/curveTypes'
 
 type RemoteState = { status: 'idle' | 'running' } | { status: 'error'; message: string } | { status: 'ready'; result: CurveCalculation }
+
+interface StartVariables {
+  date: string
+  parameters: ScenarioParameters
+  parent?: string
+  previousRunId?: string
+}
 
 export function useRemoteCurves(reportDate: string) {
   const { remote } = useCurvesApi()
@@ -16,7 +24,7 @@ export function useRemoteCurves(reportDate: string) {
   const submitting = useRef(false)
   const preferredId = selections[reportDate]
   const queryKey = ['server-curves', remote?.cacheKey, reportDate, preferredId, refreshVersion] as const
-  const query = useQuery({
+  const query = useQuery<RemoteSnapshot, Error>({
     queryKey,
     enabled: !!remote && isReportDate(reportDate),
     queryFn: ({ signal }) => {
@@ -36,9 +44,9 @@ export function useRemoteCurves(reportDate: string) {
       return !status && q.state.dataUpdateCount < 24 ? 5000 : false
     },
   })
-  const mutation = useMutation({
+  const mutation = useMutation<string, Error, StartVariables>({
     retry: false,
-    mutationFn: async (variables: { date: string; parameters: ScenarioParameters; parent?: string; previousRunId?: string }) => {
+    mutationFn: async (variables: StartVariables) => {
       if (!remote) throw new Error('Серверный адаптер не подключён.')
       return remote.start(variables.date, variables.parameters, variables.parent)
     },
@@ -66,6 +74,19 @@ export function useRemoteCurves(reportDate: string) {
   else if (snapshot?.result) state = { status: 'ready', result: snapshot.result }
   if (mutation.isError && mutationForDate && state.status !== 'running' && (!run || run.runId === mutation.variables?.previousRunId)) state = { status: 'error', message: mutation.error.message }
 
+  function refresh() {
+    const cachedStatus = query.data?.run?.status
+    const active = cachedStatus === 'queued' || cachedStatus === 'running' ||
+      (mutation.isPending && mutationForDate)
+    if (!active) setSelections(current => {
+      const next = { ...current }
+      delete next[reportDate]
+      return next
+    })
+    if (!mutation.isPending) mutation.reset()
+    setRefreshVersion(version => version + 1)
+  }
+
   async function start(parameters: ScenarioParameters) {
     if (!remote || submitting.current || query.isFetching || state.status === 'running' || !snapshot) return
     // Stress recalculation is tied to the parent's saved base and source, not
@@ -80,7 +101,7 @@ export function useRemoteCurves(reportDate: string) {
   const validation = mutation.isError && mutationForDate && mutation.error instanceof ApiRequestError
     ? { parameters: mutation.variables.parameters, fields: mutation.error.fieldErrors } : undefined
   return { enabled: !!remote, query, state, start, validation, isSubmitting: mutation.isPending && mutationForDate,
-    refresh: () => setRefreshVersion(version => version + 1),
+    refresh,
     canStart: !!snapshot && !mutation.isPending && !query.isFetching && (snapshot.input.available || run?.stage === 'stress'),
     preview: snapshot ? inputPreview(snapshot.input, snapshot.result) : null }
 }

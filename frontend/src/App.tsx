@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactElement } from 'react'
 import { Header } from './components/Header/Header'
 import { ParametersControl } from './components/Parameters/ParametersControl'
 import { CurvePreviewPanel } from './components/CurvePreview/CurvePreviewPanel'
@@ -13,8 +14,11 @@ import { isReportDate } from './utils/validateCurves'
 import { useRemoteCurves } from './hooks/useRemoteCurves'
 import './App.css'
 
-function App() {
-  const [reportDate, setReportDate] = useState('2026-07-31')
+function App(): ReactElement {
+  const [reportDate, setReportDate] = useState(() => {
+    const date = new URL(window.location.href).searchParams.get('reportDate')
+    return isReportDate(date) ? date : '2026-07-31'
+  })
   const [parameters, setParameters] = useState<ScenarioParameters>({ ...STANDARD_PARAMETERS })
   const demonstration = useDemonstration()
   const demoMode = demonstration.mode
@@ -41,6 +45,10 @@ function App() {
   function changeDate(nextDate: string) {
     if (nextDate === reportDate) return
     setReportDate(nextDate)
+    const url = new URL(window.location.href)
+    if (isReportDate(nextDate)) url.searchParams.set('reportDate', nextDate)
+    else url.searchParams.delete('reportDate')
+    window.history.replaceState(window.history.state, '', url)
     setParameters({ ...STANDARD_PARAMETERS })
     reset()
   }
@@ -84,7 +92,7 @@ function App() {
         {server.enabled ? <div className="results-region" aria-busy={isRunning || sourceQuery.isFetching}>
           <CurvePreviewPanel preview={displayedCalculation ? preview : null} calculation={displayedCalculation}
             error={sourceQuery.isError ? (sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Не удалось получить данные сервера.') : state.status === 'error' ? state.message : undefined}
-            message={!validDate ? 'Выберите отчётную дату.' : sourceQuery.isPending ? 'Получаем данные за выбранную дату…' : isRunning ? 'Выполняется серверный расчёт. Результат появится после завершения.' : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Ожидаем автоматический расчёт на сервере. Можно запустить перерасчёт вручную.' : undefined} />
+            message={!validDate ? 'Выберите отчётную дату.' : sourceQuery.isPending ? 'Получаем данные за выбранную дату…' : isRunning ? 'Выполняется серверный расчёт. Результат появится после завершения.' : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Готового расчёта пока нет. Нажмите «Пересчитать кривые».' : undefined} />
         </div> : !validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
           : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={checkSource} disabled={sourceQuery.isFetching}>Повторить получение данных</Button></div>
           : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} error={state.status === 'error' ? state.message : undefined} /></div>}
@@ -99,7 +107,7 @@ function App() {
           <p>Расчёт выполняется локально с демонстрационной задержкой. Ошибка возникает один раз: повторная попытка доступна сразу. Данные Excel есть только за 31.07.2026.</p>
           {demoMode === 'no-data' && <p role="status">Отсутствие данных показано для демонстрации.</p>}
         </details>}
-        <div className="data-availability" role="status">{preview && (!server.enabled || server.query.data?.input.available) ? <><span>Ставки за дату доступны</span><span>{preview.source} · {server.enabled && server.query.data?.input.sourceAsOf ? `${new Date(server.query.data.input.sourceAsOf).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : `${new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU')}, ${preview.sourceTime}`}</span></> : <span>{!validDate ? 'Отчётная дата не выбрана' : sourceQuery.isFetching ? 'Получаем исходные ставки' : sourceQuery.isError ? 'Исходные ставки недоступны' : 'Нет ставок за выбранную дату'}</span>}{validDate && (!sourceQuery.isError || server.enabled) && <Button variant="outline" className="source-refresh" onClick={checkSource} disabled={sourceQuery.isFetching}>{sourceQuery.isFetching ? 'Проверяем данные…' : sourceQuery.isError ? 'Повторить получение данных' : 'Проверить наличие данных'}</Button>}</div>
+        <div className="data-availability" role="status">{preview && (!server.enabled || server.query.data?.input.available) ? <><span>Ставки за дату доступны</span><span>{server.enabled && server.query.data?.input.dataProvenance === 'synthetic' ? 'Синтетические данные' : preview.source} · {server.enabled && server.query.data?.input.sourceAsOf ? `${new Date(server.query.data.input.sourceAsOf).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : `${new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU')}, ${preview.sourceTime}`}</span></> : <span>{!validDate ? 'Отчётная дата не выбрана' : sourceQuery.isFetching ? 'Получаем исходные ставки' : sourceQuery.isError ? 'Исходные ставки недоступны' : 'Нет ставок за выбранную дату'}</span>}{validDate && (!sourceQuery.isError || server.enabled) && <Button variant="outline" className="source-refresh" onClick={checkSource} disabled={sourceQuery.isFetching}>{sourceQuery.isFetching ? 'Проверяем данные…' : sourceQuery.isError ? 'Повторить получение данных' : 'Проверить наличие данных'}</Button>}</div>
       </main>
       <footer className="app-footer"><span>{demonstration.available ? 'Демонстрационные значения из Excel. Подключение к MOEX и БД не выполняется.' : 'Данные предоставлены сервером модуля кривых.'}</span><span>Методика IRRBB · Банк России, 8-МР</span></footer>
     </div>

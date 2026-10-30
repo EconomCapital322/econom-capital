@@ -1,4 +1,4 @@
-import { isPositiveParameter, STANDARD_PARAMETERS, PARAMETER_ERROR } from '../utils/parameters'
+import { isPositiveParameter, STANDARD_PARAMETERS } from '../utils/parameters'
 import { isReportDate } from '../utils/validateCurves'
 import type { ScenarioParameters } from '../utils/curveTypes'
 import type { CurvesService } from './types'
@@ -40,9 +40,15 @@ function responseError(status: number, value: unknown): ApiRequestError {
   const fields: Partial<Record<keyof ScenarioParameters, string>> = {}
   if (status === 422 && Array.isArray(error?.details)) {
     for (const detail of error.details) {
-      if (!detail || typeof detail.field !== 'string') continue
-      const match = /^(?:scenarioParameters\.)?(p|k|d)$/.exec(detail.field)
-      if (match) fields[match[1] as keyof ScenarioParameters] = PARAMETER_ERROR
+      if (!detail || typeof detail !== 'object' || !('field' in detail)) continue
+      const field: unknown = detail['field']
+      if (typeof field !== 'string') continue
+      const match = /^(?:scenarioParameters\.)?([pkd])$/.exec(field)
+      if (match) {
+        // The public backend currently hides validation reasons as 'Invalid value'.
+        // Do not infer its bounds from the independent product limit of 50.
+        fields[match[1] as keyof ScenarioParameters] = 'Сервер отклонил значение. Проверьте допустимые параметры.'
+      }
     }
   }
   // Server message/reason may contain internal paths or exception text. Only
@@ -95,9 +101,24 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
       const input = parseInput(rawInput, reportDate), runs = parseList(rawList, reportDate)
       const id = preferredRunId ?? runs[0]?.runId
       if (!id) return { input, runs, run: null, result: null }
-      const run = parseState(await request(`/curve-runs/${runId(id)}`, { signal }), reportDate, id)
-      const result = run.status === 'ready' ? parseResult(await request(`/curve-runs/${id}/result`, { signal }), run) : null
-      return { input, runs, run, result }
+      let availableRuns = runs
+      let rawState: unknown
+      let selectedId = id
+      try {
+        rawState = await request(`/curve-runs/${runId(selectedId)}`, { signal })
+      } catch (error) {
+        // Only a missing explicitly selected run may fall back. Transport errors
+        // must remain errors; never hide them by opening a different calculation.
+        if (!preferredRunId || !(error instanceof ApiRequestError) || error.status !== 404) throw error
+        const latest = parseList(await request(`/curve-runs${query}`, { signal }), reportDate)
+        availableRuns = latest
+        selectedId = latest.find(item => item.runId !== preferredRunId)?.runId ?? ''
+        if (!selectedId) return { input, runs: latest, run: null, result: null }
+        rawState = await request(`/curve-runs/${runId(selectedId)}`, { signal })
+      }
+      const run = parseState(rawState, reportDate, selectedId)
+      const result = run.status === 'ready' ? parseResult(await request(`/curve-runs/${selectedId}/result`, { signal }), run) : null
+      return { input, runs: availableRuns, run, result }
     },
     async start(reportDate, parameters, parentRunId) {
       if (!isReportDate(reportDate) || ![parameters.p, parameters.k, parameters.d].every(isPositiveParameter)) throw new Error('Проверьте дату и параметры расчёта.')
@@ -113,8 +134,8 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
   return {
     remote,
     adapter: {
-      async getBaseCurve() { throw new Error('Используйте получение состояния серверного расчёта.') },
-      async calculateCurves() { throw new Error('Локальный расчёт отключён в режиме API.') },
+      async getBaseCurve(): Promise<never> { throw new Error('Используйте получение состояния серверного расчёта.') },
+      async calculateCurves(): Promise<never> { throw new Error('Локальный расчёт отключён в режиме API.') },
     },
   }
 }
