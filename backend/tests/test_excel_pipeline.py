@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, localcontext
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -204,10 +204,30 @@ async def test_excel_full_http_sql_go_pipeline(
             async with Database.open(api_settings.database) as database:
                 await load_rates(database, REPORT_DATE, fetch, loader)
             assert await connection.fetchval("SELECT count(*) FROM curve_run") == 2
-            after_close = await client.post(
+            reused = await client.post(
                 "/api/v1/curve-runs",
                 json={
                     "reportDate": str(REPORT_DATE),
+                    "scenarioParameters": {"mode": "standard"},
+                },
+            )
+            assert reused.status_code == 200
+            assert reused.json() == {"runId": str(run_id), "status": "ready"}
+            assert await connection.fetchval("SELECT count(*) FROM curve_run") == 2
+
+            later_date = REPORT_DATE + timedelta(days=1)
+            later_rates = rates.model_copy(update={"report_date": later_date})
+
+            async def fetch_later(report_date: date) -> MarketRates:
+                assert report_date == later_date
+                return later_rates
+
+            async with Database.open(api_settings.database) as database:
+                assert await load_rates(database, later_date, fetch_later, loader) == "saved"
+            after_close = await client.post(
+                "/api/v1/curve-runs",
+                json={
+                    "reportDate": str(later_date),
                     "scenarioParameters": {"mode": "standard"},
                 },
             )
@@ -230,7 +250,12 @@ async def test_excel_full_http_sql_go_pipeline(
             history = (await restarted.get(f"/api/v1/curve-runs?reportDate={REPORT_DATE}")).json()[
                 "runs"
             ]
-            assert len(history) == 3 and all(r["runOrigin"] == "manual" for r in history)
+            assert len(history) == 2
+            assert {r["runOrigin"] for r in history} == {"automatic", "manual"}
+            later_history = (
+                await restarted.get(f"/api/v1/curve-runs?reportDate={later_date}")
+            ).json()["runs"]
+            assert len(later_history) == 1 and later_history[0]["runOrigin"] == "automatic"
         print(
             f"EXCEL {dataset}: inputs=19 buckets={len(spec.grid)} points/run={7 * len(spec.grid)} "
             f"max_absolute_errors={maximum}"

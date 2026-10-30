@@ -6,11 +6,18 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 from pydantic.alias_generators import to_camel
 
-from web.repositories.models import STRESS_CODES, CurveCode, RunOrigin, RunStage, RunStatus
+from web.repositories.models import (
+    MAX_SCENARIO_PARAMETER,
+    STRESS_CODES,
+    CurveCode,
+    RunOrigin,
+    RunStage,
+    RunStatus,
+)
 
 Number = Annotated[Decimal, Field(allow_inf_nan=False), WithJsonSchema({"type": "number"})]
 PositiveNumber = Annotated[Number, Field(gt=0)]
-Parameter = Annotated[PositiveNumber, Field(le=25)]
+Parameter = Annotated[PositiveNumber, Field(le=MAX_SCENARIO_PARAMETER)]
 
 
 class OutputModel(BaseModel):
@@ -80,7 +87,7 @@ class ErrorResponse(OutputModel):
 
 class AcceptedResponse(OutputModel):
     run_id: UUID
-    status: Literal["queued"]
+    status: Literal["queued", "running", "ready"]
 
 
 class StateResponse(OutputModel):

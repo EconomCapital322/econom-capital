@@ -115,8 +115,8 @@ func TestHandlerCustomParameters(t *testing.T) {
 		},
 		{
 			name: "inclusive_upper_boundary", rate: "1",
-			parameters: ParametersRequest{Mode: "custom", P: "25", K: "25", D: "25"},
-			rates:      []float64{26, -24, 4.125, 3.5, 13.5, -11.5},
+			parameters: ParametersRequest{Mode: "custom", P: "50", K: "50", D: "50"},
+			rates:      []float64{51, -49, 7.25, 6, 26, -24},
 		},
 	}
 	for _, test := range tests {
@@ -169,7 +169,7 @@ func TestHandlerRejectsInvalidRequest(t *testing.T) {
 		{"missing_p", "parameters", "p", ""},
 		{"zero_p", "parameters", "p", `"0"`},
 		{"negative_k", "parameters", "k", `"-1"`},
-		{"too_large_d", "parameters", "d", `"25.00000000000000000001"`},
+		{"too_large_d", "parameters", "d", `"50.00000000000000000001"`},
 		{"standard_p_mismatch", "parameters", "p", `"4.5"`},
 		{"standard_k_mismatch", "parameters", "k", `"5.5"`},
 		{"standard_d_mismatch", "parameters", "d", `"3.5"`},
