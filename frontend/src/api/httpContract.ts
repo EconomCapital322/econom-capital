@@ -1,15 +1,17 @@
-import type { CurveCalculation, CurvePoint, CurvePreview, ScenarioParameters, StressScenarioCode } from '../utils/curveTypes'
+import type { CurveCalculation, CurvePoint, CurvePreview, ScenarioParameters, StressScenarioCode, DataProvenance, RunOrigin } from '../utils/curveTypes'
 import { isCompleteCalculation, isReportDate } from '../utils/validateCurves'
 
 export type RunStatus = 'queued' | 'running' | 'ready' | 'failed'
 export type RunStage = 'base' | 'stress'
 export interface UsedParameters extends ScenarioParameters { mode: 'standard' | 'custom' }
 export interface InputRatesDto {
+  dataProvenance: DataProvenance
   reportDate: string; available: boolean; source: 'moex'
   sourceAsOf: string | null; loadedAt: string | null
   points: { tenorYears: number; ratePercent: number }[]
 }
 export interface RunDto {
+  dataProvenance: DataProvenance; runOrigin: RunOrigin
   runId: string; status: RunStatus; stage: RunStage; usedParameters: UsedParameters
   createdAt?: string
 }
@@ -45,11 +47,17 @@ function timestamp(value: unknown): string {
   const result = text(value)
   return /(?:Z|[+-]\d\d:\d\d)$/.test(result) && Number.isFinite(Date.parse(result)) ? result : invalidResponse()
 }
+function provenance(value: unknown): DataProvenance {
+  return value === 'market' || value === 'synthetic' ? value : invalidResponse()
+}
+function origin(value: unknown): RunOrigin {
+  return value === 'manual' || value === 'automatic' ? value : invalidResponse()
+}
 function parameters(value: unknown): UsedParameters {
   const p = record(value)
   if (p.mode !== 'standard' && p.mode !== 'custom') return invalidResponse()
   const result = { mode: p.mode, p: finite(p.p), k: finite(p.k), d: finite(p.d) }
-  if (![result.p, result.k, result.d].every(v => v > 0 && v <= 25) ||
+  if (![result.p, result.k, result.d].every(v => v > 0 && v <= 50) ||
       (result.mode === 'standard' && (result.p !== 4 || result.k !== 5 || result.d !== 3))) return invalidResponse()
   return result as UsedParameters
 }
@@ -68,12 +76,14 @@ export function parseInput(value: unknown, date: string): InputRatesDto {
   const sourceAsOf = dto.sourceAsOf === null ? null : timestamp(dto.sourceAsOf)
   const loadedAt = dto.loadedAt === null ? null : timestamp(dto.loadedAt)
   if (dto.available ? !points.length || !sourceAsOf || !loadedAt : points.length || sourceAsOf || loadedAt) return invalidResponse()
-  return { reportDate: date, source: 'moex', available: dto.available, sourceAsOf, loadedAt, points }
+  // InputRatesResponse omits its market default with exclude_unset=True.
+  // Synthetic responses explicitly set the field; unknown values remain invalid.
+  return { dataProvenance: dto.dataProvenance === undefined ? 'market' : provenance(dto.dataProvenance), reportDate: date, source: 'moex', available: dto.available, sourceAsOf, loadedAt, points }
 }
 export function parseRun(value: unknown): RunDto {
   const dto = record(value)
   if (!['queued', 'running', 'ready', 'failed'].includes(String(dto.status)) || !['base', 'stress'].includes(String(dto.stage))) return invalidResponse()
-  return { runId: runId(dto.runId), status: dto.status as RunStatus, stage: dto.stage as RunStage,
+  return { dataProvenance: provenance(dto.dataProvenance), runOrigin: origin(dto.runOrigin), runId: runId(dto.runId), status: dto.status as RunStatus, stage: dto.stage as RunStage,
     usedParameters: parameters(dto.usedParameters), ...(dto.createdAt === undefined ? {} : { createdAt: timestamp(dto.createdAt) }) }
 }
 export function parseList(value: unknown, date: string): RunDto[] {
@@ -89,7 +99,7 @@ function curve(value: unknown): { code: StressScenarioCode | 'base'; points: Cur
   if (!code) return invalidResponse()
   const points = array(dto.points).map(value => {
     const p = record(value)
-    return { label: text(p.bucketLabel), tenorYears: finite(p.tenorYears), rate: finite(p.ratePercent) }
+    return { label: text(p['bucketLabel']), tenorYears: finite(p.tenorYears), rate: finite(p.ratePercent) }
   })
   if (!points.length || new Set(points.map(p => p.label)).size !== points.length ||
       points.some((p, i) => p.tenorYears <= 0 || (i > 0 && p.tenorYears <= points[i - 1].tenorYears))) return invalidResponse()
@@ -110,12 +120,13 @@ export function parseResult(value: unknown, run: RunStateDto): CurveCalculation 
   const dto = record(value)
   if (run.status !== 'ready' || runId(dto.runId) !== run.runId || dto.source !== 'moex') return invalidResponse()
   checkDate(dto.reportDate, run.reportDate)
-  timestamp(dto.completedAt)
+  if (provenance(dto.dataProvenance) !== run.dataProvenance || origin(dto.runOrigin) !== run.runOrigin) return invalidResponse()
+  timestamp(dto['completedAt'])
   const used = parameters(dto.usedParameters)
   if (used.mode !== run.usedParameters.mode || ['p', 'k', 'd'].some(key => used[key as keyof ScenarioParameters] !== run.usedParameters[key as keyof ScenarioParameters])) return invalidResponse()
-  const curves = array(dto.curves).map(curve), base = curves.find(c => c.code === 'base')
+  const curves = array(dto['curves']).map(curve), base = curves.find(c => c.code === 'base')
   if (curves.length !== 7 || new Set(curves.map(c => c.code)).size !== 7 || !base) return invalidResponse()
-  const result = { reportDate: run.reportDate, parameters: { p: used.p, k: used.k, d: used.d }, baseCurve: base.points,
+  const result = { dataProvenance: run.dataProvenance, runOrigin: run.runOrigin, reportDate: run.reportDate, parameters: { p: used.p, k: used.k, d: used.d }, baseCurve: base.points,
     stressCurves: curves.filter((c): c is { code: StressScenarioCode; points: CurvePoint[] } => c.code !== 'base') }
   if (!isCompleteCalculation(result)) return invalidResponse()
   if (run.baseCurve && JSON.stringify(run.baseCurve.points) !== JSON.stringify(base.points)) return invalidResponse()
@@ -133,6 +144,7 @@ export function calculationError(code?: string): string {
     case 'CALCULATION_TIMEOUT': return 'Расчёт превысил время ожидания. Попробуйте ещё раз.'
     case 'CALCULATION_INTERRUPTED': return 'Выполнение расчёта прервано на сервере. Повторите расчёт.'
     case 'BASE_CURVE_FAILED': return 'Не удалось построить базовую кривую. Повторите расчёт.'
-    default: return 'Не удалось рассчитать стрессовые кривые. Повторите расчёт.'
+    case 'CALCULATION_FAILED': return 'Не удалось рассчитать стрессовые кривые. Повторите расчёт.'
+    default: return 'Расчёт завершился с ошибкой. Повторите попытку.'
   }
 }

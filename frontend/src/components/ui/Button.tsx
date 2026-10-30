@@ -1,6 +1,6 @@
-import type { ButtonHTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, ReactElement } from 'react'
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'outline'
 }
 
@@ -9,7 +9,7 @@ export function Button({
   className = '',
   type = 'button',
   ...props
-}: ButtonProps) {
+}: ButtonProps): ReactElement {
   return (
     <button
       {...props}

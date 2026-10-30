@@ -1,19 +1,22 @@
-import pencilIcon from '../../assets/images/parameter-pencil.svg'
+import type { ReactElement } from 'react'
 import { useId, useRef, useState } from 'react'
 import type { ScenarioParameters } from '../../utils/curveTypes'
 import { formatParameter } from '../../utils/parameters'
 import { ParametersDialog } from './ParametersDialog'
 
-interface ParametersControlProps {
+const pencilIcon = new URL('../../assets/images/parameter-pencil.svg', import.meta.url).href
+
+export interface ParametersControlProps {
   value: ScenarioParameters
   onChange: (value: ScenarioParameters) => void
   disabled?: boolean
+  errors?: Partial<Record<keyof ScenarioParameters, string>>
 }
 
-export function ParametersControl({ value, onChange, disabled = false }: ParametersControlProps) {
+export function ParametersControl({ value, onChange, disabled = false, errors }: ParametersControlProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false)
   const helpId = useId()
-  const editRef = useRef<HTMLButtonElement>(null)
+  const editRef = useRef<HTMLButtonElement | null>(null)
 
   function close() {
     setIsOpen(false)
@@ -44,7 +47,7 @@ export function ParametersControl({ value, onChange, disabled = false }: Paramet
           <img src={pencilIcon} alt="" width="25" height="25" />
         </button>
       </div>
-      {isOpen && <ParametersDialog initialValue={value} onClose={close} onApply={(next) => { onChange(next); close() }} />}
+      {isOpen && <ParametersDialog initialValue={value} initialErrors={errors} onClose={close} onApply={(next) => { onChange(next); close() }} />}
     </div>
   )
 }

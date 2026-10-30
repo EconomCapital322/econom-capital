@@ -1,10 +1,12 @@
-import exportIcon from '../../assets/images/export.svg'
+import type { ReactElement } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
-import chevronIcon from '../../assets/images/curves-chevron.svg'
 import type { CurveCalculation, CurvePreview, StressScenarioCode } from '../../utils/curveTypes'
 import { formatRate, formatParameter } from '../../utils/parameters'
 import { canExportCurveCalculation, downloadCurveCsv } from '../../utils/curveCsv'
 import { Button } from '../ui/Button'
+
+const exportIcon = new URL('../../assets/images/export.svg', import.meta.url).href
+const chevronIcon = new URL('../../assets/images/curves-chevron.svg', import.meta.url).href
 
 const SCENARIO_DETAILS: Partial<Record<StressScenarioCode, string>> = {
   steepener: 'короткие вниз, длинные вверх',
@@ -28,20 +30,20 @@ const SCENARIO_STYLES: Record<StressScenarioCode, { color: string; dash?: string
   'short-down': { color: 'var(--chart-short-down)', dash: '9 3 2 3' },
 }
 
-interface CurvePreviewPanelProps {
+export interface CurvePreviewPanelProps {
   preview: CurvePreview | null
   calculation: CurveCalculation | null
   error?: string
   message?: string
 }
 
-export function CurvePreviewPanel({ preview, calculation, error, message }: CurvePreviewPanelProps) {
+export function CurvePreviewPanel({ preview, calculation, error, message }: CurvePreviewPanelProps): ReactElement {
   const [view, setView] = useState<'graph' | 'table'>('table')
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [focusedPoint, setFocusedPoint] = useState<number | null>(null)
   const [legendExpanded, setLegendExpanded] = useState(true)
-  const plotRef = useRef<HTMLDivElement>(null)
+  const plotRef = useRef<HTMLDivElement | null>(null)
   const [plotSize, setPlotSize] = useState({ width: 1319, height: 263 })
   const panelId = useId()
   useEffect(() => {
@@ -76,8 +78,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
   )
 
   if (!preview) return (
-    <section className="results-panel" aria-live="polite">
-      <div className="results-panel__header"><h2>Результаты</h2></div>
+    <section className="results-panel results-panel--empty" aria-live="polite">
       <div className="empty-state">
         <div className="empty-state__symbol" aria-hidden="true">⌁</div>
         <h2>Нет исходных данных</h2>
@@ -164,7 +165,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
             <p>Доходность, % годовых</p>
             {visibleCurves.length === 0 ? <div className="curve-chart__empty" role="status">Выберите кривую для отображения</div> : <div className="curve-chart__plot" ref={plotRef}>
             <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${heading} на ${dateLabel}. Выберите срок клавишей Tab, затем используйте стрелки.`}>
-              <title>{result ? 'Базовая кривая и шесть сценариев IRRBB' : 'Ставки на теноры бакетов, включая интерполяцию и экстраполяцию из Excel'}</title>
+              <title>{result ? 'Базовая кривая и шесть сценариев IRRBB' : 'Доходность по расчётным срокам'}</title>
               {ticks.map((tick, i) => <g key={i}><path d={`M${left} ${y(tick)}H${W - right}`} stroke="var(--chart-grid)" /><text x={left - 12} y={y(tick) + 4} textAnchor="end">{formatTick(tick)}</text></g>)}
               {basePoints.map((point, i) => <text key={point.label} x={x(i)} y={H - 15} textAnchor="middle">{point.label}</text>)}
               {visibleCurves.map(curve => (
@@ -227,7 +228,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
       </div>
       </>}
       </div>
-      {result && <p className="result-parameters" aria-label="Параметры расчёта" aria-live="polite"><span className="visually-hidden">Параметры расчёта: </span>P = {formatParameter(result.parameters.p)} п. п. · K = {formatParameter(result.parameters.k)} п. п. · D = {formatParameter(result.parameters.d)} п. п. · RUB</p>}
+      {result && <p className="result-parameters" aria-label="Параметры расчёта" aria-live="polite"><span className="visually-hidden">Параметры расчёта: </span>P = {formatParameter(result.parameters.p)} п. п. · K = {formatParameter(result.parameters.k)} п. п. · D = {formatParameter(result.parameters.d)} п. п. · RUB{result.dataProvenance && <> · {result.dataProvenance === 'synthetic' ? 'Синтетические данные' : 'Рыночные данные'}</>}{result.runOrigin && <> · {result.runOrigin === 'manual' ? 'Ручной запуск' : 'Автоматический запуск'}</>}</p>}
       <p className="visually-hidden" id={`${panelId}-export-note`}>CSV — формат прототипа. Окончательный формат ещё согласуется.</p>
     </section>
   )

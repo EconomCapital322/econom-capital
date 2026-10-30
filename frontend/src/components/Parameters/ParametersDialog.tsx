@@ -1,15 +1,17 @@
-import closeIcon from '../../assets/images/dialog-close.svg'
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactPortal } from 'react'
 import type { ScenarioParameters } from '../../utils/curveTypes'
 import { isPositiveParameter, PARAMETER_FIELDS, MAX_SCENARIO_PARAMETER, PARAMETER_ERROR, STANDARD_PARAMETERS } from '../../utils/parameters'
 import { Button } from '../ui/Button'
 
-interface ParametersDialogProps {
+const closeIcon = new URL('../../assets/images/dialog-close.svg', import.meta.url).href
+
+export interface ParametersDialogProps {
   initialValue: ScenarioParameters
   onApply: (value: ScenarioParameters) => void
   onClose: () => void
+  initialErrors?: Partial<Record<keyof ScenarioParameters, string>>
 }
 
 type Draft = Record<keyof ScenarioParameters, string>
@@ -18,16 +20,16 @@ function toDraft(value: Readonly<ScenarioParameters>): Draft {
   return { p: String(value.p), k: String(value.k), d: String(value.d) }
 }
 
-export function ParametersDialog({ initialValue, onApply, onClose }: ParametersDialogProps) {
+export function ParametersDialog({ initialValue, onApply, onClose, initialErrors }: ParametersDialogProps): ReactPortal {
   const [draft, setDraft] = useState(() => toDraft(initialValue))
   const [edited, setEdited] = useState<Record<keyof ScenarioParameters, boolean>>(() => ({
     p: initialValue.p !== STANDARD_PARAMETERS.p,
     k: initialValue.k !== STANDARD_PARAMETERS.k,
     d: initialValue.d !== STANDARD_PARAMETERS.d,
   }))
-  const [errors, setErrors] = useState<Partial<Record<keyof ScenarioParameters, string>>>({})
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const firstInputRef = useRef<HTMLInputElement>(null)
+  const [errors, setErrors] = useState<Partial<Record<keyof ScenarioParameters, string>>>(initialErrors ?? {})
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const firstInputRef = useRef<HTMLInputElement | null>(null)
   const titleId = useId()
   const descriptionId = useId()
 

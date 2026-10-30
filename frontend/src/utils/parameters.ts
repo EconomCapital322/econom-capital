@@ -13,7 +13,7 @@ export const PARAMETER_FIELDS = [
 ] as const
 
 export const MAX_SCENARIO_PARAMETER = 50
-export const PARAMETER_ERROR = 'Число должно быть положительным и меньше 50'
+export const PARAMETER_ERROR = 'Введите число больше 0 и не больше 50 п. п.'
 
 export function isPositiveParameter(value: number): boolean {
   return Number.isFinite(value) && value > 0 && value <= MAX_SCENARIO_PARAMETER
