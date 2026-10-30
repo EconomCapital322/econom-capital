@@ -8,9 +8,10 @@ interface ParametersControlProps {
   value: ScenarioParameters
   onChange: (value: ScenarioParameters) => void
   disabled?: boolean
+  errors?: Partial<Record<keyof ScenarioParameters, string>>
 }
 
-export function ParametersControl({ value, onChange, disabled = false }: ParametersControlProps) {
+export function ParametersControl({ value, onChange, disabled = false, errors }: ParametersControlProps) {
   const [isOpen, setIsOpen] = useState(false)
   const helpId = useId()
   const editRef = useRef<HTMLButtonElement>(null)
@@ -44,7 +45,7 @@ export function ParametersControl({ value, onChange, disabled = false }: Paramet
           <img src={pencilIcon} alt="" width="25" height="25" />
         </button>
       </div>
-      {isOpen && <ParametersDialog initialValue={value} onClose={close} onApply={(next) => { onChange(next); close() }} />}
+      {isOpen && <ParametersDialog initialValue={value} initialErrors={errors} onClose={close} onApply={(next) => { onChange(next); close() }} />}
     </div>
   )
 }

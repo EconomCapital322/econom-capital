@@ -10,6 +10,7 @@ interface ParametersDialogProps {
   initialValue: ScenarioParameters
   onApply: (value: ScenarioParameters) => void
   onClose: () => void
+  initialErrors?: Partial<Record<keyof ScenarioParameters, string>>
 }
 
 type Draft = Record<keyof ScenarioParameters, string>
@@ -18,14 +19,14 @@ function toDraft(value: Readonly<ScenarioParameters>): Draft {
   return { p: String(value.p), k: String(value.k), d: String(value.d) }
 }
 
-export function ParametersDialog({ initialValue, onApply, onClose }: ParametersDialogProps) {
+export function ParametersDialog({ initialValue, onApply, onClose, initialErrors }: ParametersDialogProps) {
   const [draft, setDraft] = useState(() => toDraft(initialValue))
   const [edited, setEdited] = useState<Record<keyof ScenarioParameters, boolean>>(() => ({
     p: initialValue.p !== STANDARD_PARAMETERS.p,
     k: initialValue.k !== STANDARD_PARAMETERS.k,
     d: initialValue.d !== STANDARD_PARAMETERS.d,
   }))
-  const [errors, setErrors] = useState<Partial<Record<keyof ScenarioParameters, string>>>({})
+  const [errors, setErrors] = useState<Partial<Record<keyof ScenarioParameters, string>>>(initialErrors ?? {})
   const dialogRef = useRef<HTMLDivElement>(null)
   const firstInputRef = useRef<HTMLInputElement>(null)
   const titleId = useId()

@@ -53,7 +53,8 @@ function App() {
 
   function checkSource() {
     if (!validDate || sourceQuery.isFetching) return
-    void sourceQuery.refetch({ cancelRefetch: false })
+    if (server.enabled) server.refresh()
+    else void sourceQuery.refetch({ cancelRefetch: false })
   }
 
   function changeDemoMode(value: DemoMode) {
@@ -69,7 +70,9 @@ function App() {
         <div className="curve-page__heading"><div><h1>Кривые доходности</h1><p>Базовая кривая и шесть сценариев изменения ставок</p></div></div>
         <section className="calculation-controls" aria-label="Настройка расчёта">
           <div className="report-date"><label className="form-label" htmlFor="report-date">Отчётная дата</label><input className="form-control" id="report-date" type="date" value={reportDate} onChange={event => changeDate(event.currentTarget.value)} onInput={event => changeDate(event.currentTarget.value)} /></div>
-          <ParametersControl value={parameters} onChange={setParameters} disabled={!canStart || isRunning} />
+          <ParametersControl value={parameters} onChange={setParameters} disabled={isRunning} errors={server.validation &&
+            ['p', 'k', 'd'].every(key => parameters[key as keyof ScenarioParameters] === server.validation?.parameters[key as keyof ScenarioParameters])
+            ? server.validation.fields : undefined} />
           <Button className="run-calculation" onClick={runCalculation} disabled={!canStart || isRunning}>{isRunning ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Выполняется…</> : state.status === 'error' ? 'Повторить расчёт' : 'Пересчитать кривые'}</Button>
         </section>
         {parametersChanged && <p className="calculation-hint" role="status">{server.enabled ? 'Выбранные параметры отличаются от параметров готового расчёта.' : 'Параметры изменены.'} Нажмите «Пересчитать кривые», чтобы применить их к новому расчёту.</p>}
@@ -81,7 +84,7 @@ function App() {
         {server.enabled ? <div className="results-region" aria-busy={isRunning || sourceQuery.isFetching}>
           <CurvePreviewPanel preview={displayedCalculation ? preview : null} calculation={displayedCalculation}
             error={sourceQuery.isError ? (sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Не удалось получить данные сервера.') : state.status === 'error' ? state.message : undefined}
-            message={!validDate ? 'Выберите отчётную дату.' : sourceQuery.isPending ? 'Получаем данные за выбранную дату…' : isRunning ? 'Выполняется серверный расчёт. Результат появится после завершения.' : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Готового расчёта пока нет — нажмите «Пересчитать кривые».' : undefined} />
+            message={!validDate ? 'Выберите отчётную дату.' : sourceQuery.isPending ? 'Получаем данные за выбранную дату…' : isRunning ? 'Выполняется серверный расчёт. Результат появится после завершения.' : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Ожидаем автоматический расчёт на сервере. Можно запустить перерасчёт вручную.' : undefined} />
         </div> : !validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
           : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={checkSource} disabled={sourceQuery.isFetching}>Повторить получение данных</Button></div>
           : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} error={state.status === 'error' ? state.message : undefined} /></div>}
