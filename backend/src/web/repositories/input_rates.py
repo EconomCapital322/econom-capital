@@ -52,6 +52,7 @@ class InputRatesRepository:
         cls, connection: DBConnection, rates: MarketRates, *, loaded_at: datetime
     ) -> bool:
         """Atomic replacement. Nested transaction is a savepoint if called by a service."""
+        rates = MarketRates.model_validate(rates)
         require_aware(loaded_at)
         async with connection.transaction():
             await lock_date(connection, rates.report_date)

@@ -90,7 +90,7 @@ async def test_migrations_roundtrip(connection: Conn, database_dsn: str) -> None
     await migrate(database_dsn)
     assert (
         await connection.fetchval("SELECT version_num FROM alembic_version")
-        == "0002_rate_column_names"
+        == "0004_result_parameters"
     )
 
 
@@ -541,3 +541,41 @@ async def test_durable_queue_after_pool_close(
             assert row is not None and row.status == "queued"
             assert row.scenario_parameters == parameters
             assert await input_rates.InputRatesRepository.read_snapshot(second, run_id) is not None
+
+
+async def test_replacement_revalidates_model_before_deleting_current(
+    connection: Conn, rates: MarketRates
+) -> None:
+    await input_rates.InputRatesRepository.replace_current(connection, rates, loaded_at=AS_OF)
+    before = await input_rates.InputRatesRepository.read_current(connection, rates.report_date)
+    invalid = rates.model_copy(
+        update={"source_as_of": AS_OF + timedelta(hours=1), "points": (rates.points[0],)}
+    )
+    with pytest.raises(ValidationError):
+        await input_rates.InputRatesRepository.replace_current(connection, invalid, loaded_at=AS_OF)
+    assert (
+        await input_rates.InputRatesRepository.read_current(connection, rates.report_date) == before
+    )
+
+
+async def test_publication_revalidates_nested_decimal_before_writing(
+    connection: Conn, rates: MarketRates, parameters: ScenarioParameters, spec: CalculationSpec
+) -> None:
+    run_id = await seed_run(connection, rates, parameters, spec)
+    token = await simulate_owner(connection, run_id)
+    valid = fake_curve(spec)
+    invalid = valid.model_copy(
+        update={
+            "points": (
+                valid.points[0].model_copy(update={"rate_percent": Decimal("1e-16384")}),
+                *valid.points[1:],
+            )
+        }
+    )
+    with pytest.raises(ValidationError):
+        await curves.CurvesRepository.publish_stage(
+            connection, run_id=run_id, claim_token=token, curves=(invalid,)
+        )
+    assert await curves.CurvesRepository.read_curves(connection, run_id) == ()
+    run = await curve_runs.CurveRunsRepository.get_run(connection, run_id)
+    assert run is not None and run.status == "running" and run.claim_token == token

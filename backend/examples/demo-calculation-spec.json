@@ -1,0 +1,14 @@
+{
+  "data_provenance": "synthetic",
+  "base_version": "linear-v1",
+  "stress_version": "demo-only-go-stress",
+  "method": "linear",
+  "day_count": "demo-only: input tenors supplied in years",
+  "grid": [
+    {"bucket_label": "demo-1m", "tenor_years": "0.0833333333"},
+    {"bucket_label": "demo-3m", "tenor_years": "0.25"},
+    {"bucket_label": "demo-1y", "tenor_years": "1"},
+    {"bucket_label": "demo-10y", "tenor_years": "10"},
+    {"bucket_label": "demo-15y", "tenor_years": "15"}
+  ]
+}

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def main(*, once: bool = False) -> int:
     settings = get_settings()
     if settings.worker is None:
-        raise ValueError("Explicit WORKER settings are required; see backend README")
+        raise ValueError("Explicit WORKER settings are required; configure WORKER__ settings")
     configure_logging(settings.logging)
     async with Database.open(settings.database) as database:
         key = "worker:" + await database.identity()

@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import sys
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
 from core.config import DatabaseSettings, IntegrationSettings, LoaderSettings
 from core.database import Database
@@ -142,3 +144,36 @@ async def test_loader_entrypoint_and_duplicate_guard(database_dsn: str) -> None:
     )
     out, err = await process.communicate()
     assert process.returncode == 0, (out + err).decode()
+
+
+@pytest.mark.parametrize("invalid_kind", ["one_point", "unrepresentable_rate"])
+async def test_loader_revalidates_copied_models_before_publication(
+    db_pool: asyncpg.Pool[Any],
+    rates: MarketRates,
+    loader_settings: LoaderSettings,
+    invalid_kind: str,
+) -> None:
+    database = Database(db_pool, DatabaseSettings(dsn="postgresql://unused/test"))
+    async with database.connection() as connection:
+        await InputRatesRepository.replace_current(connection, rates, loaded_at=AS_OF)
+        before = await InputRatesRepository.read_current(connection, rates.report_date)
+    points = (
+        (rates.points[0],)
+        if invalid_kind == "one_point"
+        else (
+            rates.points[0].model_copy(update={"rate_percent": Decimal("1e-16384")}),
+            *rates.points[1:],
+        )
+    )
+
+    async def fetch(report_date: date) -> MarketRates:
+        # model_copy deliberately does not validate updates, including nested points.
+        return rates.model_copy(
+            update={"source_as_of": AS_OF + timedelta(hours=1), "points": points}
+        )
+
+    with pytest.raises(ValidationError):
+        await load_rates(database, rates.report_date, fetch, loader_settings)
+    async with database.connection() as connection:
+        assert await InputRatesRepository.read_current(connection, rates.report_date) == before
+        assert await connection.fetchval("SELECT count(*) FROM curve_run") == 0

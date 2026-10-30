@@ -19,7 +19,7 @@ def build_base_curve(points: tuple[RatePoint, ...], spec: CalculationSpec) -> Cu
     """
     payload = {
         "points": [point.model_dump(mode="json") for point in points],
-        "spec": spec.model_dump(mode="json"),
+        "spec": spec.model_dump(mode="json", exclude={"data_provenance"}),
     }
     try:
         completed = subprocess.run(

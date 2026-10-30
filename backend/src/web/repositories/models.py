@@ -54,13 +54,16 @@ STRESS_CODES = frozenset(
 )
 RunStatus = Literal["queued", "running", "ready", "failed"]
 RunStage = Literal["base", "stress"]
+RunOrigin = Literal["manual", "automatic"]
 CalculationErrorCode = Literal[
     "BASE_CURVE_FAILED", "CALCULATION_FAILED", "CALCULATION_TIMEOUT", "CALCULATION_INTERRUPTED"
 ]
 
 
 class StorageModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # model_copy() bypasses validation; integration results must be checked again,
+    # including nested points, even when already represented by a model instance.
+    model_config = ConfigDict(frozen=True, extra="forbid", revalidate_instances="always")
 
 
 class ScenarioParameters(StorageModel):
@@ -130,6 +133,7 @@ def validate_unique_grid(grid: tuple[Bucket, ...]) -> None:
 class CalculationSpec(StorageModel):
     "Explicit integration input. No production grid, method or versions are assumed."
 
+    data_provenance: Literal["market", "synthetic"] = "market"
     base_version: Label
     stress_version: Label
     method: Label
@@ -165,6 +169,8 @@ class StoredRun(StorageModel):
     lease_expires_at: AwareDatetime | None
     source_as_of: AwareDatetime
     input_loaded_at: AwareDatetime
+    run_origin: RunOrigin = "manual"
+    automatic_key: str | None = None
     parent_run_id: UUID | None
 
 

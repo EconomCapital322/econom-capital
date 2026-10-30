@@ -6,6 +6,7 @@ from typing import Any, cast
 from core.config import IntegrationSettings
 from web.exceptions.curve_run import ImplementationUnavailable
 from web.integrations.contracts import BuildBase, BuildStress, FetchRates
+from web.integrations.slava_http import build_stress_http
 from web.repositories.models import (
     CalculationSpec,
     Curve,
@@ -53,5 +54,7 @@ class SlavaAdapter:
     def stress(
         self, base: Curve, parameters: ScenarioParameters, algorithm_version: str
     ) -> tuple[Curve, ...]:
+        if self.settings.stress_http_url is not None:
+            return build_stress_http(self.settings, base, parameters, algorithm_version)
         function = cast(BuildStress, load_function(self.settings.stress_function))
         return tuple(Curve.model_validate(c) for c in function(base, parameters, algorithm_version))

@@ -149,6 +149,7 @@ class CurvesRepository:
 
     @classmethod
     async def _insert(cls, connection: DBConnection, run_id: UUID, curve: Curve) -> None:
+        curve = Curve.model_validate(curve)
         curve_id = uuid4()
         await connection.execute(
             "INSERT INTO curve(id,run_id,curve_code) VALUES ($1,$2,$3)",

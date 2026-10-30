@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 from pydantic.alias_generators import to_camel
 
-from web.repositories.models import STRESS_CODES, CurveCode, RunStage, RunStatus
+from web.repositories.models import STRESS_CODES, CurveCode, RunOrigin, RunStage, RunStatus
 
 Number = Annotated[Decimal, Field(allow_inf_nan=False), WithJsonSchema({"type": "number"})]
 PositiveNumber = Annotated[Number, Field(gt=0)]
@@ -36,6 +36,7 @@ class InputPoint(OutputModel):
 
 
 class InputRatesResponse(OutputModel):
+    data_provenance: Literal["market", "synthetic"] = "market"
     report_date: date
     available: bool
     source: Literal["moex"]
@@ -83,6 +84,8 @@ class AcceptedResponse(OutputModel):
 
 
 class StateResponse(OutputModel):
+    run_origin: RunOrigin = "manual"
+    data_provenance: Literal["market", "synthetic"] = "market"
     run_id: UUID
     report_date: date
     status: RunStatus
@@ -93,6 +96,8 @@ class StateResponse(OutputModel):
 
 
 class RunListItem(OutputModel):
+    run_origin: RunOrigin = "manual"
+    data_provenance: Literal["market", "synthetic"] = "market"
     run_id: UUID
     created_at: AwareDatetime
     status: RunStatus
@@ -106,6 +111,8 @@ class RunListResponse(OutputModel):
 
 
 class ResultResponse(OutputModel):
+    run_origin: RunOrigin = "manual"
+    data_provenance: Literal["market", "synthetic"] = "market"
     run_id: UUID
     report_date: date
     source: Literal["moex"]

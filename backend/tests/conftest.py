@@ -35,7 +35,7 @@ AS_OF = datetime(2026, 7, 31, 16, tzinfo=UTC)
 def base_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
     binary = tmp_path_factory.mktemp("base-bin") / "base-curve"
     subprocess.run(
-        ["go", "build", "-o", str(binary), "./cmd/base-curve"],
+        ["go", "build", "-mod=readonly", "-o", str(binary), "./cmd/base-curve"],
         cwd=ROOT.parent / "base",
         check=True,
         capture_output=True,
@@ -156,3 +156,53 @@ def api_settings(database_dsn: str, tmp_path: Path, spec: CalculationSpec) -> Se
             poll_seconds=0.02, heartbeat_seconds=0.1, lease_seconds=2, stage_timeout_seconds=2
         ),
     )
+
+
+@pytest.fixture(scope="session")
+def stress_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    binary = tmp_path_factory.mktemp("stress-bin") / "stress-service"
+    subprocess.run(
+        ["go", "build", "-mod=readonly", "-o", str(binary), "./cmd/stress-service"],
+        cwd=ROOT.parent / "stress",
+        check=True,
+        capture_output=True,
+    )
+    return binary
+
+
+@pytest.fixture
+async def stress_url(stress_binary: Path) -> AsyncIterator[str]:
+    import socket
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    process = await asyncio.create_subprocess_exec(
+        str(stress_binary),
+        cwd=ROOT.parent / "stress",
+        env={**os.environ, "STRESS_HTTP_ADDR": f"127.0.0.1:{port}"},
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        for _ in range(100):
+            if process.returncode is not None:
+                pytest.fail("Real Go stress service exited before accepting requests")
+            try:
+                _, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.close()
+                await writer.wait_closed()
+                break
+            except OSError:
+                await asyncio.sleep(0.05)
+        else:
+            pytest.fail("Real Go stress service did not start")
+        yield f"http://127.0.0.1:{port}/internal/v1/stress-curves"
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), 5)
+            except TimeoutError:
+                process.kill()
+                await process.wait()

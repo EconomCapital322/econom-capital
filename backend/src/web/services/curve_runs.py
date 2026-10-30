@@ -1,13 +1,16 @@
 from datetime import date
 from uuid import UUID
 
-import simplejson
-from pydantic import ValidationError
-
 from core.config import Settings
 from core.database import Database
-from web.exceptions.curve_run import InputDataNotReady, RunNotFound, RunStateConflict
+from web.exceptions.curve_run import (
+    ImplementationUnavailable,
+    InputDataNotReady,
+    RunNotFound,
+    RunStateConflict,
+)
 from web.exceptions.http import ApiError
+from web.integrations.specification import load_specification
 from web.repositories.curve_runs import CurveRunsRepository
 from web.repositories.curves import CurvesRepository
 from web.repositories.input_rates import InputRatesRepository
@@ -51,7 +54,11 @@ class RunService:
     async def input_rates(self, report_date: date) -> InputRatesResponse:
         async with self.database.connection() as connection:
             rates = await InputRatesRepository.read_current(connection, report_date)
-        return InputRatesResponse(
+            synthetic = await connection.fetchval(
+                "SELECT current_setting('irrbb.demo_instance',true) "
+                "IN ('synthetic','backend-final')"
+            )
+        response = InputRatesResponse(
             report_date=report_date,
             source="moex",
             available=rates is not None,
@@ -65,20 +72,15 @@ class RunService:
             else [],
         )
 
+        if synthetic:
+            response.data_provenance = "synthetic"
+        return response
+
     def calculation_spec(self) -> CalculationSpec:
-        path = self.settings.calculation.spec_file
-        if path is None:
-            raise ApiError(
-                503, "SERVICE_UNAVAILABLE", "Calculation specification is not configured"
-            )
         try:
-            return CalculationSpec.model_validate(
-                simplejson.loads(path.read_text(encoding="utf-8"), use_decimal=True)
-            )
-        except (OSError, ValueError, ValidationError):
-            raise ApiError(
-                503, "SERVICE_UNAVAILABLE", "Calculation specification is unavailable"
-            ) from None
+            return load_specification(self.settings.calculation.spec_file)
+        except ImplementationUnavailable as exc:
+            raise ApiError(503, "SERVICE_UNAVAILABLE", str(exc)) from None
 
     async def create(self, report_date: date, parameters: ScenarioParameters) -> UUID:
         # Absence has priority over a missing specification; no speculative run is saved.
@@ -109,6 +111,8 @@ class RunService:
         run, curves = await self._read_state(run_id)
         response = StateResponse(
             run_id=run.id,
+            run_origin=run.run_origin,
+            data_provenance=run.calculation_spec.data_provenance,
             report_date=run.report_date,
             status=run.status,
             stage=run.stage,
@@ -135,6 +139,8 @@ class RunService:
             raise RuntimeError("Incomplete stored ready result")
         return ResultResponse(
             run_id=run.id,
+            run_origin=run.run_origin,
+            data_provenance=run.calculation_spec.data_provenance,
             report_date=run.report_date,
             source=run.source,
             completed_at=run.completed_at,
@@ -150,6 +156,8 @@ class RunService:
             runs=[
                 RunListItem(
                     run_id=run.id,
+                    run_origin=run.run_origin,
+                    data_provenance=run.calculation_spec.data_provenance,
                     created_at=run.created_at,
                     status=run.status,
                     stage=run.stage,

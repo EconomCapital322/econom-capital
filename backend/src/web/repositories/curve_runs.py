@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import date, timedelta
 from uuid import UUID, uuid4
 
+import simplejson
+
 from core.database import DBConnection
 from web.exceptions.curve_run import InputDataNotReady, StaleClaim
 from web.repositories.input_rates import InputRatesRepository, lock_date
-from web.repositories.models import CalculationError, CalculationSpec, ScenarioParameters, StoredRun
+from web.repositories.models import (
+    CalculationError,
+    CalculationSpec,
+    RunOrigin,
+    ScenarioParameters,
+    StoredRun,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,24 +32,56 @@ class CurveRunsRepository:
         report_date: date,
         parameters: ScenarioParameters,
         spec: CalculationSpec,
+        run_origin: RunOrigin = "manual",
     ) -> UUID:
         """Create a durable queued run and its immutable input snapshot together."""
+        parameters = ScenarioParameters.model_validate(parameters.model_dump())
+        spec = CalculationSpec.model_validate(spec.model_dump())
+        if run_origin not in ("manual", "automatic"):
+            raise ValueError("Unknown run origin")
+        if run_origin == "automatic" and parameters.mode != "standard":
+            raise ValueError("Automatic calculations require standard parameters")
         async with connection.transaction():
             await lock_date(connection, report_date)
             rates = await InputRatesRepository.read_current(connection, report_date)
             if rates is None:
                 raise InputDataNotReady(str(report_date))
+            automatic_key = None
+            if run_origin == "automatic":
+                identity = {
+                    "report_date": report_date.isoformat(),
+                    "source_as_of": rates.source_as_of.isoformat(),
+                    "points": [
+                        p.model_dump()
+                        for p in sorted(rates.points, key=lambda point: point.tenor_years)
+                    ],
+                    "spec": spec.model_dump(),
+                    "parameters": parameters.model_dump(),
+                }
+                automatic_key = hashlib.sha256(
+                    simplejson.dumps(
+                        identity, use_decimal=True, sort_keys=True, separators=(",", ":")
+                    ).encode()
+                ).hexdigest()
+                existing = await connection.fetchval(
+                    "SELECT id FROM curve_run WHERE automatic_key=$1", automatic_key
+                )
+                if existing is not None:
+                    return UUID(str(existing))
             run_id = uuid4()
             await connection.execute(
                 "INSERT INTO curve_run "
                 "(id,report_date,source,currency,scenario_parameters,calculation_spec,"
-                "source_as_of,input_loaded_at) VALUES ($1,$2,'moex','RUB',$3,$4,$5,$6)",
+                "source_as_of,input_loaded_at,run_origin,automatic_key) "
+                "VALUES ($1,$2,'moex','RUB',$3,$4,$5,$6,$7,$8)",
                 run_id,
                 report_date,
                 parameters.model_dump(),
                 spec.model_dump(),
                 rates.source_as_of,
                 rates.loaded_at,
+                run_origin,
+                automatic_key,
             )
             await connection.executemany(
                 "INSERT INTO input_rate "

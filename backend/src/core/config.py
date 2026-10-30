@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +50,21 @@ class IntegrationSettings(BaseModel):
     fetch_function: str | None = None
     base_function: str | None = None
     stress_function: str | None = None
+    stress_http_url: AnyHttpUrl | None = None
+    stress_http_version: str | None = Field(default=None, min_length=1, pattern=r"\S")
+    stress_http_timeout_seconds: float = Field(default=10, gt=0, allow_inf_nan=False)
+    stress_http_max_response_bytes: int = Field(default=8_388_608, gt=0)
+
+    @model_validator(mode="after")
+    def stress_transport(self) -> "IntegrationSettings":
+        if self.stress_http_url is not None:
+            if self.stress_function or self.stress_http_version is None:
+                raise ValueError("HTTP stress requires an explicit version and no stress_function")
+            if self.stress_http_url.username or self.stress_http_url.password:
+                raise ValueError("Stress service URL must not contain credentials")
+        elif self.stress_http_version is not None:
+            raise ValueError("stress_http_version requires stress_http_url")
+        return self
 
 
 class WorkerSettings(BaseModel):
@@ -66,6 +81,7 @@ class WorkerSettings(BaseModel):
 
 
 class LoaderSettings(BaseModel):
+    enqueue_automatic: bool = False
     max_attempts: int = Field(ge=1)
     backoff_base_seconds: float = Field(gt=0, allow_inf_nan=False)
     backoff_cap_seconds: float = Field(gt=0, allow_inf_nan=False)
