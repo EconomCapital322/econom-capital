@@ -78,8 +78,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
   )
 
   if (!preview) return (
-    <section className="results-panel" aria-live="polite">
-      <div className="results-panel__header"><h2>Результаты</h2></div>
+    <section className="results-panel results-panel--empty" aria-live="polite">
       <div className="empty-state">
         <div className="empty-state__symbol" aria-hidden="true">⌁</div>
         <h2>Нет исходных данных</h2>
@@ -166,7 +165,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
             <p>Доходность, % годовых</p>
             {visibleCurves.length === 0 ? <div className="curve-chart__empty" role="status">Выберите кривую для отображения</div> : <div className="curve-chart__plot" ref={plotRef}>
             <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${heading} на ${dateLabel}. Выберите срок клавишей Tab, затем используйте стрелки.`}>
-              <title>{result ? 'Базовая кривая и шесть сценариев IRRBB' : 'Ставки на теноры бакетов, включая интерполяцию и экстраполяцию из Excel'}</title>
+              <title>{result ? 'Базовая кривая и шесть сценариев IRRBB' : 'Доходность по расчётным срокам'}</title>
               {ticks.map((tick, i) => <g key={i}><path d={`M${left} ${y(tick)}H${W - right}`} stroke="var(--chart-grid)" /><text x={left - 12} y={y(tick) + 4} textAnchor="end">{formatTick(tick)}</text></g>)}
               {basePoints.map((point, i) => <text key={point.label} x={x(i)} y={H - 15} textAnchor="middle">{point.label}</text>)}
               {visibleCurves.map(curve => (
