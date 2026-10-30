@@ -48,32 +48,22 @@ async def prepare_history(database: Database, spec: CalculationSpec) -> list[UUI
             await InputRatesRepository.replace_current(
                 connection, rates, loaded_at=datetime.now(UTC)
             )
-            for origin, parameters in (
-                (
-                    "automatic",
-                    ScenarioParameters(mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3)),
-                ),
-                (
-                    "manual",
-                    ScenarioParameters(
-                        mode="custom", p=Decimal(2 + offset), k=Decimal(3), d=Decimal(4)
-                    ),
+            for parameters in (
+                ScenarioParameters(mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3)),
+                ScenarioParameters(
+                    mode="custom", p=Decimal(2 + offset), k=Decimal(3), d=Decimal(4)
                 ),
             ):
                 # Deduplication is specific to this explicit seed. Ordinary manual POSTs
                 # always create independent runs, even for identical input/parameters.
-                existing = (
-                    await connection.fetchval(
-                        "SELECT id FROM curve_run WHERE report_date=$1 AND run_origin='manual' "
-                        "AND scenario_parameters=$2 AND calculation_spec=$3 "
-                        "AND parent_run_id IS NULL "
-                        "ORDER BY created_at,id LIMIT 1",
-                        report_date,
-                        parameters.model_dump(),
-                        spec.model_dump(),
-                    )
-                    if origin == "manual"
-                    else None
+                existing = await connection.fetchval(
+                    "SELECT id FROM curve_run WHERE report_date=$1 AND run_origin='manual' "
+                    "AND scenario_parameters=$2 AND calculation_spec=$3 "
+                    "AND parent_run_id IS NULL "
+                    "ORDER BY created_at,id LIMIT 1",
+                    report_date,
+                    parameters.model_dump(),
+                    spec.model_dump(),
                 )
                 run_id = (
                     UUID(str(existing))
@@ -83,7 +73,7 @@ async def prepare_history(database: Database, spec: CalculationSpec) -> list[UUI
                         report_date=report_date,
                         parameters=parameters,
                         spec=spec,
-                        run_origin="automatic" if origin == "automatic" else "manual",
+                        run_origin="manual",
                     )
                 )
                 ids.append(run_id)

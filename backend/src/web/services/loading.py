@@ -3,16 +3,14 @@ import logging
 import random
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from typing import Literal
 
 from core.config import LoaderSettings
 from core.database import Database
 from web.exceptions.input_rate import MarketTemporaryError, NoMarketData
 from web.integrations.contracts import FetchRates
-from web.repositories.curve_runs import CurveRunsRepository
 from web.repositories.input_rates import InputRatesRepository
-from web.repositories.models import CalculationSpec, MarketRates, ScenarioParameters
+from web.repositories.models import MarketRates
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +21,9 @@ async def load_rates(
     fetch: FetchRates,
     settings: LoaderSettings,
     *,
-    automatic_spec: CalculationSpec | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     jitter: Callable[[float, float], float] = random.uniform,
 ) -> Literal["saved", "unchanged", "no_data"]:
-    if settings.enqueue_automatic and automatic_spec is None:
-        raise ValueError("Automatic loading requires an explicit calculation specification")
     for attempt in range(settings.max_attempts):
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
@@ -60,22 +55,9 @@ async def load_rates(
         except Exception:
             logger.exception("MOEX implementation/validation failure reportDate=%s", report_date)
             raise
-    run_id = None
     async with database.transaction() as connection:
         changed = await InputRatesRepository.replace_current(
             connection, rates, loaded_at=datetime.now(UTC)
         )
-        if automatic_spec is not None:
-            run_id = await CurveRunsRepository.create_run(
-                connection,
-                report_date=report_date,
-                parameters=ScenarioParameters(
-                    mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3)
-                ),
-                spec=automatic_spec,
-                run_origin="automatic",
-            )
-    if run_id is not None:
-        logger.info("Automatic calculation queued reportDate=%s runId=%s", report_date, run_id)
     logger.info("MOEX load finished reportDate=%s changed=%s", report_date, changed)
     return "saved" if changed else "unchanged"

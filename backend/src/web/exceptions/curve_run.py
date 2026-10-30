@@ -33,3 +33,7 @@ class StressCurveError(Exception):
     def __init__(self, message: str, curve_code: CurveCode | None = None) -> None:
         super().__init__(message)
         self.curve_code = curve_code
+
+
+class StressTimeoutError(StressCurveError):
+    """The stress HTTP transport exceeded its configured timeout."""

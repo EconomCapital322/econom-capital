@@ -10,7 +10,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import IntegrationSettings
-from web.exceptions.curve_run import ImplementationUnavailable, StressCurveError
+from web.exceptions.curve_run import ImplementationUnavailable, StressCurveError, StressTimeoutError
 from web.repositories.models import STRESS_CODES, Curve, ScenarioParameters
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def build_stress_http(
             raise ValueError("Stress service changed the base grid")
         return curves
     except httpx.TimeoutException:
-        raise StressCurveError("Stress service request timed out") from None
+        raise StressTimeoutError("Stress service request timed out") from None
     except httpx.HTTPError:
         raise StressCurveError("Stress service connection/transport failed") from None
     except ValueError:

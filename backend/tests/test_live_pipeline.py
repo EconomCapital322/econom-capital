@@ -6,7 +6,6 @@ import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from uuid import UUID
 
 import httpx
@@ -129,7 +128,7 @@ async def ready(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:
 
 
 @pytest.mark.usefixtures("base_binary_on_path")
-async def test_live_manual_automatic_recalculation_and_api_restart(
+async def test_live_user_calculation_recalculation_and_api_restart(
     api_settings: Settings,
     connection: DBConnection,
     stress_url: str,
@@ -181,31 +180,35 @@ async def test_live_manual_automatic_recalculation_and_api_restart(
                 return rates
 
             loader = LoaderSettings(
-                enqueue_automatic=True,
                 max_attempts=1,
                 backoff_base_seconds=1,
                 backoff_cap_seconds=1,
                 request_timeout_seconds=1,
             )
             async with Database.open(api_settings.database) as database:
-                await load_rates(database, REPORT_DATE, fetch, loader, automatic_spec=spec)
+                await load_rates(database, REPORT_DATE, fetch, loader)
             history = (await client.get("/api/v1/curve-runs?reportDate=2026-07-31")).json()["runs"]
-            automatic = next(run["runId"] for run in history if run["runOrigin"] == "automatic")
-            assert (await ready(client, automatic))["usedParameters"] == {
+            assert len(history) == 2
+            response = await client.post(
+                "/api/v1/curve-runs",
+                json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
+            )
+            assert response.status_code == 202
+            assert (await ready(client, response.json()["runId"]))["usedParameters"] == {
                 "mode": "standard",
                 "p": 4,
                 "k": 5,
                 "d": 3,
             }
+            # Commit through POST, then close the client AND API while Worker is alive.
+            queued_response = await client.post(
+                "/api/v1/curve-runs",
+                json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
+            )
+            assert queued_response.status_code == 202
+            queued = UUID(queued_response.json()["runId"])
+
         # API is now stopped. The independent Worker must process a new job anyway.
-        queued = await CurveRunsRepository.create_run(
-            connection,
-            report_date=REPORT_DATE,
-            parameters=ScenarioParameters(
-                mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3)
-            ),
-            spec=spec,
-        )
         for _ in range(200):
             run = await CurveRunsRepository.get_run(connection, queued)
             assert run is not None and run.status != "failed"

@@ -12,7 +12,12 @@ from uuid import UUID, uuid4
 
 from core.config import WorkerSettings
 from core.database import Database
-from web.exceptions.curve_run import ImplementationUnavailable, StaleClaim, StressCurveError
+from web.exceptions.curve_run import (
+    ImplementationUnavailable,
+    StaleClaim,
+    StressCurveError,
+    StressTimeoutError,
+)
 from web.integrations.contracts import BuildBase, BuildStress
 from web.repositories.curve_runs import CurveRunsRepository
 from web.repositories.curves import CurvesRepository
@@ -140,6 +145,9 @@ class CalculationWorker:
             await self._fail(run_id, token, "CALCULATION_INTERRUPTED")
             self.must_exit = True
             raise
+        except StressTimeoutError:
+            # The bounded HTTP call has ended; no abandoned computation remains.
+            await self._fail(run_id, token, "CALCULATION_TIMEOUT")
         except TimeoutError:
             self.must_exit = True
             await self._fail(run_id, token, "CALCULATION_TIMEOUT")

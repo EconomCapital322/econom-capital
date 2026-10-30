@@ -81,11 +81,21 @@ class WorkerSettings(BaseModel):
 
 
 class LoaderSettings(BaseModel):
+    # Compatibility with old environments: false is harmless, true must fail startup.
     enqueue_automatic: bool = False
     max_attempts: int = Field(ge=1)
     backoff_base_seconds: float = Field(gt=0, allow_inf_nan=False)
     backoff_cap_seconds: float = Field(gt=0, allow_inf_nan=False)
     request_timeout_seconds: float = Field(gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def reject_automatic_calculations(self) -> "LoaderSettings":
+        if self.enqueue_automatic:
+            raise ValueError(
+                "LOADER__ENQUEUE_AUTOMATIC=true is no longer supported; "
+                "calculations require an explicit POST"
+            )
+        return self
 
 
 class Settings(BaseSettings):

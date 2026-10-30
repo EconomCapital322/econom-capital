@@ -111,7 +111,7 @@ async def test_seed_real_worker_history_and_sql(database_dsn: str, stress_url: s
                         "SELECT run_origin,count(*) FROM curve_run GROUP BY run_origin"
                     )
                 )
-                == 2
+                == 1
             )
             counts = await connection.fetch(
                 "SELECT run_id,count(DISTINCT curve_code),count(*) "
@@ -130,4 +130,4 @@ async def test_seed_real_worker_history_and_sql(database_dsn: str, stress_url: s
             assert response.status_code == 200 and len(response.json()["curves"]) == 7
             assert response.json()["dataProvenance"] == "synthetic"
         history = (await client.get("/api/v1/curve-runs?reportDate=2026-07-31")).json()["runs"]
-        assert {run["runOrigin"] for run in history} == {"automatic", "manual"}
+        assert {run["runOrigin"] for run in history} == {"manual"}

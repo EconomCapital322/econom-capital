@@ -6,13 +6,11 @@ from decimal import Decimal
 
 import asyncpg
 import pytest
-from pydantic import ValidationError
 
 from core.config import LoaderSettings, Settings
 from core.database import Database, DBConnection
 from tests.conftest import migrate
 from tests.test_storage import fake_curve, seed_run, simulate_owner
-from web.exceptions.input_rate import NoMarketData
 from web.repositories.curve_runs import CurveRunsRepository
 from web.repositories.curves import CurvesRepository
 from web.repositories.input_rates import InputRatesRepository
@@ -20,13 +18,12 @@ from web.repositories.models import STRESS_CODES, CalculationSpec, MarketRates, 
 from web.services.loading import load_rates
 
 
-async def test_atomic_automatic_publication_and_identity(
+async def test_loader_preserves_legacy_history_and_never_queues(
     api_settings: Settings,
     rates: MarketRates,
     spec: CalculationSpec,
 ) -> None:
     config = LoaderSettings(
-        enqueue_automatic=True,
         max_attempts=1,
         backoff_base_seconds=1,
         backoff_cap_seconds=1,
@@ -36,38 +33,37 @@ async def test_atomic_automatic_publication_and_identity(
     async def fetch(report_date: date) -> MarketRates:
         return rates
 
-    async def missing(report_date: date) -> MarketRates:
-        raise NoMarketData()
-
     async with Database.open(api_settings.database) as database:
-        with pytest.raises(ValueError, match="specification"):
-            await load_rates(database, rates.report_date, fetch, config)
         await asyncio.gather(
-            *(
-                load_rates(database, rates.report_date, fetch, config, automatic_spec=spec)
-                for _ in range(3)
-            )
+            *(load_rates(database, rates.report_date, fetch, config) for _ in range(3))
         )
         async with database.connection() as connection:
-            runs = await CurveRunsRepository.list_runs(connection, rates.report_date)
-            assert len(runs) == 1 and runs[0].run_origin == "automatic"
-            original = runs[0]
-            manual_ids = [
-                await CurveRunsRepository.create_run(
-                    connection,
-                    report_date=rates.report_date,
-                    parameters=original.scenario_parameters,
-                    spec=spec,
-                )
-                for _ in range(2)
+            assert await connection.fetchval("SELECT count(*) FROM curve_run") == 0
+            parameters = ScenarioParameters(
+                mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3)
+            )
+            # Explicit fixture for legacy automatic history, never called by Loader.
+            old_id = await CurveRunsRepository.create_run(
+                connection,
+                report_date=rates.report_date,
+                parameters=parameters,
+                spec=spec,
+                run_origin="automatic",
+            )
+            manual_id = await CurveRunsRepository.create_run(
+                connection,
+                report_date=rates.report_date,
+                parameters=parameters,
+                spec=spec,
+            )
+            old_rows = [
+                await CurveRunsRepository.get_run(connection, run_id)
+                for run_id in (old_id, manual_id)
             ]
-            assert len(set([original.id, *manual_ids])) == 3
-        new_spec = spec.model_copy(update={"stress_version": "another-test-version"})
-        await load_rates(database, rates.report_date, fetch, config, automatic_spec=new_spec)
-        assert (
-            await load_rates(database, rates.report_date, missing, config, automatic_spec=spec)
-            == "no_data"
-        )
+            snapshots = [
+                await InputRatesRepository.read_snapshot(connection, run_id)
+                for run_id in (old_id, manual_id)
+            ]
         changed_rates = rates.model_copy(
             update={
                 "points": tuple(
@@ -79,23 +75,20 @@ async def test_atomic_automatic_publication_and_identity(
         async def changed(report_date: date) -> MarketRates:
             return changed_rates
 
-        with pytest.raises(ValidationError):
-            await load_rates(
-                database,
-                rates.report_date,
-                changed,
-                config,
-                automatic_spec=spec.model_copy(update={"method": None}),
-            )
+        assert await load_rates(database, rates.report_date, changed, config) == "saved"
+        assert await load_rates(database, rates.report_date, changed, config) == "unchanged"
         async with database.connection() as connection:
+            assert await connection.fetchval("SELECT count(*) FROM curve_run") == 2
+            assert [
+                await CurveRunsRepository.get_run(connection, run_id)
+                for run_id in (old_id, manual_id)
+            ] == old_rows
+            assert [
+                await InputRatesRepository.read_snapshot(connection, run_id)
+                for run_id in (old_id, manual_id)
+            ] == snapshots
             saved = await InputRatesRepository.read_current(connection, rates.report_date)
-            assert saved is not None and saved.points == rates.points
-            assert await connection.fetchval("SELECT count(*) FROM curve_run") == 4
-        await load_rates(database, rates.report_date, changed, config, automatic_spec=spec)
-        async with database.connection() as connection:
-            assert await connection.fetchval("SELECT count(*) FROM curve_run") == 5
-            snapshot = await InputRatesRepository.read_snapshot(connection, original.id)
-            assert snapshot is not None and snapshot.points == rates.points
+            assert saved is not None and saved.points == changed_rates.points
 
 
 async def test_history_migrations_preserve_existing_results(
@@ -183,7 +176,7 @@ async def test_origin_constraints(
             )
 
 
-async def test_automatic_loader_reports_missing_specification(
+async def test_loader_rejects_legacy_automatic_enablement(
     database_dsn: str,
     connection: DBConnection,
 ) -> None:
@@ -215,7 +208,7 @@ async def test_automatic_loader_reports_missing_specification(
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await process.communicate()
-    assert process.returncode == 1 and b"Calculation specification is not configured" in stderr
+    assert process.returncode == 1 and b"MOEX load failed" in stderr
     assert b"postgresql://" not in stdout + stderr
     assert await connection.fetchval("SELECT count(*) FROM curve_run") == 0
     assert await connection.fetchval("SELECT count(*) FROM input_rate") == 0
