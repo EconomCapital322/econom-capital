@@ -1,4 +1,4 @@
-import { isPositiveParameter, STANDARD_PARAMETERS } from '../utils/parameters'
+import { isPositiveParameter, STANDARD_PARAMETERS, PARAMETER_ERROR } from '../utils/parameters'
 import { isReportDate } from '../utils/validateCurves'
 import type { ScenarioParameters } from '../utils/curveTypes'
 import type { CurvesService } from './types'
@@ -10,14 +10,44 @@ export interface RemoteCurvesApi {
   snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string): Promise<RemoteSnapshot>
   start(reportDate: string, parameters: ScenarioParameters, parentRunId?: string): Promise<string>
 }
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly fieldErrors: Partial<Record<keyof ScenarioParameters, string>>
+  constructor(message: string, status: number,
+    fieldErrors: Partial<Record<keyof ScenarioParameters, string>> = {}) {
+    super(message)
+    this.status = status
+    this.fieldErrors = fieldErrors
+    this.name = 'ApiRequestError'
+  }
+}
 function httpMessage(status: number, code?: unknown): string {
   if (code === 'INPUT_DATA_NOT_READY') return 'Исходные ставки за эту дату ещё не готовы. Проверьте наличие данных.'
   if (code === 'RESULT_NOT_READY') return 'Расчёт ещё не завершён. Повторите получение результата.'
   if (code === 'RUN_STATE_CONFLICT') return 'Этот запуск нельзя пересчитать. Проверьте его состояние.'
-  if (status === 422) return 'Сервер отклонил запрос. Текущая версия API допускает P/K/D не больше 25 п. п.'
+  if (code === 'BASE_CURVE_FAILED') return 'Не удалось построить базовую кривую. Повторите расчёт.'
+  if (code === 'CALCULATION_TIMEOUT') return 'Серверный расчёт превысил время ожидания.'
+  if (code === 'CALCULATION_INTERRUPTED') return 'Серверный расчёт прерван. Повторите расчёт.'
+  if (code === 'CALCULATION_FAILED') return 'Не удалось рассчитать стрессовые кривые. Повторите расчёт.'
+  if (status === 422) return 'Сервер отклонил запрос. Проверьте дату и параметры.'
   if (status === 404) return 'Запрошенный расчёт не найден на сервере.'
   if (status >= 500) return 'Сервер временно недоступен или не настроен для расчёта. Попробуйте позже.'
   return 'Не удалось выполнить запрос. Повторите попытку.'
+}
+function responseError(status: number, value: unknown): ApiRequestError {
+  const info = value && typeof value === 'object' ? (value as { error?: unknown }).error : undefined
+  const error = info && typeof info === 'object' ? info as { code?: unknown; details?: unknown } : undefined
+  const fields: Partial<Record<keyof ScenarioParameters, string>> = {}
+  if (status === 422 && Array.isArray(error?.details)) {
+    for (const detail of error.details) {
+      if (!detail || typeof detail.field !== 'string') continue
+      const match = /^(?:scenarioParameters\.)?(p|k|d)$/.exec(detail.field)
+      if (match) fields[match[1] as keyof ScenarioParameters] = PARAMETER_ERROR
+    }
+  }
+  // Server message/reason may contain internal paths or exception text. Only
+  // recognized codes/field names reach the UI through safe Russian messages.
+  return new ApiRequestError(httpMessage(status, error?.code), status, fields)
 }
 /** Actual FastAPI routes. No MOEX requests, local mathematics or demo fallback. */
 export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fetch): CurvesService {
@@ -51,8 +81,7 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
     }
     if (!response) return invalidResponse()
     if (!response.ok) {
-      const envelope = value && typeof value === 'object' ? (value as { error?: { code?: unknown } }).error : undefined
-      throw new Error(httpMessage(response.status, envelope?.code))
+      throw responseError(response.status, value)
     }
     if (options.body !== undefined && response.status !== 202) return invalidResponse()
     return value

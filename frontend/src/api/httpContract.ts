@@ -49,7 +49,7 @@ function parameters(value: unknown): UsedParameters {
   const p = record(value)
   if (p.mode !== 'standard' && p.mode !== 'custom') return invalidResponse()
   const result = { mode: p.mode, p: finite(p.p), k: finite(p.k), d: finite(p.d) }
-  if (![result.p, result.k, result.d].every(v => v > 0 && v <= 25) ||
+  if (![result.p, result.k, result.d].every(v => v > 0 && v <= 50) ||
       (result.mode === 'standard' && (result.p !== 4 || result.k !== 5 || result.d !== 3))) return invalidResponse()
   return result as UsedParameters
 }
