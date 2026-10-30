@@ -24,5 +24,5 @@ export async function runDemoCalculation(
   })
   signal.throwIfAborted()
   if (fail) throw new Error('Демонстрационная ошибка расчёта. Попробуйте ещё раз.')
-  return calculateStressCurves(snapshot, selectedParameters)
+  return { ...calculateStressCurves(snapshot, selectedParameters), dataProvenance: 'synthetic' }
 }

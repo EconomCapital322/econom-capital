@@ -24,14 +24,12 @@
 .app-header { height: var(--curve-header-height); padding: 16px 30px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .app-header__title { width: 320px; height: 26px; min-width: 0; max-width: calc(100% - 140px); object-fit: contain; object-position: left center; }
 .app-header__logo { width: 56px; height: 44px; margin-top: 0; flex-shrink: 0; }
-.curve-page { padding: 0 var(--curve-page-gutter) 8px; }
+.curve-page { padding: 8px var(--curve-page-gutter) 16px; }
 .curve-page__heading { margin-bottom: var(--curve-section-gap); }
 .curve-page__heading h1 { margin: 0 0 4px; color: var(--color-text-primary); font-size: var(--curve-heading-size); font-weight: 700; line-height: 44px; letter-spacing: 0; }
 .curve-page__heading p { margin: 0; font-size: var(--curve-subtitle-size); font-weight: 500; color: var(--color-text-secondary); line-height: 24px; }
-.calculation-controls { display: grid; grid-template-columns: 210px minmax(0, 1fr) 240px; column-gap: 24px; align-items: start; min-height: 82px; padding: 10px 19px 10px 23px; margin: 0 5px var(--curve-section-gap) 1px; border: 1px solid var(--color-dark-gray); background: var(--curve-controls-bg); border-radius: 25px; }
+.calculation-controls { display: grid; grid-template-columns: 240px minmax(0, 1fr) 240px; column-gap: 24px; align-items: start; min-height: 106px; padding: 18px 23px; margin: 0 5px var(--curve-section-gap) 1px; border: 1px solid var(--color-dark-gray); background: var(--curve-controls-bg); border-radius: 25px; }
 .curve-app .form-label, .parameters-control__label { display: flex; align-items: center; gap: 8px; margin: 0 0 5px; font-size: var(--curve-label-size); font-weight: 500; color: var(--color-primary); line-height: 20px; }
-.report-date .form-control { width: 156px; max-width: 100%; height: 40px; padding: 8px 12px; border: 0; border-radius: 20px; font: 500 16px/24px var(--font-family), sans-serif; color: var(--color-text-secondary-strong); background: var(--color-white) url('./assets/images/calendar.svg') no-repeat right 13px center / 20px 20px; }
-.report-date input::-webkit-calendar-picker-indicator { opacity: 0; width: 20px; height: 20px; margin: 0; padding: 0; cursor: pointer; }
 .parameters-control { min-width: 0; }
 .parameters-control__value { display: flex; align-items: center; gap: 14px; min-height: 40px; color: var(--color-text-secondary-strong); font-size: var(--curve-parameter-size); font-weight: 500; line-height: 28px; font-variant-numeric: tabular-nums; }
 .parameter-values { display: flex; align-items: center; flex-wrap: wrap; gap: 0 14px; min-width: 0; overflow-wrap: anywhere; }
@@ -113,13 +111,7 @@
 .empty-state p { font-size: 14px; line-height: 1.6; color: var(--color-text-secondary); margin: 12px 0 0; }
 .source-state { padding: 28px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-radius: var(--curve-panel-radius); background: var(--curve-controls-bg); font-size: 14px; color: var(--color-text-secondary); }
 .data-availability { margin: 8px 2px 0; padding: 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 15px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
-.data-availability .source-refresh { --bs-btn-padding-x: 12px; --bs-btn-padding-y: 4px; margin-left: auto; font-size: 12px; line-height: 20px; }
-.demo-tools { margin: 20px 4px 0; font-size: 12px; color: var(--color-text-secondary); line-height: 1.6; }
-.demo-tools summary { cursor: pointer; width: fit-content; }
-.demo-tools label { display: block; margin-top: 12px; margin-bottom: 5px; }
-.demo-tools .form-select { max-width: 320px; font-size: 12px; }
-.demo-tools p { max-width: 680px; margin-top: 9px; }
-.app-footer { padding: 0 var(--curve-page-gutter) 8px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
+.app-footer { padding: 8px var(--curve-page-gutter) 14px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
 
 /* change parametres.svg: 542 × 555, with error rows allowed to grow. */
 .parameters-backdrop { --bs-backdrop-bg: #142331; --bs-backdrop-opacity: .48; }
@@ -200,7 +192,6 @@
   .scenario-option span { min-height: 36px; }
   .curve-chart { padding-inline: 20px; }
   .result-tools, .results-panel__footer { padding-inline: 20px; }
-  .data-availability .source-refresh { margin-left: 0; }
   .app-footer { padding-inline: 16px; }
   .parameters-modal .modal-content { padding: 38px 20px 24px; }
   .parameters-modal .modal-title { font-size: 24px; line-height: 31px; }
@@ -220,7 +211,7 @@
 .results-panel--error { align-items: center; justify-content: center; text-align: center; padding: 24px; }
 .results-panel--error p { margin: 0; max-width: 640px; overflow-wrap: anywhere; font-size: 16px; line-height: 1.6; color: var(--color-text-secondary-strong); }
 
-/* Collapsing selection gives its space to the plot/table inside the 499px frame. */
+/* Collapsing selection gives its space to the plot/table inside the results frame. */
 .results-panel > [role="tabpanel"] { display: flex; flex-direction: column; }
 .curve-table { flex: 1; min-height: 0; height: auto; }
 .curve-chart { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -272,12 +263,17 @@
   .curve-app { height: 100dvh; min-height: 640px; display: flex; flex-direction: column; }
   .app-header { flex-shrink: 0; width: 100%; }
   .curve-page { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
-  .curve-page__heading, .calculation-controls, .calculation-hint, .calculation-status, .demo-tools, .data-availability { flex-shrink: 0; }
+  .curve-page__heading, .calculation-controls, .calculation-hint, .calculation-status, .data-availability { flex-shrink: 0; }
   .calculation-status--ready { flex: none; }
-  .results-region { flex: 1; min-height: 260px; max-height: var(--curve-results-height); }
+  .results-region { flex: 1; min-height: 280px; }
   .results-region > .results-panel { height: 100%; }
   .app-footer { flex-shrink: 0; width: 100%; }
   .result-parameters, .results-panel--table .result-parameters { margin-top: 8px; margin-bottom: 6px; line-height: 14px; }
   .curve-chart__plot, .curve-chart__empty { min-height: 170px; }
   .empty-state { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
 }
+
+/* Empty content is centred against the entire result frame, without a header offset. */
+.results-panel--empty { display: grid; place-items: center; padding: 24px; }
+.results-panel--empty .empty-state { flex: none; padding: 0; width: 100%; text-align: center; }
+@media (min-width: 1021px) { .app-header { padding-top: 22px; } }
