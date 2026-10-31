@@ -12,6 +12,7 @@ import { useCurveCalculation } from './hooks/useCurveCalculation'
 import type { ScenarioParameters } from './utils/curveTypes'
 import { isReportDate } from './utils/validateCurves'
 import { useRemoteCurves } from './hooks/useRemoteCurves'
+import { inputPreview } from './api/httpContract'
 import './App.css'
 
 function App(): ReactElement {
@@ -93,7 +94,7 @@ function App(): ReactElement {
           {state.status === 'ready' && 'Расчёт готов: базовая и шесть стрессовых кривых.'}
         </div>}
         {server.enabled ? <div className="results-region" aria-busy={isRunning || sourceQuery.isFetching}>
-          <CurvePreviewPanel graphRevision={graphRevision} preview={displayedCalculation ? preview : null} calculation={displayedCalculation}
+          <CurvePreviewPanel rawPreview={server.query.data?.input.available ? inputPreview(server.query.data.input) : null} graphRevision={graphRevision} preview={displayedCalculation ? preview : null} calculation={displayedCalculation}
             error={sourceQuery.isError ? (sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Не удалось получить данные сервера.') : state.status === 'error' ? state.message : undefined}
             message={!validDate ? 'Выберите отчётную дату.' : sourceQuery.isPending ? 'Получаем данные за выбранную дату…' : server.isPreparing ? 'Загружаем ставки из MOEX за выбранную дату…' : isRunning ? 'Выполняется серверный расчёт. Результат появится после завершения.' : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Готового расчёта пока нет. Нажмите «Пересчитать кривые».' : undefined} />
         </div> : !validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>

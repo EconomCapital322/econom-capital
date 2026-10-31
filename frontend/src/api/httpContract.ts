@@ -151,7 +151,7 @@ export function inputPreview(input: InputRatesDto, result?: CurveCalculation | n
   return { reportDate: input.reportDate, source: 'MOEX',
     sourceTime: input.sourceAsOf ? new Date(input.sourceAsOf).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow' }) : 'время публикации не указано',
     // Raw input points have no bucket labels and must never be displayed as a built base curve.
-    points: result?.baseCurve ?? input.points.map(p => ({ label: `${p.tenorYears}y`, tenorYears: p.tenorYears, rate: p.ratePercent })) }
+    points: result?.baseCurve ?? input.points.map(p => ({ label: p.tenorYears < 1 && Number.isInteger(p.tenorYears * 12) ? `${p.tenorYears * 12}m` : `${p.tenorYears}y`, tenorYears: p.tenorYears, rate: p.ratePercent })) }
 }
 export function calculationError(code?: string): string {
   switch (code) {
