@@ -20,7 +20,18 @@ export interface RunStateDto extends RunDto {
   baseCurve?: { curveCode: 'base'; points: CurvePoint[] }
   error?: { code: string }
 }
+export type PreparationStatus = 'idle' | 'queued' | 'running' | 'ready' | 'no_data' | 'failed'
+export interface PreparationDto { reportDate: string; status: PreparationStatus; runId: string | null; errorCode: string | null }
+export function parsePreparation(value: unknown, date: string): PreparationDto {
+  const dto = record(value)
+  if (dto.reportDate !== date || !['idle', 'queued', 'running', 'ready', 'no_data', 'failed'].includes(String(dto.status))) return invalidResponse()
+  if (dto.errorCode !== null && typeof dto.errorCode !== 'string') return invalidResponse()
+  const id = dto.runId === null ? null : runId(dto.runId)
+  if (dto.status === 'ready' && !id) return invalidResponse()
+  return { reportDate: date, status: dto.status as PreparationStatus, runId: id, errorCode: dto.errorCode as string | null }
+}
 export interface RemoteSnapshot {
+  preparation: PreparationDto
   input: InputRatesDto
   runs: RunDto[]
   run: RunStateDto | null
@@ -39,9 +50,12 @@ export function record(value: unknown): Record<string, unknown> {
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : invalidResponse() }
 function finite(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : invalidResponse() }
 function text(value: unknown): string { return typeof value === 'string' && value.trim() ? value : invalidResponse() }
+export function isRunId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
 export function runId(value: unknown): string {
   const id = text(value)
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : invalidResponse()
+  return isRunId(id) ? id : invalidResponse()
 }
 function timestamp(value: unknown): string {
   const result = text(value)

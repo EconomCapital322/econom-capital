@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, WithJsonSchema
 
 from web.repositories.models import MAX_SCENARIO_PARAMETER, ScenarioParameters
 from web.repositories.models import Parameter as StoredParameter
@@ -59,3 +59,8 @@ class RecalculationRequest(RequestModel):
 
 class CreateRunRequest(RecalculationRequest):
     report_date: ReportDate = Field(alias="reportDate")
+
+
+class PreparationRequest(RequestModel):
+    report_date: ReportDate = Field(alias="reportDate")
+    retry: StrictBool = False

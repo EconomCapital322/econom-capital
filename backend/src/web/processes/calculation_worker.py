@@ -10,6 +10,7 @@ from core.process_lock import process_lock
 from web.exceptions.curve_run import WorkerAlreadyRunning
 from web.integrations.adapters import EgorAdapter, SlavaAdapter
 from web.services.calculations import CalculationWorker
+from web.services.preparation import PreparationWorker
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,12 @@ async def main(*, once: bool = False) -> int:
                 loop.add_signal_handler(sig, stop.set)
             try:
                 if once:
-                    await worker.run_once(stop)
+                    if not settings.automation.enabled or not await PreparationWorker(
+                        database, settings
+                    ).run_once(stop):
+                        await worker.run_once(stop)
+                elif settings.automation.enabled:
+                    await PreparationWorker(database, settings).run(worker, stop)
                 else:
                     await worker.run(stop)
             except asyncio.CancelledError:

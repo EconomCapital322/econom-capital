@@ -79,6 +79,7 @@ async def test_migrations_roundtrip(connection: Conn, database_dsn: str) -> None
         "curve",
         "curve_point",
         "alembic_version",
+        "curve_preparation",
     }
     columns = await connection.fetch(
         "SELECT column_name FROM information_schema.columns WHERE table_name='curve_run'"

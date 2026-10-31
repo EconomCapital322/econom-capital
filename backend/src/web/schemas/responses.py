@@ -137,3 +137,10 @@ class ResultResponse(OutputModel):
         ):
             raise ValueError("All result curves must have the same nonempty grid")
         return self
+
+
+class PreparationResponse(OutputModel):
+    report_date: date
+    status: Literal["idle", "queued", "running", "ready", "no_data", "failed"]
+    run_id: UUID | None
+    error_code: Literal["SOURCE_UNAVAILABLE"] | None
