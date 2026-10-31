@@ -89,14 +89,14 @@ func TestCalculateCustomParameters(t *testing.T) {
 		{
 			name:       "upper_parameter_boundary",
 			rate:       1,
-			parameters: Parameters{P: 25, K: 25, D: 25},
+			parameters: Parameters{P: 50, K: 50, D: 50},
 			expected: []expectedCurve{
-				{Code: "parallel_up", Rates: []float64{26}},
-				{Code: "parallel_down", Rates: []float64{-24}},
-				{Code: "steepener", Rates: []float64{4.125}},
-				{Code: "flattener", Rates: []float64{3.5}},
-				{Code: "short_rate_up", Rates: []float64{13.5}},
-				{Code: "short_rate_down", Rates: []float64{-11.5}},
+				{Code: "parallel_up", Rates: []float64{51}},
+				{Code: "parallel_down", Rates: []float64{-49}},
+				{Code: "steepener", Rates: []float64{7.25}},
+				{Code: "flattener", Rates: []float64{6}},
+				{Code: "short_rate_up", Rates: []float64{26}},
+				{Code: "short_rate_down", Rates: []float64{-24}},
 			},
 		},
 	}
@@ -224,7 +224,7 @@ func TestCalculateRejectsInvalidParameters(t *testing.T) {
 	}{
 		{name: "zero", value: 0},
 		{name: "negative", value: -1},
-		{name: "just_above_25", value: math.Nextafter(25, math.Inf(1))},
+		{name: "just_above_50", value: math.Nextafter(50, math.Inf(1))},
 		{name: "nan", value: math.NaN()},
 		{name: "positive_infinity", value: math.Inf(1)},
 		{name: "negative_infinity", value: math.Inf(-1)},

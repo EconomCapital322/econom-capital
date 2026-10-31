@@ -10,6 +10,7 @@ from core.config import Settings
 from core.database import Database
 from web.dependencies import database_dependency, request_body, settings_dependency
 from web.exceptions.http import ApiError
+from web.repositories.models import RunStatus
 from web.schemas.requests import CreateRunRequest, RecalculationRequest, ReportDate
 from web.schemas.responses import (
     AcceptedResponse,
@@ -68,11 +69,13 @@ def uuid_path(value: str) -> UUID:
         ) from None
 
 
-def accepted(run_id: UUID) -> DecimalJSONResponse:
+def accepted(run_id: UUID, status: RunStatus = "queued") -> DecimalJSONResponse:
+    if status == "failed":
+        raise RuntimeError("A failed run cannot be accepted")
     return DecimalJSONResponse.from_model(
         AcceptedResponse,
-        AcceptedResponse(run_id=run_id, status="queued"),
-        status_code=202,
+        AcceptedResponse(run_id=run_id, status=status),
+        status_code=200 if status == "ready" else 202,
         headers={"Location": f"/api/v1/curve-runs/{run_id}"},
     )
 
@@ -97,11 +100,13 @@ async def list_runs(
     "/curve-runs",
     status_code=202,
     response_model=AcceptedResponse,
+    responses={200: {"model": AcceptedResponse}},
     openapi_extra=body_schema(CreateRunRequest),
 )
 async def create_run(request: Request, service: Service) -> DecimalJSONResponse:
     body = await request_body(request, CreateRunRequest)
-    return accepted(await service.create(body.report_date, body.scenario_parameters.effective()))
+    run_id, status = await service.create(body.report_date, body.scenario_parameters.effective())
+    return accepted(run_id, status)
 
 
 @router.get("/curve-runs/{runId}", response_model=StateResponse)

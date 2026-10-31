@@ -25,6 +25,8 @@ type Parameters struct {
 	D float64
 }
 
+const MaxScenarioParameter = 50
+
 type Curve struct {
 	Code   curveCode
 	Points []Point
@@ -53,7 +55,7 @@ func (p *Parameters) Validate() error {
 }
 
 func validateParameter(val float64, label string) error {
-	if !isFinite(val) || !(0 < val && val <= 25) {
+	if !isFinite(val) || !(0 < val && val <= MaxScenarioParameter) {
 		return fmt.Errorf(
 			"invalid %s parameter: %w",
 			label, ErrInvalidParameters,

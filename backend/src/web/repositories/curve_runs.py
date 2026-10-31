@@ -65,7 +65,9 @@ class CurveRunsRepository:
                     ).encode()
                 ).hexdigest()
                 existing = await connection.fetchval(
-                    "SELECT id FROM curve_run WHERE automatic_key=$1", automatic_key
+                    "SELECT id FROM curve_run WHERE automatic_key=$1 "
+                    "AND status<>'failed' FOR UPDATE",
+                    automatic_key,
                 )
                 if existing is not None:
                     return UUID(str(existing))

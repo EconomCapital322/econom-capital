@@ -38,7 +38,8 @@ def postgres_numeric(value: Decimal) -> Decimal:
 
 Finite = Annotated[Decimal, Field(allow_inf_nan=False), AfterValidator(postgres_numeric)]
 Tenor = Annotated[Finite, Field(gt=0)]
-Parameter = Annotated[Finite, Field(gt=0, le=25)]
+MAX_SCENARIO_PARAMETER = 50
+Parameter = Annotated[Finite, Field(gt=0, le=MAX_SCENARIO_PARAMETER)]
 Label = Annotated[str, Field(min_length=1, pattern=r"\S")]
 CurveCode = Literal[
     "base",

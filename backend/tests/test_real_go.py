@@ -11,10 +11,23 @@ from web.repositories.models import STRESS_CODES, ScenarioParameters
 
 
 @pytest.mark.usefixtures("base_binary_on_path")
-async def test_real_base_cli_to_real_stress_http(stress_url: str) -> None:
+@pytest.mark.parametrize(
+    ("mode", "value"),
+    [("standard", Decimal(4)), ("custom", Decimal(50))],
+)
+async def test_real_base_cli_to_real_stress_http(
+    stress_url: str, mode: str, value: Decimal
+) -> None:
     spec = specification("0.25", "1", "2", "3", "4")
     base = await asyncio.to_thread(build_base_curve, source(("1", "2"), ("3", "6")), spec)
-    parameters = ScenarioParameters(mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3))
+    parameters = ScenarioParameters.model_validate(
+        {
+            "mode": mode,
+            "p": value,
+            "k": Decimal(5) if mode == "standard" else value,
+            "d": Decimal(3) if mode == "standard" else value,
+        }
+    )
     adapter = SlavaAdapter(
         IntegrationSettings.model_validate(
             {
@@ -32,4 +45,4 @@ async def test_real_base_cli_to_real_stress_http(stress_url: str) -> None:
         assert all(p.rate_percent.is_finite() for p in curve.points)
     up = next(c for c in curves if c.curve_code == "parallel_up")
     # These integer/half inputs and the parallel shift are exactly representable in float64.
-    assert [p.rate_percent for p in up.points] == [p.rate_percent + 4 for p in base.points]
+    assert [p.rate_percent for p in up.points] == [p.rate_percent + value for p in base.points]

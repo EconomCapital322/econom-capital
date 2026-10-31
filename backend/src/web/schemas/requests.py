@@ -5,8 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema
 
+from web.repositories.models import MAX_SCENARIO_PARAMETER, ScenarioParameters
 from web.repositories.models import Parameter as StoredParameter
-from web.repositories.models import ScenarioParameters
 
 
 def calendar_date(value: object) -> date:
@@ -25,7 +25,7 @@ ReportDate = Annotated[date, BeforeValidator(calendar_date)]
 Parameter = Annotated[
     StoredParameter,
     BeforeValidator(number_token),
-    WithJsonSchema({"type": "number", "exclusiveMinimum": 0, "maximum": 25}),
+    WithJsonSchema({"type": "number", "exclusiveMinimum": 0, "maximum": MAX_SCENARIO_PARAMETER}),
 ]
 
 
