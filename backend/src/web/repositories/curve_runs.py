@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 import simplejson
 
 from core.database import DBConnection
-from web.exceptions.curve_run import InputDataNotReady, StaleClaim
+from web.exceptions.curve_run import InputDataNotReady, RunNotFound, RunStateConflict, StaleClaim
+from web.repositories.curves import CurvesRepository
 from web.repositories.input_rates import InputRatesRepository, lock_date
 from web.repositories.models import (
     CalculationError,
@@ -143,6 +144,7 @@ class CurveRunsRepository:
         cls, connection: DBConnection, *, run_id: UUID, claim_token: UUID, error: CalculationError
     ) -> None:
         """Persist an owned-stage failure without changing saved inputs or base curves."""
+        error = CalculationError.model_validate(error)
         async with connection.transaction():
             await connection.fetchrow("SELECT id FROM curve_run WHERE id=$1 FOR UPDATE", run_id)
             updated = await connection.fetchval(
@@ -240,9 +242,6 @@ class CurveRunsRepository:
         parent_id: UUID,
         parameters: ScenarioParameters,
     ) -> UUID:
-        from web.exceptions.curve_run import RunNotFound, RunStateConflict
-        from web.repositories.curves import CurvesRepository
-
         async with connection.transaction():
             parent = await connection.fetchrow(
                 "SELECT * FROM curve_run WHERE id=$1 FOR UPDATE",

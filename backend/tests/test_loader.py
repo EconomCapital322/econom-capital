@@ -102,7 +102,10 @@ async def test_loader_absence_errors_and_saved_data(
         await load_rates(database, REPORT_DATE, wrong_date, loader_settings)
     with pytest.raises(ImplementationUnavailable):
         await load_rates(
-            database, REPORT_DATE, EgorAdapter(IntegrationSettings()).fetch, loader_settings
+            database,
+            REPORT_DATE,
+            EgorAdapter(IntegrationSettings(fetch_function=None)).fetch,
+            loader_settings,
         )
     async with database.connection() as conn:
         assert await InputRatesRepository.read_current(conn, REPORT_DATE) == before

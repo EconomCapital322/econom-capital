@@ -579,3 +579,20 @@ async def test_publication_revalidates_nested_decimal_before_writing(
     assert await curves.CurvesRepository.read_curves(connection, run_id) == ()
     run = await curve_runs.CurveRunsRepository.get_run(connection, run_id)
     assert run is not None and run.status == "running" and run.claim_token == token
+
+
+async def test_failure_revalidates_error_before_changing_state(
+    connection: Conn, rates: MarketRates, parameters: ScenarioParameters, spec: CalculationSpec
+) -> None:
+    from web.repositories.models import CalculationError
+
+    run_id = await seed_run(connection, rates, parameters, spec)
+    token = await simulate_owner(connection, run_id)
+    error = CalculationError(code="CALCULATION_FAILED", message="Controlled failure")
+    invalid = error.model_copy(update={"code": "UNKNOWN_ERROR"})
+    with pytest.raises(ValidationError):
+        await curve_runs.CurveRunsRepository.save_failure(
+            connection, run_id=run_id, claim_token=token, error=invalid
+        )
+    run = await curve_runs.CurveRunsRepository.get_run(connection, run_id)
+    assert run is not None and run.status == "running" and run.error is None

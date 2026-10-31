@@ -47,7 +47,7 @@ class CalculationSettings(BaseModel):
 
 
 class IntegrationSettings(BaseModel):
-    fetch_function: str | None = None
+    fetch_function: str | None = "web.integrations.moex:fetch_rates"
     base_function: str | None = None
     stress_function: str | None = None
     stress_http_url: AnyHttpUrl | None = None
@@ -98,12 +98,27 @@ class LoaderSettings(BaseModel):
         return self
 
 
+class MoexSettings(BaseModel):
+    model_config = {"extra": "forbid"}
+    url: AnyHttpUrl = AnyHttpUrl("https://iss.moex.com/iss/engines/stock/zcyc.json")
+    timeout_seconds: float = Field(default=10, gt=0, allow_inf_nan=False)
+    max_response_bytes: int = Field(default=1_048_576, gt=0)
+    trust_env: bool = True
+
+    @model_validator(mode="after")
+    def no_credentials(self) -> "MoexSettings":
+        if self.url.username or self.url.password:
+            raise ValueError("MOEX URL must not contain credentials")
+        return self
+
+
 class Settings(BaseSettings):
     database: DatabaseSettings
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     app: AppSettings = Field(default_factory=AppSettings)
     calculation: CalculationSettings = Field(default_factory=CalculationSettings)
     integrations: IntegrationSettings = Field(default_factory=IntegrationSettings)
+    moex: MoexSettings = Field(default_factory=MoexSettings)
     worker: WorkerSettings | None = None
     loader: LoaderSettings | None = None
     model_config = SettingsConfigDict(
