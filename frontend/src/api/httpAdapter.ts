@@ -2,13 +2,14 @@ import { isPositiveParameter, STANDARD_PARAMETERS } from '../utils/parameters'
 import { isReportDate } from '../utils/validateCurves'
 import type { ScenarioParameters } from '../utils/curveTypes'
 import type { CurvesService } from './types'
-import { invalidResponse, parsePreparation, parseInput, parseList, parseResult, parseState, record, runId } from './httpContract'
-import type { RemoteSnapshot } from './httpContract'
+import { invalidResponse, parsePreparation, parseInput, parseList, parseResult, parseState, record, runId, isRunId } from './httpContract'
+import type { RemoteSnapshot, RunDto } from './httpContract'
 
 export interface RemoteCurvesApi {
   cacheKey: string
+  list(reportDate: string, signal: AbortSignal): Promise<RunDto[]>
   prepare(reportDate: string, retry?: boolean): Promise<void>
-  snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string): Promise<RemoteSnapshot>
+  snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string, readOnly?: boolean): Promise<RemoteSnapshot>
   start(reportDate: string, parameters: ScenarioParameters, parentRunId?: string): Promise<string>
 }
 export class ApiRequestError extends Error {
@@ -111,13 +112,19 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
   const remote: RemoteCurvesApi = {
     cacheKey: origin,
     prepare,
-    async snapshot(reportDate, signal, preferredRunId) {
+    async list(reportDate, signal) {
       if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
-      await prepare(reportDate)
+      return parseList(await request(`/curve-runs?reportDate=${encodeURIComponent(reportDate)}`, { signal }), reportDate)
+    },
+    async snapshot(reportDate, signal, preferredRunId, readOnly = false) {
+      if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
+      // An explicit historical selection is read-only, even after a reload.
+      if (preferredRunId && !isRunId(preferredRunId)) throw new ApiRequestError('Ссылка на расчёт некорректна. Выберите запуск в истории.', 422)
+      if (!preferredRunId && !readOnly) await prepare(reportDate)
       const query = `?reportDate=${encodeURIComponent(reportDate)}`
       const [rawInput, rawList, rawPreparation] = await Promise.all([request(`/input-rates${query}`, { signal }), request(`/curve-runs${query}`, { signal }), request(`/curve-preparations${query}`, { signal })])
       const preparation = parsePreparation(rawPreparation, reportDate)
-      if (preparation.status === 'idle' && preparationErrors.has(reportDate)) throw preparationErrors.get(reportDate)
+      if (!preferredRunId && !readOnly && preparation.status === 'idle' && preparationErrors.has(reportDate)) throw preparationErrors.get(reportDate)
       const input = parseInput(rawInput, reportDate)
       let runs = parseList(rawList, reportDate)
       // The source worker may commit between the parallel GETs. Do not lose
@@ -125,11 +132,7 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
       if (preparation.runId && !runs.some(item => item.runId === preparation.runId)) {
         runs = parseList(await request(`/curve-runs${query}`, { signal }), reportDate)
       }
-      const preferred = runs.find(item => item.runId === preferredRunId)
-      const prepared = runs.find(item => item.runId === preparation.runId)
-      const newerSource = preferred && prepared && !['queued', 'running'].includes(preferred.status) &&
-        Date.parse(prepared.createdAt ?? '') > Date.parse(preferred.createdAt ?? '')
-      const id = newerSource ? prepared.runId : preferredRunId ?? runs[0]?.runId ?? preparation.runId
+      const id = preferredRunId ?? runs[0]?.runId ?? preparation.runId
       if (!id) return { input, runs, preparation, run: null, result: null }
       let availableRuns = runs
       let rawState: unknown

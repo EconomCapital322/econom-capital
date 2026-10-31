@@ -9,11 +9,12 @@ const pencilIcon = new URL('../../assets/images/parameter-pencil.svg', import.me
 export interface ParametersControlProps {
   value: ScenarioParameters
   onChange: (value: ScenarioParameters) => void
+  onOpen?: () => void
   disabled?: boolean
   errors?: Partial<Record<keyof ScenarioParameters, string>>
 }
 
-export function ParametersControl({ value, onChange, disabled = false, errors }: ParametersControlProps): ReactElement {
+export function ParametersControl({ value, onChange, disabled = false, errors, onOpen }: ParametersControlProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false)
   const helpId = useId()
   const editRef = useRef<HTMLButtonElement | null>(null)
@@ -43,7 +44,7 @@ export function ParametersControl({ value, onChange, disabled = false, errors }:
           <span>K = {formatParameter(value.k)} п. п.</span><i aria-hidden="true">·</i>
           <span>D = {formatParameter(value.d)} п. п.</span>
         </span>
-        <button ref={editRef} className="pencil-button" type="button" onClick={() => setIsOpen(true)} disabled={disabled} aria-label="Редактировать параметры" title="Редактировать параметры">
+        <button ref={editRef} className="pencil-button" type="button" onClick={() => { onOpen?.(); setIsOpen(true) }} disabled={disabled} aria-label="Редактировать параметры" title="Редактировать параметры">
           <img src={pencilIcon} alt="" width="25" height="25" />
         </button>
       </div>

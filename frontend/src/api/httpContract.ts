@@ -50,9 +50,12 @@ export function record(value: unknown): Record<string, unknown> {
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : invalidResponse() }
 function finite(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : invalidResponse() }
 function text(value: unknown): string { return typeof value === 'string' && value.trim() ? value : invalidResponse() }
+export function isRunId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
 export function runId(value: unknown): string {
   const id = text(value)
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : invalidResponse()
+  return isRunId(id) ? id : invalidResponse()
 }
 function timestamp(value: unknown): string {
   const result = text(value)
