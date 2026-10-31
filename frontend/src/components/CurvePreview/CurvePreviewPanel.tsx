@@ -35,10 +35,13 @@ export interface CurvePreviewPanelProps {
   calculation: CurveCalculation | null
   error?: string
   message?: string
+  graphRevision?: number
 }
 
-export function CurvePreviewPanel({ preview, calculation, error, message }: CurvePreviewPanelProps): ReactElement {
-  const [view, setView] = useState<'graph' | 'table'>('table')
+export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0 }: CurvePreviewPanelProps): ReactElement {
+  const [viewState, setViewState] = useState<{ view: 'graph' | 'table'; revision: number }>({ view: 'graph', revision: graphRevision })
+  const view = viewState.revision === graphRevision ? viewState.view : 'graph'
+  const setView = (view: 'graph' | 'table') => setViewState({ view, revision: graphRevision })
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [focusedPoint, setFocusedPoint] = useState<number | null>(null)

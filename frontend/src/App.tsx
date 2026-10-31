@@ -21,6 +21,7 @@ function App(): ReactElement {
     const currentDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
     return isReportDate(date) ? date : currentDate
   })
+  const [graphRevision, setGraphRevision] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [parameters, setParameters] = useState<ScenarioParameters>({ ...STANDARD_PARAMETERS })
   const server = useRemoteCurves(reportDate)
@@ -59,6 +60,7 @@ function App(): ReactElement {
 
   function runCalculation() {
     if (!canStart || isRunning) return
+    setGraphRevision(value => value + 1)
     if (server.enabled) void server.start(parameters)
     else void local.run(reportDate, parameters)
   }
@@ -91,12 +93,12 @@ function App(): ReactElement {
           {state.status === 'ready' && 'Расчёт готов: базовая и шесть стрессовых кривых.'}
         </div>}
         {server.enabled ? <div className="results-region" aria-busy={isRunning || sourceQuery.isFetching}>
-          <CurvePreviewPanel preview={displayedCalculation ? preview : null} calculation={displayedCalculation}
+          <CurvePreviewPanel graphRevision={graphRevision} preview={displayedCalculation ? preview : null} calculation={displayedCalculation}
             error={sourceQuery.isError ? (sourceQuery.error instanceof Error ? sourceQuery.error.message : 'Не удалось получить данные сервера.') : state.status === 'error' ? state.message : undefined}
             message={!validDate ? 'Выберите отчётную дату.' : sourceQuery.isPending ? 'Получаем данные за выбранную дату…' : server.isPreparing ? 'Загружаем ставки из MOEX за выбранную дату…' : isRunning ? 'Выполняется серверный расчёт. Результат появится после завершения.' : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Готового расчёта пока нет. Нажмите «Пересчитать кривые».' : undefined} />
         </div> : !validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
           : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={checkSource} disabled={sourceQuery.isFetching}>Повторить получение данных</Button></div>
-          : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel preview={preview} calculation={displayedCalculation} error={state.status === 'error' ? state.message : undefined} /></div>}
+          : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel graphRevision={graphRevision} preview={preview} calculation={displayedCalculation} error={state.status === 'error' ? state.message : undefined} /></div>}
         <div className="data-availability" role="status">{preview && (!server.enabled || server.query.data?.input.available) ? <><span>Ставки за дату доступны</span><span>{server.enabled && server.query.data?.input.dataProvenance === 'synthetic' ? 'Синтетические данные' : preview.source} · {server.enabled && server.query.data?.input.sourceAsOf ? `${new Date(server.query.data.input.sourceAsOf).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : `${new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU')}, ${preview.sourceTime}`}</span></> : <span>{!validDate ? 'Отчётная дата не выбрана' : server.enabled && server.isPreparing ? 'Загружаем ставки из MOEX' : sourceQuery.isFetching ? 'Получаем исходные ставки' : sourceQuery.isError ? 'Исходные ставки недоступны' : 'Нет ставок за выбранную дату'}</span>}</div>
       </main>
       <footer className="app-footer"><span>Методика IRRBB · Банк России, 8-МР</span></footer>
