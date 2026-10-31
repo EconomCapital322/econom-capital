@@ -37,6 +37,10 @@ export function useRemoteCurves(reportDate: string) {
     refetchOnWindowFocus: true,
     refetchInterval: q => {
       if (q.state.error) return false
+      const sourceStatus = q.state.data?.preparation.status
+      if (sourceStatus === 'queued' || sourceStatus === 'running') return 1500
+      if (sourceStatus === 'no_data' && reportDate === new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })) return 60_000
+      if (sourceStatus === 'no_data' || sourceStatus === 'failed') return false
       const status = q.state.data?.run?.status
       if (status === 'queued' || status === 'running') return 1500
       // Wait for server-owned source loading/automatic queueing for at most
@@ -64,11 +68,23 @@ export function useRemoteCurves(reportDate: string) {
       void client.invalidateQueries({ queryKey: ['server-curves', remote?.cacheKey, variables.date] })
     },
   })
+  const sourceRetry = useMutation<void, Error, string>({
+    retry: false,
+    mutationFn: async date => {
+      if (!remote) throw new Error('Серверный адаптер не подключён.')
+      await remote.prepare(date, true)
+    },
+    onSettled: (_data, _error, date) => { void client.invalidateQueries({ queryKey: ['server-curves', remote?.cacheKey, date] }) },
+  })
   const snapshot = query.isError ? undefined : query.data
   const run = snapshot?.run
+  const isPreparing = snapshot?.preparation.status === 'queued' || snapshot?.preparation.status === 'running' || (sourceRetry.isPending && sourceRetry.variables === reportDate)
+  const preparationFailed = (snapshot?.preparation.status === 'failed' && !snapshot.result) || query.isError
   let state: RemoteState = { status: 'idle' }
   const mutationForDate = mutation.variables?.date === reportDate
-  if (mutation.isPending && mutationForDate) state = { status: 'running' }
+  if (isPreparing) state = { status: 'running' }
+  else if (preparationFailed) state = { status: 'error', message: 'Не удалось загрузить ставки из MOEX. Повторите загрузку.' }
+  else if (mutation.isPending && mutationForDate) state = { status: 'running' }
   else if (run?.status === 'queued' || run?.status === 'running') state = { status: 'running' }
   else if (run?.status === 'failed') state = { status: 'error', message: calculationError(run.error?.code) }
   else if (snapshot?.result) state = { status: 'ready', result: snapshot.result }
@@ -88,6 +104,13 @@ export function useRemoteCurves(reportDate: string) {
   }
 
   async function start(parameters: ScenarioParameters) {
+    if (submitting.current) return
+    if (preparationFailed && !sourceRetry.isPending) {
+      submitting.current = true
+      try { await sourceRetry.mutateAsync(reportDate) } catch { /* Query refresh displays the error. */ }
+      finally { submitting.current = false }
+      return
+    }
     if (!remote || submitting.current || query.isFetching || state.status === 'running' || !snapshot) return
     // Stress recalculation is tied to the parent's saved base and source, not
     // today's input points. A failed base stage requires a fresh full run.
@@ -100,8 +123,8 @@ export function useRemoteCurves(reportDate: string) {
   }
   const validation = mutation.isError && mutationForDate && mutation.error instanceof ApiRequestError
     ? { parameters: mutation.variables.parameters, fields: mutation.error.fieldErrors } : undefined
-  return { enabled: !!remote, query, state, start, validation, isSubmitting: mutation.isPending && mutationForDate,
+  return { enabled: !!remote, isPreparing, preparationFailed, query, state, start, validation, isSubmitting: mutation.isPending && mutationForDate,
     refresh,
-    canStart: !!snapshot && !mutation.isPending && !query.isFetching && (snapshot.input.available || run?.stage === 'stress'),
+    canStart: !mutation.isPending && !sourceRetry.isPending && !query.isFetching && isReportDate(reportDate) && (preparationFailed || (!!snapshot && (snapshot.input.available || run?.stage === 'stress'))),
     preview: snapshot ? inputPreview(snapshot.input, snapshot.result) : null }
 }

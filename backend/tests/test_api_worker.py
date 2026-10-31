@@ -148,7 +148,7 @@ async def test_http_and_complete_fake_flow(
             ) == await InputRatesRepository.read_snapshot(conn, run_id)
         assert (await client.get("/docs")).status_code == 200
         schema = (await client.get("/openapi.json")).json()
-        assert sum(len(path) for path in schema["paths"].values()) == 6
+        assert sum(len(path) for path in schema["paths"].values()) == 8
         request_schema = schema["paths"]["/api/v1/curve-runs"]["post"]["requestBody"]["content"][
             "application/json"
         ]["schema"]

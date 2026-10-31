@@ -11,16 +11,23 @@ from core.database import Database
 from web.dependencies import database_dependency, request_body, settings_dependency
 from web.exceptions.http import ApiError
 from web.repositories.models import RunStatus
-from web.schemas.requests import CreateRunRequest, RecalculationRequest, ReportDate
+from web.schemas.requests import (
+    CreateRunRequest,
+    PreparationRequest,
+    RecalculationRequest,
+    ReportDate,
+)
 from web.schemas.responses import (
     AcceptedResponse,
     InputRatesResponse,
+    PreparationResponse,
     ResultResponse,
     RunListResponse,
     StateResponse,
 )
 from web.serialization import DecimalJSONResponse
 from web.services.curve_runs import RunService
+from web.services.preparation import preparation_state, request_preparation
 
 router = APIRouter(prefix="/api/v1", tags=["Curves"])
 
@@ -129,3 +136,31 @@ async def recalculate(runId: str, request: Request, service: Service) -> Decimal
     parent = uuid_path(runId)
     body = await request_body(request, RecalculationRequest)
     return accepted(await service.recalculate(parent, body.scenario_parameters.effective()))
+
+
+@router.post(
+    "/curve-preparations",
+    status_code=202,
+    response_model=PreparationResponse,
+    responses={200: {"model": PreparationResponse}},
+    openapi_extra=body_schema(PreparationRequest),
+)
+async def prepare_date(request: Request, service: Service) -> DecimalJSONResponse:
+    body = await request_body(request, PreparationRequest)
+    result = await request_preparation(
+        service.database, service.settings, body.report_date, retry=body.retry
+    )
+    return DecimalJSONResponse.from_model(
+        PreparationResponse,
+        result,
+        status_code=202 if result["status"] in ("queued", "running") else 200,
+    )
+
+
+@router.get("/curve-preparations", response_model=PreparationResponse)
+async def read_preparation(
+    service: Service, report_date: Annotated[ReportDate, Query(alias="reportDate")]
+) -> DecimalJSONResponse:
+    return DecimalJSONResponse.from_model(
+        PreparationResponse, await preparation_state(service.database, report_date)
+    )

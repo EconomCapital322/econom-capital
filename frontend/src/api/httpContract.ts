@@ -20,7 +20,18 @@ export interface RunStateDto extends RunDto {
   baseCurve?: { curveCode: 'base'; points: CurvePoint[] }
   error?: { code: string }
 }
+export type PreparationStatus = 'idle' | 'queued' | 'running' | 'ready' | 'no_data' | 'failed'
+export interface PreparationDto { reportDate: string; status: PreparationStatus; runId: string | null; errorCode: string | null }
+export function parsePreparation(value: unknown, date: string): PreparationDto {
+  const dto = record(value)
+  if (dto.reportDate !== date || !['idle', 'queued', 'running', 'ready', 'no_data', 'failed'].includes(String(dto.status))) return invalidResponse()
+  if (dto.errorCode !== null && typeof dto.errorCode !== 'string') return invalidResponse()
+  const id = dto.runId === null ? null : runId(dto.runId)
+  if (dto.status === 'ready' && !id) return invalidResponse()
+  return { reportDate: date, status: dto.status as PreparationStatus, runId: id, errorCode: dto.errorCode as string | null }
+}
 export interface RemoteSnapshot {
+  preparation: PreparationDto
   input: InputRatesDto
   runs: RunDto[]
   run: RunStateDto | null
