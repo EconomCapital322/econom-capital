@@ -1,4 +1,4 @@
-.PHONY: up down logs restart-worker rebuild check reset-local-db
+.PHONY: up down logs restart-worker rebuild check check-python check-go check-frontend reset-local-db
 
 up:
 	@docker compose up -d --build --wait
@@ -17,13 +17,21 @@ down:
 logs:
 	@docker compose logs -f --tail=100
 
-check:
+check: check-python check-go check-frontend
+
+check-python:
 	@set -e; \
 	trap 'docker compose --profile check stop postgres-test >/dev/null' EXIT; \
-	docker compose --profile check build backend-check frontend; \
+	docker compose --profile check build backend-check; \
 	docker compose --profile check up -d --wait postgres-test; \
-	docker compose --profile check run --rm --no-deps backend-check sh -ec 'cd backend && pytest -q && ruff check src migrations tests && ruff format --check src migrations tests && mypy src migrations tests'; \
-	docker compose --profile check run --rm --no-deps backend-check sh -ec 'cd base && go test -race ./... && go vet ./... && cd ../stress && go test -race ./... && go vet ./...'; \
+	docker compose --profile check run --rm --no-deps backend-check sh -ec 'cd backend && pytest -q && ruff check src migrations tests && ruff format --check src migrations tests && mypy src migrations tests'
+
+check-go:
+	@docker compose --profile check build backend-check
+	@docker compose --profile check run --rm --no-deps backend-check sh -ec 'cd base && go test -race ./... && go vet ./... && cd ../stress && go test -race ./... && go vet ./...'
+
+check-frontend:
+	@docker compose --profile check build frontend
 	docker compose --profile check run --rm --no-deps frontend sh -ec 'npm ci && npm run typecheck && npm run lint && npm run build'
 
 reset-local-db:
