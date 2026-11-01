@@ -19,6 +19,12 @@ func NewHandler(logger *slog.Logger) http.Handler {
 			handleCalculate(w, r, logger)
 		},
 	)
+	mux.HandleFunc(
+		"GET /healthz",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	)
 
 	return mux
 }

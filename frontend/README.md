@@ -4,7 +4,16 @@ React + TypeScript + Vite, Bootstrap, TanStack Query. Geologica подключе
 
 ## Запуск
 
-Из `frontend`:
+Для общего локального запуска из корня репозитория:
+
+```sh
+cp .env.example .env
+make up
+```
+
+Интерфейс откроется на `http://127.0.0.1:5173/`. PostgreSQL, миграции, API, worker и Go-сервис поднимаются вместе с ним. Переменные для Compose задаются в корневом `.env`.
+
+Для отдельной работы над интерфейсом из `frontend`:
 
 ```sh
 npm ci
@@ -19,57 +28,13 @@ VITE_API_MODE=api
 VITE_API_BASE_URL=
 ```
 
-Пустой URL означает тот же origin: `/api/v1/...`. В режиме разработки Vite проксирует `/api` на `http://127.0.0.1:8000`. В production нужен reverse proxy `/api` к FastAPI либо явно заданный `VITE_API_BASE_URL`, например `https://backend.example.org`. Указывать нужно origin/базовый путь **без** `/api/v1` в конце. Секреты в VITE_* помещать нельзя: они доступны браузеру.
+Пустой URL означает тот же origin: `/api/v1/...`. В режиме разработки Vite проксирует `/api` на `API_PROXY_TARGET` (по умолчанию `http://127.0.0.1:8000`, в Compose `http://api:8000`). В production нужен reverse proxy `/api` к FastAPI либо явно заданный `VITE_API_BASE_URL`, например `https://backend.example.org`. Указывать нужно origin/базовый путь **без** `/api/v1` в конце. Секреты в VITE_* помещать нельзя: они доступны браузеру.
 
 Если запросы идут к отдельному origin, настрой `APP__CORS_ORIGINS` в backend на точный origin фронтенда. При локальном Vite proxy CORS для браузера не требуется.
 
 ### Backend
 
-Проверенная серверная версия: `origin/backend-develop`, коммит `5cb62cbcc0479c4ab08c81b7c2ee040cddafbc62`. В текущий checkout фронтенда она не объединена. Команды ниже выполняются в отдельной копии этой серверной версии. Из её `backend`:
-
-```sh
-uv sync --frozen --group dev
-cp -n .env.example .env
-# Указать DATABASE__DSN для подготовленной PostgreSQL.
-uv run alembic upgrade head
-uv run uvicorn web.app:create_app --factory --host 127.0.0.1 --port 8000
-```
-
-Сначала собери реальную базовую кривую из корня репозитория:
-
-```sh
-(cd base && go build -o bin/base-curve ./cmd/base-curve)
-export PATH="$(pwd)/base/bin:$PATH"
-```
-
-Затем вернись в `backend` для запуска API/worker. Нужны заполненные исходные ставки, согласованный `CALCULATION__SPEC_FILE` и отдельный Calculation Worker с настроенными реальными функциями и WORKER_*:
-
-```sh
-uv run python -m web.processes.calculation_worker
-```
-
-HTTP-процесс сам не запускает Worker/Loader и не выполняет миграции. Для временной локальной проверки PostgreSQL можно поднять `docker compose -f compose.test.yaml up -d --wait`, узнать порт через `docker compose -f compose.test.yaml port postgres-test 5432` и использовать реквизиты тестового контейнера из backend README. Его tmpfs не является постоянным хранилищем.
-
-В версии `5cb62cb` подключён настоящий HTTP-мост к Go stress-service. В отдельном терминале из `stress` серверной копии:
-
-```sh
-go run ./cmd/stress-service
-```
-
-Для Python worker нужны переменные из `.env.example` этой версии:
-
-```dotenv
-INTEGRATIONS__BASE_FUNCTION=web.calculations.base_curve:build_base_curve
-INTEGRATIONS__STRESS_HTTP_URL=http://127.0.0.1:8081/internal/v1/stress-curves
-INTEGRATIONS__STRESS_HTTP_VERSION=<точное значение stress_version из спецификации>
-INTEGRATIONS__STRESS_HTTP_TIMEOUT_SECONDS=10
-INTEGRATIONS__STRESS_HTTP_MAX_RESPONSE_BYTES=8388608
-CALCULATION__SPEC_FILE=<абсолютный путь к согласованной спецификации>
-```
-
-`STRESS_HTTP_URL` и `STRESS_FUNCTION` взаимоисключающие. Также обязательны `WORKER__POLL_SECONDS`, `WORKER__LEASE_SECONDS`, `WORKER__HEARTBEAT_SECONDS` и `WORKER__STAGE_TIMEOUT_SECONDS`: lease должен превышать три heartbeat-интервала. Значения этих таймаутов выбирает владелец серверной конфигурации. Не запускай worker до настройки.
-
-В серверной версии есть `backend/examples/demo-calculation-spec.json` и команда `python -m web.processes.demo_history` для явно синтетического стенда. Эта команда разрешена только для отдельной БД с меткой `irrbb.demo_instance=backend-final`; производственная сетка и версии из неё не следуют. Для живого MOEX используйте `INTEGRATIONS__FETCH_FUNCTION=web.integrations.moex:fetch_rates` и отдельную рыночную БД; настройка — в `backend/MOEX.md`. Детали — [API_INTEGRATION.md](API_INTEGRATION.md).
+Текущий backend находится в этом же репозитории. Корневой `make up` уже собирает Go-программу базовой кривой, выполняет миграции и запускает API, объединённый worker и Go stress-service. Конфигурация рыночной загрузки описана в [backend/MOEX.md](../backend/MOEX.md); детали HTTP-взаимодействия — в [API_INTEGRATION.md](API_INTEGRATION.md).
 
 ### Демонстрационный режим
 
