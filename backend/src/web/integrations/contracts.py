@@ -13,7 +13,7 @@ from web.repositories.models import (
 
 
 class FetchRates(Protocol):
-    async def __call__(self, report_date: date) -> MarketRates: ...
+    async def __call__(self, report_date: date, /) -> MarketRates: ...
 
 
 class BuildBase(Protocol):
