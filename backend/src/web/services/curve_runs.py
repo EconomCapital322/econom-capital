@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from core.config import Settings
@@ -29,6 +30,12 @@ from web.schemas.responses import (
 )
 
 
+def required_discount_factor(value: Decimal | None) -> Decimal:
+    if value is None:
+        raise ValueError("Stored curve point has no discount factor")
+    return value
+
+
 def curve_response(curve: Curve) -> CurveResponse:
     return CurveResponse(
         curve_code=curve.curve_code,
@@ -37,6 +44,7 @@ def curve_response(curve: Curve) -> CurveResponse:
                 bucket_label=p.bucket_label,
                 tenor_years=p.tenor_years,
                 rate_percent=p.rate_percent,
+                discount_factor=required_discount_factor(p.discount_factor),
             )
             for p in curve.points
         ],

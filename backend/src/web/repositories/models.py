@@ -177,6 +177,7 @@ class StoredRun(StorageModel):
 
 class CurvePoint(Bucket):
     rate_percent: Finite
+    discount_factor: Annotated[Finite, Field(gt=0)] | None = None
     is_interpolated: bool | None = None
     is_extrapolated: bool | None = None
 

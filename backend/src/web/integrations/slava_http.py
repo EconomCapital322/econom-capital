@@ -30,7 +30,9 @@ def build_stress_http(
     if base.curve_code != "base":
         raise StressCurveError("Stress input must be a base curve")
     payload = {
-        "base": base.model_dump(mode="json"),
+        "base": base.model_dump(
+            mode="json", exclude={"points": {"__all__": {"discount_factor"}}}
+        ),
         "parameters": parameters.model_dump(mode="json"),
     }
     try:

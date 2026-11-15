@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from core.database import DBConnection
+from web.calculations.discount import with_discount_factors
 from web.exceptions.curve_run import RunStateConflict, StaleClaim
 from web.repositories.models import STRESS_CODES, CalculationSpec, Curve, StoredRun
 
@@ -36,6 +37,7 @@ class CurvesRepository:
                             bucket_label=r["bucket_label"],
                             tenor_years=r["tenor_years"],
                             rate_percent=r["rate_percent"],
+                            discount_factor=r["discount_factor"],
                             is_interpolated=r["is_interpolated"],
                             is_extrapolated=r["is_extrapolated"],
                         )
@@ -101,6 +103,7 @@ class CurvesRepository:
         cls, connection: DBConnection, *, run_id: UUID, claim_token: UUID, curves: tuple[Curve, ...]
     ) -> None:
         """Store an owned result without executing or scheduling calculations."""
+        curves = tuple(with_discount_factors(curve) for curve in curves)
         async with connection.transaction():
             row = await connection.fetchrow(
                 "SELECT * FROM curve_run WHERE id=$1 FOR UPDATE", run_id
@@ -150,6 +153,8 @@ class CurvesRepository:
     @classmethod
     async def _insert(cls, connection: DBConnection, run_id: UUID, curve: Curve) -> None:
         curve = Curve.model_validate(curve)
+        if any(point.discount_factor is None for point in curve.points):
+            raise ValueError("Stored curve points require discount factors")
         curve_id = uuid4()
         await connection.execute(
             "INSERT INTO curve(id,run_id,curve_code) VALUES ($1,$2,$3)",
@@ -160,8 +165,9 @@ class CurvesRepository:
         await connection.executemany(
             (
                 "INSERT INTO curve_point "
-                "(id,curve_id,bucket_label,tenor_years,rate,is_interpolated,is_extrapolated)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7)"
+                "(id,curve_id,bucket_label,tenor_years,rate,discount_factor,"
+                "is_interpolated,is_extrapolated)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"
             ),
             [
                 (
@@ -170,6 +176,7 @@ class CurvesRepository:
                     p.bucket_label,
                     p.tenor_years,
                     p.rate_percent,
+                    p.discount_factor,
                     p.is_interpolated,
                     p.is_extrapolated,
                 )

@@ -1,5 +1,5 @@
 import { isPositiveParameter } from './parameters'
-import type { CurveCalculation, CurvePoint, CurvePreview } from './curveTypes'
+import type { CurveCalculation, CurvePoint, CurvePreview, DiscountedCurvePoint } from './curveTypes'
 
 const SCENARIO_CODES = ['parallel-up', 'parallel-down', 'steepener', 'flattener', 'short-up', 'short-down'] as const
 
@@ -29,13 +29,20 @@ function isPointGrid(value: unknown): value is CurvePoint[] {
   return true
 }
 
+function isDiscountedPointGrid(value: unknown): value is DiscountedCurvePoint[] {
+  return isPointGrid(value) && value.every(point => {
+    const factor = (point as unknown as Record<string, unknown>).discountFactor
+    return typeof factor === 'number' && Number.isFinite(factor) && factor > 0
+  })
+}
+
 export function isCurvePreview(value: unknown): value is CurvePreview {
   return isRecord(value) && isReportDate(value.reportDate) && value.source === 'MOEX' &&
     typeof value.sourceTime === 'string' && isPointGrid(value.points)
 }
 
 export function isCompleteCalculation(value: unknown): value is CurveCalculation {
-  if (!isRecord(value) || !isReportDate(value.reportDate) || !isPointGrid(value.baseCurve) ||
+  if (!isRecord(value) || !isReportDate(value.reportDate) || !isDiscountedPointGrid(value.baseCurve) ||
     !isRecord(value.parameters) || !['p', 'k', 'd'].every(key => {
       const parameter = (value.parameters as Record<string, unknown>)[key]
       return typeof parameter === 'number' && isPositiveParameter(parameter)
@@ -44,7 +51,7 @@ export function isCompleteCalculation(value: unknown): value is CurveCalculation
   const curves = value.stressCurves
   return SCENARIO_CODES.every(code => {
     const matches = curves.filter(curve => isRecord(curve) && curve.code === code)
-    if (matches.length !== 1 || !isRecord(matches[0]) || !isPointGrid(matches[0].points)) return false
+    if (matches.length !== 1 || !isRecord(matches[0]) || !isDiscountedPointGrid(matches[0].points)) return false
     return matches[0].points.length === base.length && matches[0].points.every((point, i) =>
       point.label === base[i].label && point.tenorYears === base[i].tenorYears)
   })

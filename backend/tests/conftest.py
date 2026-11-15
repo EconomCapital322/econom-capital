@@ -134,6 +134,7 @@ def parameters() -> ScenarioParameters:
 @pytest.fixture
 def spec() -> CalculationSpec:
     return CalculationSpec(
+        data_provenance="synthetic",
         base_version="test-only-base",
         stress_version="test-only-stress",
         method="test-only",

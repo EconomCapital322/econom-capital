@@ -13,6 +13,10 @@ export interface CurvePoint {
   rate: number
 }
 
+export interface DiscountedCurvePoint extends CurvePoint {
+  discountFactor: number
+}
+
 export interface CurvePreview {
   reportDate: string
   source: 'MOEX'
@@ -30,7 +34,7 @@ export type StressScenarioCode =
 
 export interface StressCurve {
   readonly code: StressScenarioCode
-  readonly points: readonly CurvePoint[]
+  readonly points: readonly DiscountedCurvePoint[]
 }
 
 export interface CurveCalculation {
@@ -38,6 +42,6 @@ export interface CurveCalculation {
   readonly runOrigin?: RunOrigin
   readonly reportDate: string
   readonly parameters: Readonly<ScenarioParameters>
-  readonly baseCurve: readonly CurvePoint[]
+  readonly baseCurve: readonly DiscountedCurvePoint[]
   readonly stressCurves: readonly StressCurve[]
 }
