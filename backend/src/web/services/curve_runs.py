@@ -55,6 +55,21 @@ def used_parameters(parameters: ScenarioParameters) -> UsedParameters:
     return UsedParameters(mode=parameters.mode, p=parameters.p, k=parameters.k, d=parameters.d)
 
 
+def build_result(run: StoredRun, curves: tuple[Curve, ...]) -> ResultResponse:
+    if len(curves) != 7 or run.completed_at is None:
+        raise RuntimeError("Incomplete stored ready result")
+    return ResultResponse(
+        run_id=run.id,
+        run_origin=run.run_origin,
+        data_provenance=run.calculation_spec.data_provenance,
+        report_date=run.report_date,
+        source=run.source,
+        completed_at=run.completed_at,
+        used_parameters=used_parameters(run.scenario_parameters),
+        curves=[curve_response(c) for c in curves],
+    )
+
+
 class RunService:
     def __init__(self, database: Database, settings: Settings) -> None:
         self.database, self.settings = database, settings
@@ -153,18 +168,16 @@ class RunService:
             raise ApiError(409, "", "", saved_error=run.error)
         if run.status != "ready":
             raise ApiError(409, "RESULT_NOT_READY", "Full calculation result is not ready")
-        if len(curves) != 7 or run.completed_at is None:
-            raise RuntimeError("Incomplete stored ready result")
-        return ResultResponse(
-            run_id=run.id,
-            run_origin=run.run_origin,
-            data_provenance=run.calculation_spec.data_provenance,
-            report_date=run.report_date,
-            source=run.source,
-            completed_at=run.completed_at,
-            used_parameters=used_parameters(run.scenario_parameters),
-            curves=[curve_response(c) for c in curves],
-        )
+        return build_result(run, curves)
+
+    async def standard_result(self, report_date: date) -> ResultResponse:
+        async with self.database.connection() as connection:
+            saved = await CurvesRepository.read_standard_result(connection, report_date)
+        if saved is None:
+            raise ApiError(
+                404, "STANDARD_RESULT_NOT_FOUND", "No ready standard calculation for this date"
+            )
+        return build_result(*saved)
 
     async def list_runs(self, report_date: date) -> RunListResponse:
         async with self.database.connection() as connection:

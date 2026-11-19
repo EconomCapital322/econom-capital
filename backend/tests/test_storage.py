@@ -110,13 +110,10 @@ async def test_discount_factor_migration_backfills_saved_points(
         connection, run_id=run_id, claim_token=token, curves=(fake_curve(spec),)
     )
     await migrate(database_dsn, "0007_curve_preparation", downgrade=True)
-    await connection.execute(
-        "UPDATE curve_point SET rate=0 WHERE bucket_label='synthetic-short'"
-    )
+    await connection.execute("UPDATE curve_point SET rate=0 WHERE bucket_label='synthetic-short'")
     await migrate(database_dsn)
     points = await connection.fetch(
-        "SELECT bucket_label,rate,tenor_years,discount_factor FROM curve_point "
-        "ORDER BY tenor_years"
+        "SELECT bucket_label,rate,tenor_years,discount_factor FROM curve_point ORDER BY tenor_years"
     )
     assert len(points) == 2
     assert points[0]["rate"] == 0 and points[0]["discount_factor"] == 1

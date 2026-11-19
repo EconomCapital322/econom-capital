@@ -123,9 +123,9 @@ async def ready(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:
             assert all(point["discountFactor"] > 0 for point in state["baseCurve"]["points"])
             result = await client.get(f"/api/v1/curve-runs/{run_id}/result")
             assert result.status_code == 200, result.text
-            payload: dict[str, object] = result.json()
-            assert len(payload["curves"]) == 7  # type: ignore[arg-type]
-            for curve in payload["curves"]:  # type: ignore[union-attr]
+            payload = result.json()
+            assert len(payload["curves"]) == 7
+            for curve in payload["curves"]:
                 for point in curve["points"]:
                     assert point["discountFactor"] > 0
                     assert isclose(
@@ -133,7 +133,7 @@ async def ready(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:
                         exp(-(point["ratePercent"] / 100) * point["tenorYears"]),
                         rel_tol=1e-12,
                     )
-            return payload
+            return dict(payload)
         await asyncio.sleep(0.03)
     pytest.fail("Real Worker did not produce a ready result")
 
@@ -205,7 +205,8 @@ async def test_live_user_calculation_recalculation_and_api_restart(
                 json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
             )
             assert response.status_code == 202
-            assert (await ready(client, response.json()["runId"]))["usedParameters"] == {
+            standard = await ready(client, response.json()["runId"])
+            assert standard["usedParameters"] == {
                 "mode": "standard",
                 "p": 4,
                 "k": 5,
@@ -224,6 +225,10 @@ async def test_live_user_calculation_recalculation_and_api_restart(
             await InputRatesRepository.replace_current(
                 connection, later_rates, loaded_at=datetime.now(UTC)
             )
+            lookup = await client.get(
+                "/api/v1/curve-runs/standard-result", params={"reportDate": str(REPORT_DATE)}
+            )
+            assert lookup.status_code == 200 and lookup.json() == standard
             # Commit through POST, then close the client AND API while Worker is alive.
             queued_response = await client.post(
                 "/api/v1/curve-runs",

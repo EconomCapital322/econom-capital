@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID, uuid4
 
 from core.database import DBConnection
-from web.calculations.discount import with_discount_factors
 from web.exceptions.curve_run import RunStateConflict, StaleClaim
 from web.repositories.models import STRESS_CODES, CalculationSpec, Curve, StoredRun
 
@@ -63,6 +63,23 @@ class CurvesRepository:
             return await cls._read_state(connection, run_id)
 
     @classmethod
+    async def read_standard_result(
+        cls, connection: DBConnection, report_date: date
+    ) -> tuple[StoredRun, tuple[Curve, ...]] | None:
+        # Published results are immutable. Use the same snapshot for the run and its points.
+        async with connection.transaction(isolation="repeatable_read", readonly=True):
+            row = await connection.fetchrow(
+                "SELECT * FROM curve_run WHERE report_date=$1 AND status='ready' "
+                "AND scenario_parameters->>'mode'='standard' "
+                "ORDER BY completed_at DESC,id DESC LIMIT 1",
+                report_date,
+            )
+            if row is None:
+                return None
+            run = StoredRun.model_validate(dict(row))
+            return run, await cls.read_curves(connection, run.id)
+
+    @classmethod
     async def _read_state(
         cls, connection: DBConnection, run_id: UUID
     ) -> tuple[StoredRun, tuple[Curve, ...]] | None:
@@ -103,7 +120,6 @@ class CurvesRepository:
         cls, connection: DBConnection, *, run_id: UUID, claim_token: UUID, curves: tuple[Curve, ...]
     ) -> None:
         """Store an owned result without executing or scheduling calculations."""
-        curves = tuple(with_discount_factors(curve) for curve in curves)
         async with connection.transaction():
             row = await connection.fetchrow(
                 "SELECT * FROM curve_run WHERE id=$1 FOR UPDATE", run_id

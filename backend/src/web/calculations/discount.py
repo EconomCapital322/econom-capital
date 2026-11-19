@@ -1,12 +1,11 @@
-from decimal import Decimal, DecimalException, localcontext
+from decimal import ROUND_HALF_EVEN, Context, Decimal, DecimalException, localcontext
 
 from web.repositories.models import Curve, postgres_numeric
 
 
 def discount_factor(rate_percent: Decimal, tenor_years: Decimal) -> Decimal:
     try:
-        with localcontext() as context:
-            context.prec = 34
+        with localcontext(Context(prec=34, rounding=ROUND_HALF_EVEN)):
             value = (-(rate_percent / 100) * tenor_years).exp()
     except DecimalException as exc:
         raise ValueError("Discount factor cannot be calculated") from exc
@@ -16,6 +15,7 @@ def discount_factor(rate_percent: Decimal, tenor_years: Decimal) -> Decimal:
 
 
 def with_discount_factors(curve: Curve) -> Curve:
+    curve = Curve.model_validate(curve)
     return Curve.model_validate(
         curve.model_copy(
             update={
