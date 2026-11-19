@@ -1,7 +1,7 @@
 import re
 from datetime import date
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, WithJsonSchema
 
@@ -9,13 +9,13 @@ from web.repositories.models import MAX_SCENARIO_PARAMETER, ScenarioParameters
 from web.repositories.models import Parameter as StoredParameter
 
 
-def calendar_date(value: Any) -> date:
+def calendar_date(value: object) -> date:
     if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         raise ValueError("Expected calendar date YYYY-MM-DD")
     return date.fromisoformat(value)
 
 
-def number_token(value: Any) -> Decimal | int:
+def number_token(value: object) -> Decimal | int:
     if isinstance(value, bool) or not isinstance(value, (Decimal, int)):
         raise ValueError("Expected a finite JSON number")
     return value

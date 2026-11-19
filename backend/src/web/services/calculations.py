@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from core.config import WorkerSettings
 from core.database import Database
+from web.calculations.discount import with_discount_factors
 from web.exceptions.curve_run import (
     ImplementationUnavailable,
     StaleClaim,
@@ -107,14 +108,14 @@ class CalculationWorker:
                         raise ValueError("Missing immutable snapshot")
 
                     def function() -> tuple[Curve, ...]:
-                        return (Curve.model_validate(self.base(snapshot.points, spec)),)
+                        return (with_discount_factors(self.base(snapshot.points, spec)),)
                 else:
                     curves = await CurvesRepository.read_curves(connection, run_id)
                     base = next(c for c in curves if c.curve_code == "base")
 
                     def function() -> tuple[Curve, ...]:
                         return tuple(
-                            Curve.model_validate(c)
+                            with_discount_factors(c)
                             for c in self.stress(base, parameters, spec.stress_version)
                         )
 

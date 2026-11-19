@@ -5,14 +5,16 @@ from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+import simplejson
 
 from core.config import AutomationSettings, LoaderSettings, Settings
 from core.database import Database
 from tests.test_api_worker import client_context
+from web.calculations.market_grid import MARKET_MIDPOINTS
 from web.exceptions.http import ApiError
 from web.exceptions.input_rate import MarketTemporaryError, NoMarketData
 from web.repositories.input_rates import InputRatesRepository
-from web.repositories.models import MarketRates
+from web.repositories.models import Bucket, CalculationSpec, MarketRates
 from web.services.preparation import (
     MOSCOW,
     PreparationWorker,
@@ -23,6 +25,18 @@ from web.services.preparation import (
 
 
 def enabled(settings: Settings) -> Settings:
+    path = settings.calculation.spec_file
+    assert path is not None
+    spec = CalculationSpec.model_validate(simplejson.loads(path.read_text(), use_decimal=True))
+    market_spec = spec.model_copy(
+        update={
+            "data_provenance": "market",
+            "grid": tuple(
+                Bucket(bucket_label=label, tenor_years=tenor) for label, tenor in MARKET_MIDPOINTS
+            ),
+        }
+    )
+    path.write_text(market_spec.model_dump_json())
     return settings.model_copy(
         update={
             "automation": AutomationSettings(enabled=True, lookback_days=2),

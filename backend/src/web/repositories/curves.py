@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID, uuid4
 
 from core.database import DBConnection
@@ -36,6 +37,7 @@ class CurvesRepository:
                             bucket_label=r["bucket_label"],
                             tenor_years=r["tenor_years"],
                             rate_percent=r["rate_percent"],
+                            discount_factor=r["discount_factor"],
                             is_interpolated=r["is_interpolated"],
                             is_extrapolated=r["is_extrapolated"],
                         )
@@ -59,6 +61,23 @@ class CurvesRepository:
             return await cls._read_state(connection, run_id)
         async with connection.transaction(isolation="repeatable_read", readonly=True):
             return await cls._read_state(connection, run_id)
+
+    @classmethod
+    async def read_standard_result(
+        cls, connection: DBConnection, report_date: date
+    ) -> tuple[StoredRun, tuple[Curve, ...]] | None:
+        # Published results are immutable. Use the same snapshot for the run and its points.
+        async with connection.transaction(isolation="repeatable_read", readonly=True):
+            row = await connection.fetchrow(
+                "SELECT * FROM curve_run WHERE report_date=$1 AND status='ready' "
+                "AND scenario_parameters->>'mode'='standard' "
+                "ORDER BY completed_at DESC,id DESC LIMIT 1",
+                report_date,
+            )
+            if row is None:
+                return None
+            run = StoredRun.model_validate(dict(row))
+            return run, await cls.read_curves(connection, run.id)
 
     @classmethod
     async def _read_state(
@@ -150,6 +169,8 @@ class CurvesRepository:
     @classmethod
     async def _insert(cls, connection: DBConnection, run_id: UUID, curve: Curve) -> None:
         curve = Curve.model_validate(curve)
+        if any(point.discount_factor is None for point in curve.points):
+            raise ValueError("Stored curve points require discount factors")
         curve_id = uuid4()
         await connection.execute(
             "INSERT INTO curve(id,run_id,curve_code) VALUES ($1,$2,$3)",
@@ -160,8 +181,9 @@ class CurvesRepository:
         await connection.executemany(
             (
                 "INSERT INTO curve_point "
-                "(id,curve_id,bucket_label,tenor_years,rate,is_interpolated,is_extrapolated)"
-                " VALUES ($1,$2,$3,$4,$5,$6,$7)"
+                "(id,curve_id,bucket_label,tenor_years,rate,discount_factor,"
+                "is_interpolated,is_extrapolated)"
+                " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"
             ),
             [
                 (
@@ -170,6 +192,7 @@ class CurvesRepository:
                     p.bucket_label,
                     p.tenor_years,
                     p.rate_percent,
+                    p.discount_factor,
                     p.is_interpolated,
                     p.is_extrapolated,
                 )

@@ -10,6 +10,7 @@ from tests.fakes.implementations import stress
 from tests.test_api_worker import client_context, create
 from tests.test_base_curve import source, specification
 from web.calculations.base_curve import build_base_curve
+from web.calculations.discount import with_discount_factors
 from web.integrations.adapters import EgorAdapter
 from web.repositories.curves import CurvesRepository
 from web.repositories.input_rates import InputRatesRepository
@@ -24,7 +25,7 @@ async def test_worker_publishes_real_base_from_immutable_snapshot(
 ) -> None:
     points = source(("3", "1"), ("0.5", "2"), ("1.5", "4"))
     spec = specification("0.25", "0.5", "1", "1.5", "2", "3", "4").model_copy(
-        update={"stress_version": "test-only-stress"}
+        update={"stress_version": "test-only-stress", "data_provenance": "synthetic"}
     )
     assert api_settings.calculation.spec_file is not None
     api_settings.calculation.spec_file.write_text(spec.model_dump_json(), encoding="utf-8")
@@ -56,7 +57,7 @@ async def test_worker_publishes_real_base_from_immutable_snapshot(
         assert (state["status"], state["stage"]) == ("queued", "stress")
         assert [p["ratePercent"] for p in state["baseCurve"]["points"]] == [1.5, 2, 3, 4, 3, 1, -1]
         saved = await CurvesRepository.read_curves(connection, run_id)
-        assert saved == (build_base_curve(points, spec),)
+        assert saved == (with_discount_factors(build_base_curve(points, spec)),)
         assert await worker.run_once()
         result = await client.get(f"/api/v1/curve-runs/{run_id}/result")
         assert result.status_code == 200

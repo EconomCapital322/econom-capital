@@ -7,18 +7,13 @@ structure/grid; production comparison tolerances remain an agreed specification.
 import logging
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import IntegrationSettings
 from web.exceptions.curve_run import ImplementationUnavailable, StressCurveError, StressTimeoutError
 from web.repositories.models import STRESS_CODES, Curve, ScenarioParameters
+from web.schemas.stress import StressResponse
 
 logger = logging.getLogger(__name__)
-
-
-class StressResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    curves: tuple[Curve, ...] = Field(min_length=6, max_length=6)
 
 
 def build_stress_http(
@@ -30,7 +25,7 @@ def build_stress_http(
     if base.curve_code != "base":
         raise StressCurveError("Stress input must be a base curve")
     payload = {
-        "base": base.model_dump(mode="json"),
+        "base": base.model_dump(mode="json", exclude={"points": {"__all__": {"discount_factor"}}}),
         "parameters": parameters.model_dump(mode="json"),
     }
     try:

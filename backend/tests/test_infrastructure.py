@@ -258,8 +258,9 @@ async def test_curve_and_point_constraints(
             )
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await conn.execute(
-                "INSERT INTO curve_point(id,curve_id,bucket_label,tenor_years,rate) "
-                "VALUES ($1,$2,'test-orphan',1,-5)",
+                "INSERT INTO curve_point"
+                "(id,curve_id,bucket_label,tenor_years,rate,discount_factor) "
+                "VALUES ($1,$2,'test-orphan',1,-5,1)",
                 uuid4(),
                 uuid4(),
             )
@@ -268,7 +269,7 @@ async def test_curve_and_point_constraints(
             await conn.execute(
                 "INSERT INTO curve_point "
                 "SELECT $1,curve_id,tenor_years,rate,'different-label',"
-                "is_interpolated,is_extrapolated "
+                "is_interpolated,is_extrapolated,discount_factor "
                 "FROM curve_point WHERE curve_id=$2 LIMIT 1",
                 uuid4(),
                 curve_id,
@@ -276,7 +277,8 @@ async def test_curve_and_point_constraints(
         with pytest.raises(asyncpg.UniqueViolationError):
             await conn.execute(
                 "INSERT INTO curve_point "
-                "SELECT $1,curve_id,999,rate,bucket_label,is_interpolated,is_extrapolated "
+                "SELECT $1,curve_id,999,rate,bucket_label,is_interpolated,is_extrapolated,"
+                "discount_factor "
                 "FROM curve_point WHERE curve_id=$2 LIMIT 1",
                 uuid4(),
                 curve_id,

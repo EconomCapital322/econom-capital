@@ -54,6 +54,7 @@ class InputRatesResponse(OutputModel):
 
 class BucketPoint(InputPoint):
     bucket_label: str
+    discount_factor: PositiveNumber
 
 
 class CurveResponse(OutputModel):

@@ -11,6 +11,7 @@ from core.database import Database
 from web.dependencies import database_dependency, request_body, settings_dependency
 from web.exceptions.http import ApiError
 from web.repositories.models import RunStatus
+from web.schemas.examples import STANDARD_RESULT_EXAMPLE
 from web.schemas.requests import (
     CreateRunRequest,
     PreparationRequest,
@@ -19,6 +20,7 @@ from web.schemas.requests import (
 )
 from web.schemas.responses import (
     AcceptedResponse,
+    ErrorResponse,
     InputRatesResponse,
     PreparationResponse,
     ResultResponse,
@@ -114,6 +116,28 @@ async def create_run(request: Request, service: Service) -> DecimalJSONResponse:
     body = await request_body(request, CreateRunRequest)
     run_id, status = await service.create(body.report_date, body.scenario_parameters.effective())
     return accepted(run_id, status)
+
+
+@router.get(
+    "/curve-runs/standard-result",
+    response_model=ResultResponse,
+    summary="Get the latest ready standard calculation for a report date",
+    description=(
+        "Returns the most recently completed standard calculation and all seven curves. "
+        "Each bucket includes its tenor in years, annual rate in percent and discount factor. "
+        "Reading this endpoint does not start a calculation."
+    ),
+    responses={
+        200: {"content": {"application/json": {"example": STANDARD_RESULT_EXAMPLE}}},
+        404: {"model": ErrorResponse, "description": "No ready standard calculation for the date"},
+    },
+)
+async def standard_result(
+    service: Service, report_date: Annotated[ReportDate, Query(alias="reportDate")]
+) -> DecimalJSONResponse:
+    return DecimalJSONResponse.from_model(
+        ResultResponse, await service.standard_result(report_date)
+    )
 
 
 @router.get("/curve-runs/{runId}", response_model=StateResponse)

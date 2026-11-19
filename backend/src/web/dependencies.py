@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, TypeVar, cast
+from typing import Any, NoReturn, TypeVar, cast
 
 import asyncpg
 import simplejson
@@ -27,7 +27,7 @@ def pool_dependency(request: Request) -> asyncpg.Pool[Any]:
     return cast(asyncpg.Pool[Any], request.app.state.pool)
 
 
-def invalid_constant(value: str) -> Any:
+def invalid_constant(value: str) -> NoReturn:
     raise ApiError(422, "VALIDATION_ERROR", "JSON numbers must be finite")
 
 

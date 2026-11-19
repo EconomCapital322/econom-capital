@@ -6,6 +6,7 @@ import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
+from math import exp, isclose
 from uuid import UUID
 
 import httpx
@@ -118,11 +119,21 @@ async def ready(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:
         state = response.json()
         assert state["status"] != "failed", state
         if state["status"] == "ready":
+            assert state["baseCurve"] is not None
+            assert all(point["discountFactor"] > 0 for point in state["baseCurve"]["points"])
             result = await client.get(f"/api/v1/curve-runs/{run_id}/result")
             assert result.status_code == 200, result.text
-            payload: dict[str, object] = result.json()
-            assert len(payload["curves"]) == 7  # type: ignore[arg-type]
-            return payload
+            payload = result.json()
+            assert len(payload["curves"]) == 7
+            for curve in payload["curves"]:
+                for point in curve["points"]:
+                    assert point["discountFactor"] > 0
+                    assert isclose(
+                        point["discountFactor"],
+                        exp(-(point["ratePercent"] / 100) * point["tenorYears"]),
+                        rel_tol=1e-12,
+                    )
+            return dict(payload)
         await asyncio.sleep(0.03)
     pytest.fail("Real Worker did not produce a ready result")
 
@@ -194,7 +205,8 @@ async def test_live_user_calculation_recalculation_and_api_restart(
                 json={"reportDate": str(REPORT_DATE), "scenarioParameters": {"mode": "standard"}},
             )
             assert response.status_code == 202
-            assert (await ready(client, response.json()["runId"]))["usedParameters"] == {
+            standard = await ready(client, response.json()["runId"])
+            assert standard["usedParameters"] == {
                 "mode": "standard",
                 "p": 4,
                 "k": 5,
@@ -213,6 +225,10 @@ async def test_live_user_calculation_recalculation_and_api_restart(
             await InputRatesRepository.replace_current(
                 connection, later_rates, loaded_at=datetime.now(UTC)
             )
+            lookup = await client.get(
+                "/api/v1/curve-runs/standard-result", params={"reportDate": str(REPORT_DATE)}
+            )
+            assert lookup.status_code == 200 and lookup.json() == standard
             # Commit through POST, then close the client AND API while Worker is alive.
             queued_response = await client.post(
                 "/api/v1/curve-runs",
@@ -249,7 +265,9 @@ async def test_unavailable_go_preserves_saved_base(
     connection: DBConnection,
     unused_tcp_port: int,
 ) -> None:
-    spec = specification("0.25", "1", "3").model_copy(update={"stress_version": "test-refused"})
+    spec = specification("0.25", "1", "3").model_copy(
+        update={"stress_version": "test-refused", "data_provenance": "synthetic"}
+    )
     assert api_settings.calculation.spec_file is not None
     api_settings.calculation.spec_file.write_text(spec.model_dump_json())
     rates = MarketRates(
