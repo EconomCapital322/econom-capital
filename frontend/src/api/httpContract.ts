@@ -1,4 +1,4 @@
-import type { CurveCalculation, CurvePoint, CurvePreview, ScenarioParameters, StressScenarioCode, DataProvenance, RunOrigin } from '../utils/curveTypes'
+import type { CurveCalculation, DiscountedCurvePoint, CurvePreview, ScenarioParameters, StressScenarioCode, DataProvenance, RunOrigin } from '../utils/curveTypes'
 import { isCompleteCalculation, isReportDate } from '../utils/validateCurves'
 
 export type RunStatus = 'queued' | 'running' | 'ready' | 'failed'
@@ -17,10 +17,21 @@ export interface RunDto {
 }
 export interface RunStateDto extends RunDto {
   reportDate: string
-  baseCurve?: { curveCode: 'base'; points: CurvePoint[] }
+  baseCurve?: { curveCode: 'base'; points: DiscountedCurvePoint[] }
   error?: { code: string }
 }
+export type PreparationStatus = 'idle' | 'queued' | 'running' | 'ready' | 'no_data' | 'failed'
+export interface PreparationDto { reportDate: string; status: PreparationStatus; runId: string | null; errorCode: string | null }
+export function parsePreparation(value: unknown, date: string): PreparationDto {
+  const dto = record(value)
+  if (dto.reportDate !== date || !['idle', 'queued', 'running', 'ready', 'no_data', 'failed'].includes(String(dto.status))) return invalidResponse()
+  if (dto.errorCode !== null && typeof dto.errorCode !== 'string') return invalidResponse()
+  const id = dto.runId === null ? null : runId(dto.runId)
+  if (dto.status === 'ready' && !id) return invalidResponse()
+  return { reportDate: date, status: dto.status as PreparationStatus, runId: id, errorCode: dto.errorCode as string | null }
+}
 export interface RemoteSnapshot {
+  preparation: PreparationDto
   input: InputRatesDto
   runs: RunDto[]
   run: RunStateDto | null
@@ -39,9 +50,12 @@ export function record(value: unknown): Record<string, unknown> {
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : invalidResponse() }
 function finite(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : invalidResponse() }
 function text(value: unknown): string { return typeof value === 'string' && value.trim() ? value : invalidResponse() }
+export function isRunId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
 export function runId(value: unknown): string {
   const id = text(value)
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : invalidResponse()
+  return isRunId(id) ? id : invalidResponse()
 }
 function timestamp(value: unknown): string {
   const result = text(value)
@@ -93,16 +107,16 @@ export function parseList(value: unknown, date: string): RunDto[] {
   if (runs.some(r => !r.createdAt) || new Set(runs.map(r => r.runId)).size !== runs.length) return invalidResponse()
   return runs.sort((a, b) => Date.parse(b.createdAt!) - Date.parse(a.createdAt!))
 }
-function curve(value: unknown): { code: StressScenarioCode | 'base'; points: CurvePoint[] } {
+function curve(value: unknown): { code: StressScenarioCode | 'base'; points: DiscountedCurvePoint[] } {
   const dto = record(value)
   const code = typeof dto.curveCode === 'string' ? codes[dto.curveCode] : undefined
   if (!code) return invalidResponse()
   const points = array(dto.points).map(value => {
     const p = record(value)
-    return { label: text(p['bucketLabel']), tenorYears: finite(p.tenorYears), rate: finite(p.ratePercent) }
+    return { label: text(p['bucketLabel']), tenorYears: finite(p.tenorYears), rate: finite(p.ratePercent), discountFactor: finite(p.discountFactor) }
   })
   if (!points.length || new Set(points.map(p => p.label)).size !== points.length ||
-      points.some((p, i) => p.tenorYears <= 0 || (i > 0 && p.tenorYears <= points[i - 1].tenorYears))) return invalidResponse()
+      points.some((p, i) => p.tenorYears <= 0 || p.discountFactor <= 0 || (i > 0 && p.tenorYears <= points[i - 1].tenorYears))) return invalidResponse()
   return { code, points }
 }
 export function parseState(value: unknown, date: string, expectedId: string): RunStateDto {
@@ -127,7 +141,7 @@ export function parseResult(value: unknown, run: RunStateDto): CurveCalculation 
   const curves = array(dto['curves']).map(curve), base = curves.find(c => c.code === 'base')
   if (curves.length !== 7 || new Set(curves.map(c => c.code)).size !== 7 || !base) return invalidResponse()
   const result = { dataProvenance: run.dataProvenance, runOrigin: run.runOrigin, reportDate: run.reportDate, parameters: { p: used.p, k: used.k, d: used.d }, baseCurve: base.points,
-    stressCurves: curves.filter((c): c is { code: StressScenarioCode; points: CurvePoint[] } => c.code !== 'base') }
+    stressCurves: curves.filter((c): c is { code: StressScenarioCode; points: DiscountedCurvePoint[] } => c.code !== 'base') }
   if (!isCompleteCalculation(result)) return invalidResponse()
   if (run.baseCurve && JSON.stringify(run.baseCurve.points) !== JSON.stringify(base.points)) return invalidResponse()
   return result
@@ -137,7 +151,7 @@ export function inputPreview(input: InputRatesDto, result?: CurveCalculation | n
   return { reportDate: input.reportDate, source: 'MOEX',
     sourceTime: input.sourceAsOf ? new Date(input.sourceAsOf).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow' }) : 'время публикации не указано',
     // Raw input points have no bucket labels and must never be displayed as a built base curve.
-    points: result?.baseCurve ?? input.points.map(p => ({ label: `${p.tenorYears}y`, tenorYears: p.tenorYears, rate: p.ratePercent })) }
+    points: result?.baseCurve ?? input.points.map(p => ({ label: p.tenorYears < 1 && Number.isInteger(p.tenorYears * 12) ? `${p.tenorYears * 12}m` : `${p.tenorYears}y`, tenorYears: p.tenorYears, rate: p.ratePercent })) }
 }
 export function calculationError(code?: string): string {
   switch (code) {

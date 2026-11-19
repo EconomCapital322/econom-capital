@@ -30,11 +30,8 @@ async def test_live_moex_loader_and_user_calculation(
     unused_tcp_port: int,
 ) -> None:
     report_date = date(2026, 7, 31)
-    spec = load_specification(ROOT / "examples/demo-calculation-spec.json").model_copy(
-        update={
-            "data_provenance": "market",
-            "stress_version": "test-real-go-stress",
-        }
+    spec = load_specification(ROOT / "examples/moex-excel-grid-spec.json").model_copy(
+        update={"stress_version": "test-real-go-stress"}
     )
     assert api_settings.calculation.spec_file is not None
     api_settings.calculation.spec_file.write_text(spec.model_dump_json())
@@ -46,8 +43,6 @@ async def test_live_moex_loader_and_user_calculation(
             "LOADER__BACKOFF_BASE_SECONDS": "1",
             "LOADER__BACKOFF_CAP_SECONDS": "2",
             "LOADER__REQUEST_TIMEOUT_SECONDS": "20",
-            "MOEX__TIMEOUT_SECONDS": "10",
-            "MOEX__TRUST_ENV": "true",
         }
     )
     env.pop("LOADER__ENQUEUE_AUTOMATIC", None)

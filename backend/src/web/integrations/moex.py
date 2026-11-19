@@ -1,61 +1,100 @@
-"""Official ISS yearyields, already in years and percent per annum.
+"""Published MOEX ISS zero-coupon yields, without local curve approximation."""
 
-One response must describe one coherent source timestamp, interpreted in Moscow
-local time. Mixed timestamps are rejected rather than inventing a slice policy.
-No curve calculation, rounding, date fallback or retries happen in this adapter.
-Retries and atomic publication belong to the existing Loader service.
-Source contract: https://iss.moex.com/iss/reference/417
-"""
-
-from datetime import date
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
+import simplejson
 
-from core.config import MoexSettings, get_settings
-from web.exceptions.input_rate import MarketPermanentError, MarketTemporaryError
-from web.integrations.moex_parser import parse_rates
-from web.repositories.models import MarketRates
+from web.exceptions.input_rate import MarketPermanentError, MarketTemporaryError, NoMarketData
+from web.repositories.models import MarketRates, RatePoint
+
+MOEX_URL = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
+MOSCOW = ZoneInfo("Europe/Moscow")
+MAX_RESPONSE_BYTES = 2_097_152
 
 
-class MoexClient:
-    def __init__(self, settings: MoexSettings) -> None:
-        self.settings = settings
-
-    async def fetch(self, report_date: date) -> MarketRates:
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.settings.timeout_seconds,
-                trust_env=self.settings.trust_env,
-                follow_redirects=False,
-            ) as client:
-                async with client.stream(
-                    "GET",
-                    str(self.settings.url),
-                    params={
-                        "date": report_date.isoformat(),
-                        "iss.meta": "off",
-                        "iss.only": "yearyields",
-                    },
-                ) as response:
-                    if response.status_code == 429 or 500 <= response.status_code <= 599:
-                        raise MarketTemporaryError(
-                            f"MOEX temporarily unavailable (HTTP {response.status_code})"
-                        )
-                    if response.status_code != 200:
-                        raise MarketPermanentError(
-                            f"MOEX rejected request (HTTP {response.status_code})"
-                        )
-                    body = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        if len(body) + len(chunk) > self.settings.max_response_bytes:
-                            raise MarketPermanentError(
-                                "MOEX response exceeded the configured size limit"
-                            )
-                        body.extend(chunk)
-            return parse_rates(bytes(body), report_date)
-        except httpx.HTTPError:
-            raise MarketTemporaryError("MOEX connection or request timeout failure") from None
+def parse_yields(payload: Any, report_date: date) -> MarketRates:
+    """Reject a wrong date, mixed snapshots and invalid points atomically."""
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("Expected an ISS object")
+        block = payload["yearyields"]
+        columns, rows = block["columns"], block["data"]
+        if (
+            not isinstance(columns, list)
+            or not all(isinstance(column, str) for column in columns)
+            or len(set(columns)) != len(columns)
+            or not {"tradedate", "tradetime", "period", "value"}.issubset(columns)
+            or not isinstance(rows, list)
+        ):
+            raise ValueError("Invalid yearyields table")
+        if not rows:
+            raise NoMarketData("MOEX has no published curve for the requested date")
+        points: list[RatePoint] = []
+        timestamps: set[datetime] = set()
+        for row in rows:
+            if not isinstance(row, list) or len(row) != len(columns):
+                raise ValueError("Invalid ISS row")
+            record = dict(zip(columns, row, strict=True))
+            if date.fromisoformat(record["tradedate"]) != report_date:
+                raise ValueError("MOEX returned another report date")
+            source_time = time.fromisoformat(record["tradetime"])
+            if source_time.tzinfo is not None:
+                raise ValueError("Expected exchange-local source time")
+            timestamps.add(datetime.combine(report_date, source_time, tzinfo=MOSCOW))
+            for key in ("period", "value"):
+                if isinstance(record[key], bool) or not isinstance(
+                    record[key], (Decimal, int, float)
+                ):
+                    raise ValueError("Expected numeric tenor and rate")
+            points.append(
+                RatePoint(
+                    tenor_years=Decimal(str(record["period"])),
+                    rate_percent=Decimal(str(record["value"])),
+                )
+            )
+        if len(timestamps) != 1:
+            raise ValueError("Points belong to different source snapshots")
+        return MarketRates(
+            report_date=report_date,
+            source_as_of=next(iter(timestamps)),
+            points=tuple(sorted(points, key=lambda point: point.tenor_years)),
+        )
+    except NoMarketData:
+        raise
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MarketPermanentError("MOEX returned an invalid or inconsistent yield curve") from exc
 
 
 async def fetch_rates(report_date: date) -> MarketRates:
-    return await MoexClient(get_settings().moex).fetch(report_date)
+    """Loader owns retry/backoff. Rates remain in percent; date fallback is forbidden."""
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            async with client.stream(
+                "GET",
+                MOEX_URL,
+                params={
+                    "date": report_date.isoformat(),
+                    "iss.meta": "off",
+                    "iss.only": "yearyields",
+                },
+                headers={"Accept": "application/json"},
+            ) as response:
+                if response.status_code in (408, 425, 429) or response.status_code >= 500:
+                    raise MarketTemporaryError("MOEX is temporarily unavailable")
+                if response.status_code != 200:
+                    raise MarketPermanentError("MOEX did not return a successful data response")
+                content = bytearray()
+                async for chunk in response.aiter_bytes():
+                    content.extend(chunk)
+                    if len(content) > MAX_RESPONSE_BYTES:
+                        raise MarketPermanentError("MOEX response exceeds the size limit")
+        payload = simplejson.loads(content.decode("utf-8"), use_decimal=True, allow_nan=False)
+    except httpx.TransportError as exc:
+        raise MarketTemporaryError("MOEX connection failed") from exc
+    except (UnicodeError, simplejson.JSONDecodeError) as exc:
+        raise MarketPermanentError("MOEX did not return valid JSON") from exc
+    return parse_yields(payload, report_date)

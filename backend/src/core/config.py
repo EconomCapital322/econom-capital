@@ -1,3 +1,4 @@
+from datetime import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -47,7 +48,7 @@ class CalculationSettings(BaseModel):
 
 
 class IntegrationSettings(BaseModel):
-    fetch_function: str | None = "web.integrations.moex:fetch_rates"
+    fetch_function: str | None = None
     base_function: str | None = None
     stress_function: str | None = None
     stress_http_url: AnyHttpUrl | None = None
@@ -93,22 +94,20 @@ class LoaderSettings(BaseModel):
         if self.enqueue_automatic:
             raise ValueError(
                 "LOADER__ENQUEUE_AUTOMATIC=true is no longer supported; "
-                "calculations require an explicit POST"
+                "configure AUTOMATION__ENABLED instead"
             )
         return self
 
 
-class MoexSettings(BaseModel):
-    model_config = {"extra": "forbid"}
-    url: AnyHttpUrl = AnyHttpUrl("https://iss.moex.com/iss/engines/stock/zcyc.json")
-    timeout_seconds: float = Field(default=10, gt=0, allow_inf_nan=False)
-    max_response_bytes: int = Field(default=1_048_576, gt=0)
-    trust_env: bool = True
+class AutomationSettings(BaseModel):
+    enabled: bool = False
+    run_at: time = time(19, 15)
+    lookback_days: int = Field(default=7, ge=1, le=366)
 
     @model_validator(mode="after")
-    def no_credentials(self) -> "MoexSettings":
-        if self.url.username or self.url.password:
-            raise ValueError("MOEX URL must not contain credentials")
+    def exchange_local_time(self) -> "AutomationSettings":
+        if self.run_at.tzinfo is not None:
+            raise ValueError("Automation time must be local Europe/Moscow time")
         return self
 
 
@@ -118,9 +117,9 @@ class Settings(BaseSettings):
     app: AppSettings = Field(default_factory=AppSettings)
     calculation: CalculationSettings = Field(default_factory=CalculationSettings)
     integrations: IntegrationSettings = Field(default_factory=IntegrationSettings)
-    moex: MoexSettings = Field(default_factory=MoexSettings)
     worker: WorkerSettings | None = None
     loader: LoaderSettings | None = None
+    automation: AutomationSettings = Field(default_factory=AutomationSettings)
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
         env_file=Path(__file__).resolve().parents[2] / ".env",

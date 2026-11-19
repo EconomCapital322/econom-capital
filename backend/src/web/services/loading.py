@@ -15,15 +15,14 @@ from web.repositories.models import MarketRates
 logger = logging.getLogger(__name__)
 
 
-async def load_rates(
-    database: Database,
+async def fetch_validated_rates(
     report_date: date,
     fetch: FetchRates,
     settings: LoaderSettings,
     *,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     jitter: Callable[[float, float], float] = random.uniform,
-) -> Literal["saved", "unchanged", "no_data"]:
+) -> MarketRates | None:
     for attempt in range(settings.max_attempts):
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
@@ -33,7 +32,7 @@ async def load_rates(
             break
         except NoMarketData:
             logger.info("MOEX has no data reportDate=%s", report_date)
-            return "no_data"
+            return None
         except (MarketTemporaryError, OSError, TimeoutError):
             if attempt + 1 == settings.max_attempts:
                 logger.error(
@@ -55,6 +54,21 @@ async def load_rates(
         except Exception:
             logger.exception("MOEX implementation/validation failure reportDate=%s", report_date)
             raise
+    return rates
+
+
+async def load_rates(
+    database: Database,
+    report_date: date,
+    fetch: FetchRates,
+    settings: LoaderSettings,
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    jitter: Callable[[float, float], float] = random.uniform,
+) -> Literal["saved", "unchanged", "no_data"]:
+    rates = await fetch_validated_rates(report_date, fetch, settings, sleep=sleep, jitter=jitter)
+    if rates is None:
+        return "no_data"
     async with database.transaction() as connection:
         changed = await InputRatesRepository.replace_current(
             connection, rates, loaded_at=datetime.now(UTC)

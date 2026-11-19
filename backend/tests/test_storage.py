@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from core.config import DatabaseSettings, Settings
 from core.database import Database, DBConnection
 from tests.conftest import AS_OF, REPORT_DATE, ROOT, migrate
+from web.calculations.discount import discount_factor
 from web.exceptions.curve_run import InputDataNotReady, StaleClaim
 from web.repositories import curve_runs, curves, input_rates
 from web.repositories.models import (
@@ -62,6 +63,7 @@ def fake_curve(spec: CalculationSpec, code: str = "base") -> Curve:
                     bucket_label=p.bucket_label,
                     tenor_years=p.tenor_years,
                     rate_percent=Decimal("-1.234"),
+                    discount_factor=discount_factor(Decimal("-1.234"), p.tenor_years),
                     is_interpolated=False if code == "base" else None,
                     is_extrapolated=False if code == "base" else None,
                 )
@@ -79,6 +81,7 @@ async def test_migrations_roundtrip(connection: Conn, database_dsn: str) -> None
         "curve",
         "curve_point",
         "alembic_version",
+        "curve_preparation",
     }
     columns = await connection.fetch(
         "SELECT column_name FROM information_schema.columns WHERE table_name='curve_run'"
@@ -92,6 +95,31 @@ async def test_migrations_roundtrip(connection: Conn, database_dsn: str) -> None
     await migrate(database_dsn)
     head = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_current_head()
     assert await connection.fetchval("SELECT version_num FROM alembic_version") == head
+
+
+async def test_discount_factor_migration_backfills_saved_points(
+    connection: Conn,
+    database_dsn: str,
+    rates: MarketRates,
+    parameters: ScenarioParameters,
+    spec: CalculationSpec,
+) -> None:
+    run_id = await seed_run(connection, rates, parameters, spec)
+    token = await simulate_owner(connection, run_id)
+    await curves.CurvesRepository.publish_stage(
+        connection, run_id=run_id, claim_token=token, curves=(fake_curve(spec),)
+    )
+    await migrate(database_dsn, "0007_curve_preparation", downgrade=True)
+    await connection.execute("UPDATE curve_point SET rate=0 WHERE bucket_label='synthetic-short'")
+    await migrate(database_dsn)
+    points = await connection.fetch(
+        "SELECT bucket_label,rate,tenor_years,discount_factor FROM curve_point ORDER BY tenor_years"
+    )
+    assert len(points) == 2
+    assert points[0]["rate"] == 0 and points[0]["discount_factor"] == 1
+    assert points[1]["discount_factor"] == discount_factor(
+        points[1]["rate"], points[1]["tenor_years"]
+    )
 
 
 async def test_snapshot_and_exact_json(

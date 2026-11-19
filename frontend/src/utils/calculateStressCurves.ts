@@ -15,6 +15,12 @@ export const STRESS_SCENARIOS = [
   { code: 'short-down', name: 'Краткосрочные вниз' },
 ] as const satisfies readonly { code: StressScenarioCode; name: string }[]
 
+function discountFactor(rate: number, tenorYears: number): number {
+  const value = Math.exp(-(rate / 100) * tenorYears)
+  if (!Number.isFinite(value) || value <= 0) throw new Error('Не удалось рассчитать коэффициент дисконтирования.')
+  return value
+}
+
 function getShift(code: StressScenarioCode, tenorYears: number, { p, k, d }: Readonly<ScenarioParameters>): number {
   const s = Math.exp(-tenorYears / 4)
   switch (code) {
@@ -43,13 +49,13 @@ export function calculateStressCurves(
   }
 
   const snapshot = { ...parameters }
-  const baseCurve = source.points.map(point => ({ ...point }))
+  const baseCurve = source.points.map(point => ({ ...point, discountFactor: discountFactor(point.rate, point.tenorYears) }))
   const stressCurves = STRESS_SCENARIOS.map(({ code }) => ({
     code,
     points: baseCurve.map(point => {
       const rate = point.rate + getShift(code, point.tenorYears, snapshot)
       if (!Number.isFinite(rate)) throw new Error('Не удалось рассчитать кривые: числовое переполнение. Проверьте параметры.')
-      return { ...point, rate }
+      return { ...point, rate, discountFactor: discountFactor(rate, point.tenorYears) }
     }),
   }))
 

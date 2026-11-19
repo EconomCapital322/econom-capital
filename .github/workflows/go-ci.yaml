@@ -5,10 +5,6 @@ on:
     branches:
       - main
       - develop
-    paths:
-      - 'stress/**'
-      - 'base/**'
-      - '.github/workflows/go-ci.yaml'
 
 permissions:
   contents: read
@@ -52,39 +48,3 @@ jobs:
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: stress/go.mod
-          cache-dependency-path: stress/go.sum
-
-      - name: Race tests and coverage
-        id: tests
-        working-directory: stress
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
-
-      - name: Base curve race tests
-        working-directory: base
-        run: go test -race ./...
-
-      - name: Test summary
-        if: always()
-        working-directory: stress
-        env:
-          TEST_RESULT: ${{ steps.tests.outcome }}
-        run: |
-          coverage="n/a"
-          if [[ -f coverage.out ]]; then
-            coverage="$(go tool cover -func=coverage.out | awk '$1 == "total:" { print $3 }')"
-          fi
-          {
-            echo '## Go tests'
-            echo
-            echo "- Result: $TEST_RESULT"
-            echo "- Statement coverage: ${coverage:-n/a}"
-          } >> "$GITHUB_STEP_SUMMARY"

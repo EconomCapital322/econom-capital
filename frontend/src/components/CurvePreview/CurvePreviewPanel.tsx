@@ -35,10 +35,17 @@ export interface CurvePreviewPanelProps {
   calculation: CurveCalculation | null
   error?: string
   message?: string
+  graphRevision?: number
+  rawPreview?: CurvePreview | null
 }
 
-export function CurvePreviewPanel({ preview, calculation, error, message }: CurvePreviewPanelProps): ReactElement {
-  const [view, setView] = useState<'graph' | 'table'>('table')
+export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null }: CurvePreviewPanelProps): ReactElement {
+  const [viewState, setViewState] = useState<{ view: 'graph' | 'table'; revision: number }>({ view: 'graph', revision: graphRevision })
+  const view = viewState.revision === graphRevision ? viewState.view : 'graph'
+  const setView = (view: 'graph' | 'table') => setViewState({ view, revision: graphRevision })
+  const [sourceScope, setSourceScope] = useState<string | null>(null)
+  const scope = `${preview?.reportDate}:${graphRevision}`
+  const showSource = sourceScope === scope && rawPreview?.reportDate === preview?.reportDate && !!rawPreview
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [focusedPoint, setFocusedPoint] = useState<number | null>(null)
@@ -90,17 +97,17 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
   // Only a result belonging to this date can appear beside the source curve.
   const result = calculation?.reportDate === preview.reportDate ? calculation : null
   const exportAvailable = canExportCurveCalculation(result)
-  const basePoints = result?.baseCurve ?? preview.points
+  const basePoints = showSource ? rawPreview.points : result?.baseCurve ?? preview.points
   const curves = [
-    { code: 'base', name: 'Базовая кривая', points: basePoints, color: 'var(--chart-base)', dash: undefined as string | undefined },
-    ...([...(result?.stressCurves ?? [])].sort((a, b) => DISPLAY_ORDER.indexOf(a.code) - DISPLAY_ORDER.indexOf(b.code)).map(curve => ({
+    { code: 'base', name: showSource ? 'Исходная MOEX' : 'Базовая кривая', points: basePoints, color: 'var(--chart-base)', dash: undefined as string | undefined },
+    ...([...((showSource ? [] : result?.stressCurves) ?? [])].sort((a, b) => DISPLAY_ORDER.indexOf(a.code) - DISPLAY_ORDER.indexOf(b.code)).map(curve => ({
       code: curve.code,
       name: SCENARIO_NAMES[curve.code],
       points: curve.points,
       ...SCENARIO_STYLES[curve.code],
     }))),
   ]
-  const visibleCurves = curves.filter(curve => selectedCurves.includes(curve.code))
+  const visibleCurves = showSource ? curves : curves.filter(curve => selectedCurves.includes(curve.code))
   const legendOrder = ['base', 'parallel-up', 'parallel-down', 'short-up', 'short-down', 'steepener', 'flattener']
   const legendCurves = [...curves].sort((a, b) => legendOrder.indexOf(a.code) - legendOrder.indexOf(b.code))
   const activePoint = hoveredPoint ?? focusedPoint
@@ -137,7 +144,12 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
       <div className="results-panel__header">
         <div>
           <h2>Результаты</h2>
-          <p>{dateLabel} · {basePoints.length} расчётных срока{result ? ' · 7 кривых' : ''}</p>
+          <p>{dateLabel} · {basePoints.length} {showSource ? 'исходных сроков MOEX' : 'расчётных срока'}{result && !showSource ? ' · 7 кривых' : ''}</p>
+          {rawPreview?.reportDate === preview.reportDate && <button className="source-curve-toggle" type="button" aria-pressed={showSource} onClick={() => {
+            setSourceScope(showSource ? null : scope)
+            setHoveredPoint(null)
+            setFocusedPoint(null)
+          }}>{showSource ? 'К расчётным кривым' : 'Показать исходную MOEX'}</button>}
 
         </div>
         <div className="nav nav-tabs results-view-tabs" data-view={view} role="tablist" aria-label="Вид результатов">
@@ -201,7 +213,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
             <p className="curve-chart__x">Срок бакета</p>
           </div>
         ) : (
-          <div className="table-responsive curve-table" tabIndex={0} role="region" aria-label="Таблица ставок с горизонтальной прокруткой">
+          <div className={`table-responsive curve-table ${showSource ? 'curve-table--source' : ''}`} tabIndex={0} role="region" aria-label="Таблица ставок с горизонтальной прокруткой">
             <table className="table mb-0">
               <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор (лет)</th>{curves.map(curve => <th key={curve.code} scope="col">{curve.name}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
               <tbody tabIndex={0} aria-label="Строки ставок с вертикальной прокруткой">{basePoints.map((point, i) => (
@@ -214,7 +226,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
             </table>
           </div>
         )}
-      {view === 'graph' && <>
+      {view === 'graph' && !showSource && <>
       <button type="button" className="curve-legend-toggle" aria-label={legendExpanded ? 'Свернуть выбор кривых' : 'Развернуть выбор кривых'} aria-expanded={legendExpanded} aria-controls={`${panelId}-legend`} onClick={() => setLegendExpanded(current => !current)}>
         <img src={chevronIcon} width="18" height="10" alt="" />
       </button>
@@ -228,7 +240,8 @@ export function CurvePreviewPanel({ preview, calculation, error, message }: Curv
       </div>
       </>}
       </div>
-      {result && <p className="result-parameters" aria-label="Параметры расчёта" aria-live="polite"><span className="visually-hidden">Параметры расчёта: </span>P = {formatParameter(result.parameters.p)} п. п. · K = {formatParameter(result.parameters.k)} п. п. · D = {formatParameter(result.parameters.d)} п. п. · RUB{result.dataProvenance && <> · {result.dataProvenance === 'synthetic' ? 'Синтетические данные' : 'Рыночные данные'}</>}{result.runOrigin && <> · {result.runOrigin === 'manual' ? 'Ручной запуск' : 'Автоматический запуск'}</>}</p>}
+      {showSource && <p className="result-parameters">Опубликованные точки MOEX за выбранную дату · {rawPreview.sourceTime} МСК. Без интерполяции и экстраполяции. CSV выгружает полный расчётный комплект.</p>}
+      {result && !showSource && <p className="result-parameters" aria-label="Параметры расчёта" aria-live="polite"><span className="visually-hidden">Параметры расчёта: </span>P = {formatParameter(result.parameters.p)} п. п. · K = {formatParameter(result.parameters.k)} п. п. · D = {formatParameter(result.parameters.d)} п. п. · RUB{result.dataProvenance && <> · {result.dataProvenance === 'synthetic' ? 'Синтетические данные' : 'Рыночные данные'}</>}{result.runOrigin && <> · {result.runOrigin === 'manual' ? 'Ручной запуск' : 'Автоматический запуск'}</>}</p>}
       <p className="visually-hidden" id={`${panelId}-export-note`}>CSV — формат прототипа. Окончательный формат ещё согласуется.</p>
     </section>
   )

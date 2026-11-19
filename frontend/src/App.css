@@ -277,3 +277,9 @@
 .results-panel--empty { display: grid; place-items: center; padding: 24px; }
 .results-panel--empty .empty-state { flex: none; padding: 0; width: 100%; text-align: center; }
 @media (min-width: 1021px) { .app-header { padding-top: 22px; } }
+
+.source-curve-toggle { border: 0; padding: 4px 0; margin-top: 4px; background: transparent; color: var(--color-primary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.source-curve-toggle:hover { text-decoration: underline; }
+.curve-table--source .table { min-width: 480px; }
+.curve-table--source tr > :first-child, .curve-table--source tr > :nth-child(2) { width: 25%; }
+.curve-table--source tr > :nth-child(3) { width: 50%; }

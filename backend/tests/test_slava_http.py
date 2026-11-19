@@ -58,6 +58,7 @@ def test_exact_transport_and_valid_result(
         assert payload["parameters"] == {"mode": "standard", "p": "4", "k": "5", "d": "3"}
         assert payload["base"]["points"][1]["tenor_years"] == "44.444444444444"
         assert payload["base"]["points"][0]["rate_percent"] == "-1.234"
+        assert "discount_factor" not in payload["base"]["points"][0]
         assert payload["base"]["points"][0]["is_interpolated"] is False
         return httpx.Response(200, json={"curves": response_curves(spec)})
 

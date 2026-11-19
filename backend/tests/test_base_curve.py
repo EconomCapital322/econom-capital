@@ -165,7 +165,7 @@ def test_documented_payload_is_actual_builder_output() -> None:
     curve = build_base_curve(tuple(RatePoint.model_validate(p) for p in example["points"]), spec)
     parameters = ScenarioParameters(mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3))
     payload = {
-        "base": curve.model_dump(mode="json"),
+        "base": curve.model_dump(mode="json", exclude_none=True),
         "parameters": parameters.model_dump(mode="json"),
     }
     expected = json.loads((EXAMPLES / "stress-request.json").read_text(encoding="utf-8"))

@@ -1,0 +1,101 @@
+{
+  "data_provenance": "market",
+  "base_version": "linear-v1",
+  "stress_version": "demo-only-go-stress",
+  "method": "linear",
+  "day_count": "workbook-year-fractions",
+  "grid": [
+    {
+      "bucket_label": "1d",
+      "tenor_years": "0.0028"
+    },
+    {
+      "bucket_label": "1m",
+      "tenor_years": "0.0417"
+    },
+    {
+      "bucket_label": "3m",
+      "tenor_years": "0.1667"
+    },
+    {
+      "bucket_label": "6m",
+      "tenor_years": "0.375"
+    },
+    {
+      "bucket_label": "9m",
+      "tenor_years": "0.625"
+    },
+    {
+      "bucket_label": "1y",
+      "tenor_years": "0.875"
+    },
+    {
+      "bucket_label": "1,5y",
+      "tenor_years": "1.25"
+    },
+    {
+      "bucket_label": "2y",
+      "tenor_years": "1.75"
+    },
+    {
+      "bucket_label": "3y",
+      "tenor_years": "2.5"
+    },
+    {
+      "bucket_label": "4y",
+      "tenor_years": "3.5"
+    },
+    {
+      "bucket_label": "5y",
+      "tenor_years": "4.5"
+    },
+    {
+      "bucket_label": "6y",
+      "tenor_years": "5.5"
+    },
+    {
+      "bucket_label": "7y",
+      "tenor_years": "6.5"
+    },
+    {
+      "bucket_label": "8y",
+      "tenor_years": "7.5"
+    },
+    {
+      "bucket_label": "9y",
+      "tenor_years": "8.5"
+    },
+    {
+      "bucket_label": "10y",
+      "tenor_years": "9.5"
+    },
+    {
+      "bucket_label": "15y",
+      "tenor_years": "12.5"
+    },
+    {
+      "bucket_label": "20y",
+      "tenor_years": "17.5"
+    },
+    {
+      "bucket_label": "30y",
+      "tenor_years": "25"
+    },
+    {
+      "bucket_label": "35y",
+      "tenor_years": "32.5"
+    },
+    {
+      "bucket_label": "40y",
+      "tenor_years": "37.5"
+    },
+    {
+      "bucket_label": "45y",
+      "tenor_years": "42.5"
+    },
+    {
+      "bucket_label": "50y",
+      "tenor_years": "47.5"
+    }
+  ]
+}

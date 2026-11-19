@@ -11,16 +11,25 @@ from core.database import Database
 from web.dependencies import database_dependency, request_body, settings_dependency
 from web.exceptions.http import ApiError
 from web.repositories.models import RunStatus
-from web.schemas.requests import CreateRunRequest, RecalculationRequest, ReportDate
+from web.schemas.examples import STANDARD_RESULT_EXAMPLE
+from web.schemas.requests import (
+    CreateRunRequest,
+    PreparationRequest,
+    RecalculationRequest,
+    ReportDate,
+)
 from web.schemas.responses import (
     AcceptedResponse,
+    ErrorResponse,
     InputRatesResponse,
+    PreparationResponse,
     ResultResponse,
     RunListResponse,
     StateResponse,
 )
 from web.serialization import DecimalJSONResponse
 from web.services.curve_runs import RunService
+from web.services.preparation import preparation_state, request_preparation
 
 router = APIRouter(prefix="/api/v1", tags=["Curves"])
 
@@ -109,6 +118,28 @@ async def create_run(request: Request, service: Service) -> DecimalJSONResponse:
     return accepted(run_id, status)
 
 
+@router.get(
+    "/curve-runs/standard-result",
+    response_model=ResultResponse,
+    summary="Get the latest ready standard calculation for a report date",
+    description=(
+        "Returns the most recently completed standard calculation and all seven curves. "
+        "Each bucket includes its tenor in years, annual rate in percent and discount factor. "
+        "Reading this endpoint does not start a calculation."
+    ),
+    responses={
+        200: {"content": {"application/json": {"example": STANDARD_RESULT_EXAMPLE}}},
+        404: {"model": ErrorResponse, "description": "No ready standard calculation for the date"},
+    },
+)
+async def standard_result(
+    service: Service, report_date: Annotated[ReportDate, Query(alias="reportDate")]
+) -> DecimalJSONResponse:
+    return DecimalJSONResponse.from_model(
+        ResultResponse, await service.standard_result(report_date)
+    )
+
+
 @router.get("/curve-runs/{runId}", response_model=StateResponse)
 async def state(runId: str, service: Service) -> DecimalJSONResponse:
     return DecimalJSONResponse.from_model(StateResponse, await service.state(uuid_path(runId)))
@@ -129,3 +160,31 @@ async def recalculate(runId: str, request: Request, service: Service) -> Decimal
     parent = uuid_path(runId)
     body = await request_body(request, RecalculationRequest)
     return accepted(await service.recalculate(parent, body.scenario_parameters.effective()))
+
+
+@router.post(
+    "/curve-preparations",
+    status_code=202,
+    response_model=PreparationResponse,
+    responses={200: {"model": PreparationResponse}},
+    openapi_extra=body_schema(PreparationRequest),
+)
+async def prepare_date(request: Request, service: Service) -> DecimalJSONResponse:
+    body = await request_body(request, PreparationRequest)
+    result = await request_preparation(
+        service.database, service.settings, body.report_date, retry=body.retry
+    )
+    return DecimalJSONResponse.from_model(
+        PreparationResponse,
+        result,
+        status_code=202 if result["status"] in ("queued", "running") else 200,
+    )
+
+
+@router.get("/curve-preparations", response_model=PreparationResponse)
+async def read_preparation(
+    service: Service, report_date: Annotated[ReportDate, Query(alias="reportDate")]
+) -> DecimalJSONResponse:
+    return DecimalJSONResponse.from_model(
+        PreparationResponse, await preparation_state(service.database, report_date)
+    )

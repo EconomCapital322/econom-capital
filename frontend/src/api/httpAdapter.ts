@@ -2,12 +2,14 @@ import { isPositiveParameter, STANDARD_PARAMETERS } from '../utils/parameters'
 import { isReportDate } from '../utils/validateCurves'
 import type { ScenarioParameters } from '../utils/curveTypes'
 import type { CurvesService } from './types'
-import { invalidResponse, parseInput, parseList, parseResult, parseState, record, runId } from './httpContract'
-import type { RemoteSnapshot } from './httpContract'
+import { invalidResponse, parsePreparation, parseInput, parseList, parseResult, parseState, record, runId, isRunId } from './httpContract'
+import type { RemoteSnapshot, RunDto } from './httpContract'
 
 export interface RemoteCurvesApi {
   cacheKey: string
-  snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string): Promise<RemoteSnapshot>
+  list(reportDate: string, signal: AbortSignal): Promise<RunDto[]>
+  prepare(reportDate: string, retry?: boolean): Promise<void>
+  snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string, readOnly?: boolean): Promise<RemoteSnapshot>
   start(reportDate: string, parameters: ScenarioParameters, parentRunId?: string): Promise<string>
 }
 export class ApiRequestError extends Error {
@@ -89,18 +91,49 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
     if (!response.ok) {
       throw responseError(response.status, value)
     }
-    if (options.body !== undefined && response.status !== 202) return invalidResponse()
+    if (options.body !== undefined && ![200, 202].includes(response.status)) return invalidResponse()
     return value
+  }
+  // Date preparation is server-idempotent. One in-flight POST per date survives
+  // StrictMode and concurrent snapshots; lost replies are recovered with GET.
+  const preparations = new Map<string, Promise<void>>()
+  const preparationErrors = new Map<string, unknown>()
+  async function prepare(reportDate: string, retry = false): Promise<void> {
+    if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
+    if (retry || !preparations.has(reportDate)) {
+      preparationErrors.delete(reportDate)
+      const pending = request('/curve-preparations', { body: { reportDate, retry } })
+        .then(value => { parsePreparation(value, reportDate) })
+        .catch(error => { preparationErrors.set(reportDate, error) })
+      preparations.set(reportDate, pending)
+    }
+    await preparations.get(reportDate)
   }
   const remote: RemoteCurvesApi = {
     cacheKey: origin,
-    async snapshot(reportDate, signal, preferredRunId) {
+    prepare,
+    async list(reportDate, signal) {
       if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
+      return parseList(await request(`/curve-runs?reportDate=${encodeURIComponent(reportDate)}`, { signal }), reportDate)
+    },
+    async snapshot(reportDate, signal, preferredRunId, readOnly = false) {
+      if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
+      // An explicit historical selection is read-only, even after a reload.
+      if (preferredRunId && !isRunId(preferredRunId)) throw new ApiRequestError('Ссылка на расчёт некорректна. Выберите запуск в истории.', 422)
+      if (!preferredRunId && !readOnly) await prepare(reportDate)
       const query = `?reportDate=${encodeURIComponent(reportDate)}`
-      const [rawInput, rawList] = await Promise.all([request(`/input-rates${query}`, { signal }), request(`/curve-runs${query}`, { signal })])
-      const input = parseInput(rawInput, reportDate), runs = parseList(rawList, reportDate)
-      const id = preferredRunId ?? runs[0]?.runId
-      if (!id) return { input, runs, run: null, result: null }
+      const [rawInput, rawList, rawPreparation] = await Promise.all([request(`/input-rates${query}`, { signal }), request(`/curve-runs${query}`, { signal }), request(`/curve-preparations${query}`, { signal })])
+      const preparation = parsePreparation(rawPreparation, reportDate)
+      if (!preferredRunId && !readOnly && preparation.status === 'idle' && preparationErrors.has(reportDate)) throw preparationErrors.get(reportDate)
+      const input = parseInput(rawInput, reportDate)
+      let runs = parseList(rawList, reportDate)
+      // The source worker may commit between the parallel GETs. Do not lose
+      // its newly created run because the first list was read a moment earlier.
+      if (preparation.runId && !runs.some(item => item.runId === preparation.runId)) {
+        runs = parseList(await request(`/curve-runs${query}`, { signal }), reportDate)
+      }
+      const id = preferredRunId ?? runs[0]?.runId ?? preparation.runId
+      if (!id) return { input, runs, preparation, run: null, result: null }
       let availableRuns = runs
       let rawState: unknown
       let selectedId = id
@@ -113,12 +146,12 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
         const latest = parseList(await request(`/curve-runs${query}`, { signal }), reportDate)
         availableRuns = latest
         selectedId = latest.find(item => item.runId !== preferredRunId)?.runId ?? ''
-        if (!selectedId) return { input, runs: latest, run: null, result: null }
+        if (!selectedId) return { input, runs: latest, preparation, run: null, result: null }
         rawState = await request(`/curve-runs/${runId(selectedId)}`, { signal })
       }
       const run = parseState(rawState, reportDate, selectedId)
       const result = run.status === 'ready' ? parseResult(await request(`/curve-runs/${selectedId}/result`, { signal }), run) : null
-      return { input, runs: availableRuns, run, result }
+      return { input, runs: availableRuns, preparation, run, result }
     },
     async start(reportDate, parameters, parentRunId) {
       if (!isReportDate(reportDate) || ![parameters.p, parameters.k, parameters.d].every(isPositiveParameter)) throw new Error('Проверьте дату и параметры расчёта.')
@@ -127,7 +160,7 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
       const path = parentRunId ? `/curve-runs/${runId(parentRunId)}/recalculations` : '/curve-runs'
       // No component-lifetime AbortSignal for POST: disconnecting the UI does not cancel a server job.
       const accepted = record(await request(path, { body: parentRunId ? { scenarioParameters } : { reportDate, scenarioParameters } }))
-      if (accepted.status !== 'queued') return invalidResponse()
+      if (!['queued', 'running', 'ready'].includes(String(accepted.status))) return invalidResponse()
       return runId(accepted.runId)
     },
   }

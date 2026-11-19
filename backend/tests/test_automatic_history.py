@@ -136,7 +136,7 @@ async def test_history_migrations_preserve_existing_results(
     )
     assert (
         len(await connection.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-        == 5
+        == 6
     )
 
 
