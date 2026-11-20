@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - main
-      - develop
+      - curves-module
 
 permissions:
   contents: read
@@ -21,21 +21,21 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: stress/go.mod
-          cache-dependency-path: stress/go.sum
+          go-version-file: curves-module/stress/go.mod
+          cache-dependency-path: curves-module/stress/go.sum
 
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
-          working-directory: stress
+          working-directory: curves-module/stress
           install-only: true
 
       - name: Lint
-        working-directory: stress
+        working-directory: curves-module/stress
         run: golangci-lint run --config=.golangci.yaml --timeout=5m
 
       - name: Check formatting
-        working-directory: stress
+        working-directory: curves-module/stress
         run: |
           format_diff="$(golangci-lint fmt --diff --color=never --config=.golangci.yaml)"
           if [[ -n "$format_diff" ]]; then
@@ -44,7 +44,7 @@ jobs:
           fi
 
       - name: Check base module formatting and vet
-        working-directory: base
+        working-directory: curves-module/base
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...

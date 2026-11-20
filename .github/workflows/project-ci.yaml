@@ -4,11 +4,11 @@ on:
   pull_request:
     branches:
       - main
-      - develop
+      - curves-module
   push:
     branches:
       - main
-      - develop
+      - curves-module
 
 permissions:
   contents: read
@@ -23,27 +23,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Prepare local check environment
-        run: cp .env.example .env
+        run: cp curves-module/.env.example curves-module/.env
       - name: Check Python
-        run: make check-python
+        run: make -C curves-module check-python
 
   go:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Prepare local check environment
-        run: cp .env.example .env
+        run: cp curves-module/.env.example curves-module/.env
       - name: Check Go
-        run: make check-go
+        run: make -C curves-module check-go
 
   frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Prepare local check environment
-        run: cp .env.example .env
+        run: cp curves-module/.env.example curves-module/.env
       - name: Check frontend
-        run: make check-frontend
+        run: make -C curves-module check-frontend
 
   check:
     if: ${{ always() }}
