@@ -1,5 +1,6 @@
 """Published MOEX ISS zero-coupon yields, without local curve approximation."""
 
+import re
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
@@ -8,7 +9,12 @@ from zoneinfo import ZoneInfo
 import httpx
 import simplejson
 
-from web.exceptions.input_rate import MarketPermanentError, MarketTemporaryError, NoMarketData
+from web.exceptions.input_rate import (
+    InvalidMarketData,
+    MarketPermanentError,
+    MarketTemporaryError,
+    NoMarketData,
+)
 from web.repositories.models import MarketRates, RatePoint
 
 MOEX_URL = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
@@ -39,11 +45,14 @@ def parse_yields(payload: Any, report_date: date) -> MarketRates:
             if not isinstance(row, list) or len(row) != len(columns):
                 raise ValueError("Invalid ISS row")
             record = dict(zip(columns, row, strict=True))
-            if date.fromisoformat(record["tradedate"]) != report_date:
+            if record["tradedate"] != report_date.isoformat():
                 raise ValueError("MOEX returned another report date")
-            source_time = time.fromisoformat(record["tradetime"])
-            if source_time.tzinfo is not None:
+            raw_time = record["tradetime"]
+            if not isinstance(raw_time, str) or not re.fullmatch(
+                r"[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?", raw_time
+            ):
                 raise ValueError("Expected exchange-local source time")
+            source_time = time.fromisoformat(raw_time)
             timestamps.add(datetime.combine(report_date, source_time, tzinfo=MOSCOW))
             for key in ("period", "value"):
                 if isinstance(record[key], bool) or not isinstance(
@@ -66,7 +75,7 @@ def parse_yields(payload: Any, report_date: date) -> MarketRates:
     except NoMarketData:
         raise
     except (KeyError, TypeError, ValueError) as exc:
-        raise MarketPermanentError("MOEX returned an invalid or inconsistent yield curve") from exc
+        raise InvalidMarketData("MOEX returned an invalid or inconsistent yield curve") from exc
 
 
 async def fetch_rates(report_date: date) -> MarketRates:
@@ -91,10 +100,10 @@ async def fetch_rates(report_date: date) -> MarketRates:
                 async for chunk in response.aiter_bytes():
                     content.extend(chunk)
                     if len(content) > MAX_RESPONSE_BYTES:
-                        raise MarketPermanentError("MOEX response exceeds the size limit")
+                        raise InvalidMarketData("MOEX response exceeds the size limit")
         payload = simplejson.loads(content.decode("utf-8"), use_decimal=True, allow_nan=False)
-    except httpx.TransportError as exc:
+    except httpx.RequestError as exc:
         raise MarketTemporaryError("MOEX connection failed") from exc
-    except (UnicodeError, simplejson.JSONDecodeError) as exc:
-        raise MarketPermanentError("MOEX did not return valid JSON") from exc
+    except (UnicodeError, simplejson.JSONDecodeError, RecursionError) as exc:
+        raise InvalidMarketData("MOEX did not return valid JSON") from exc
     return parse_yields(payload, report_date)

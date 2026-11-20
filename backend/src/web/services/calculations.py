@@ -106,6 +106,12 @@ class CalculationWorker:
                     snapshot = await InputRatesRepository.read_snapshot(connection, run_id)
                     if snapshot is None:
                         raise ValueError("Missing immutable snapshot")
+                    if (snapshot.report_date, snapshot.source_as_of, snapshot.loaded_at) != (
+                        row.report_date,
+                        row.source_as_of,
+                        row.input_loaded_at,
+                    ):
+                        raise ValueError("Input snapshot does not match the calculation run")
 
                     def function() -> tuple[Curve, ...]:
                         return (with_discount_factors(self.base(snapshot.points, spec)),)

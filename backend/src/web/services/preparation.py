@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from core.config import Settings
 from core.database import Database
 from web.exceptions.http import ApiError
+from web.exceptions.input_rate import InvalidMarketData, MarketPermanentError, MarketTemporaryError
 from web.integrations.adapters import EgorAdapter
 from web.integrations.contracts import FetchRates
 from web.integrations.specification import load_specification
@@ -26,6 +27,10 @@ from web.services.loading import fetch_validated_rates
 logger = logging.getLogger(__name__)
 MOSCOW = ZoneInfo("Europe/Moscow")
 STANDARD = ScenarioParameters(mode="standard", p=Decimal(4), k=Decimal(5), d=Decimal(3))
+HISTORY_RUN_FILTER = (
+    "r.scenario_parameters->>'mode'='standard' "
+    "AND COALESCE(r.calculation_spec->>'data_provenance','market')='market'"
+)
 
 
 def automation_spec(settings: Settings) -> CalculationSpec:
@@ -148,12 +153,61 @@ async def enqueue_dates(database: Database, start: date, end: date) -> int:
     async with database.transaction() as connection:
         result = await connection.fetch(
             "INSERT INTO curve_preparation(report_date,status) "
-            "SELECT d::date,'queued' FROM generate_series($1::date,$2::date,'1 day') d "
+            "SELECT days.day::date,'queued' "
+            "FROM generate_series($1::date,$2::date,'1 day') AS days(day) "
+            "WHERE NOT EXISTS (SELECT 1 FROM curve_run r "
+            "WHERE r.report_date=days.day::date AND " + HISTORY_RUN_FILTER + ") "
             "ON CONFLICT(report_date) DO NOTHING RETURNING report_date",
             start,
             end,
         )
     return len(result)
+
+
+async def history_dates(database: Database, start: date, end: date) -> list[dict[str, Any]]:
+    """Report each date, preferring a completed standard market run over prep state."""
+    async with database.connection() as connection:
+        rows = await connection.fetch(
+            """
+            SELECT days.day::date AS report_date,
+                   CASE
+                       WHEN run.status IN ('ready','queued','running') THEN run.status
+                       WHEN prep.status IN ('queued','running','no_data','failed') THEN prep.status
+                       WHEN run.status='failed' THEN 'failed'
+                       ELSE 'missing'
+                   END AS status,
+                   run.id AS run_id,
+                   CASE
+                       WHEN run.status IN ('ready','queued','running') THEN NULL
+                       WHEN prep.status='failed' THEN prep.error_code
+                       WHEN prep.status IS NULL OR prep.status='ready' THEN run.error_code
+                   END AS error_code
+            FROM generate_series($1::date,$2::date,'1 day') AS days(day)
+            LEFT JOIN curve_preparation prep ON prep.report_date=days.day::date
+            LEFT JOIN LATERAL (
+                SELECT r.id,r.status,r.error->>'code' AS error_code
+                FROM curve_run r
+                WHERE r.report_date=days.day::date AND """
+            + HISTORY_RUN_FILTER
+            + """
+                ORDER BY CASE r.status WHEN 'ready' THEN 0 WHEN 'failed' THEN 2 ELSE 1 END,
+                         r.completed_at DESC NULLS LAST,r.created_at DESC,r.id DESC
+                LIMIT 1
+            ) run ON true
+            ORDER BY days.day
+            """,
+            start,
+            end,
+        )
+    return [
+        {
+            "reportDate": row["report_date"].isoformat(),
+            "status": row["status"],
+            "runId": str(row["run_id"]) if row["run_id"] is not None else None,
+            "errorCode": row["error_code"],
+        }
+        for row in rows
+    ]
 
 
 class PreparationWorker:
@@ -281,15 +335,24 @@ class PreparationWorker:
                 )
             if not stop.is_set():
                 raise
-        except Exception:
-            logger.exception("Date preparation failed reportDate=%s", day)
+        except Exception as exc:
+            if isinstance(exc, InvalidMarketData):
+                error_code = "INVALID_MARKET_DATA"
+            elif isinstance(
+                exc, (MarketPermanentError, MarketTemporaryError, OSError, TimeoutError)
+            ):
+                error_code = "SOURCE_UNAVAILABLE"
+            else:
+                error_code = "PREPARATION_FAILED"
+            logger.exception("Date preparation failed reportDate=%s code=%s", day, error_code)
             async with self.database.connection() as connection:
                 await connection.execute(
-                    "UPDATE curve_preparation SET status='failed',error_code='SOURCE_UNAVAILABLE', "
+                    "UPDATE curve_preparation SET status='failed',error_code=$3, "
                     "claim_token=NULL,lease_until=NULL,updated_at=clock_timestamp() "
                     "WHERE report_date=$1 AND claim_token=$2",
                     day,
                     token,
+                    error_code,
                 )
         finally:
             for task in (heartbeat, fetch_task, shutdown):

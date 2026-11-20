@@ -216,7 +216,12 @@ async def test_excel_full_http_sql_go_pipeline(
             assert await connection.fetchval("SELECT count(*) FROM curve_run") == 2
 
             later_date = REPORT_DATE + timedelta(days=1)
-            later_rates = rates.model_copy(update={"report_date": later_date})
+            later_rates = rates.model_copy(
+                update={
+                    "report_date": later_date,
+                    "source_as_of": AS_OF + (later_date - REPORT_DATE),
+                }
+            )
 
             async def fetch_later(report_date: date) -> MarketRates:
                 assert report_date == later_date

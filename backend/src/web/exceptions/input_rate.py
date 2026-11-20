@@ -3,7 +3,11 @@ class MarketTemporaryError(Exception):
 
 
 class MarketPermanentError(Exception):
-    """Invalid source data or a permanent source failure."""
+    """A permanent source failure, ineligible for retry."""
+
+
+class InvalidMarketData(MarketPermanentError, ValueError):
+    """The source responded with an invalid or inconsistent snapshot."""
 
 
 class NoMarketData(Exception):

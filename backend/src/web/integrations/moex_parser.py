@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import simplejson
 
-from web.exceptions.input_rate import MarketPermanentError, NoMarketData
+from web.exceptions.input_rate import InvalidMarketData, NoMarketData
 from web.repositories.models import MarketRates, RatePoint
 from web.schemas.moex import IssResponse
 
@@ -53,6 +53,4 @@ def parse_rates(body: bytes, report_date: date) -> MarketRates:
             points=tuple(sorted(points, key=lambda p: p.tenor_years)),
         )
     except (ValueError, TypeError, RecursionError):
-        raise MarketPermanentError(
-            "MOEX returned invalid or inconsistent published points"
-        ) from None
+        raise InvalidMarketData("MOEX returned invalid or inconsistent published points") from None
