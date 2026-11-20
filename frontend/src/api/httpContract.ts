@@ -30,6 +30,16 @@ export function parsePreparation(value: unknown, date: string): PreparationDto {
   if (dto.status === 'ready' && !id) return invalidResponse()
   return { reportDate: date, status: dto.status as PreparationStatus, runId: id, errorCode: dto.errorCode as string | null }
 }
+/** Only public preparation codes are translated; server exception text is never shown. */
+export function preparationError(code: string | null): string {
+  switch (code) {
+    case 'INVALID_MARKET_DATA': return 'MOEX вернула некорректные данные за выбранную дату. Расчёт не выполнен.'
+    case 'SOURCE_UNAVAILABLE': return 'Источник MOEX временно недоступен. Повторите загрузку позже.'
+    case 'PREPARATION_FAILED': return 'Не удалось подготовить данные для расчёта. Повторите попытку.'
+    default: return 'Не удалось подготовить данные за выбранную дату. Повторите попытку.'
+  }
+}
+
 export interface RemoteSnapshot {
   preparation: PreparationDto
   input: InputRatesDto
