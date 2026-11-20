@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCurvesApi } from './useCurvesApi'
 import { isReportDate } from '../utils/validateCurves'
 import { ApiRequestError } from '../api/httpAdapter'
-import { calculationError, inputPreview } from '../api/httpContract'
+import { calculationError, inputPreview, preparationError } from '../api/httpContract'
 import type { RemoteSnapshot } from '../api/httpContract'
 import type { ScenarioParameters, CurveCalculation } from '../utils/curveTypes'
 
@@ -86,7 +86,8 @@ export function useRemoteCurves(reportDate: string) {
   let state: RemoteState = { status: 'idle' }
   const mutationForDate = mutation.variables?.date === reportDate
   if (isPreparing) state = { status: 'running' }
-  else if (preparationFailed) state = { status: 'error', message: 'Не удалось загрузить ставки из MOEX. Повторите загрузку.' }
+  else if (query.isError) state = { status: 'error', message: query.error.message }
+  else if (preparationFailed) state = { status: 'error', message: preparationError(snapshot?.preparation.errorCode ?? null) }
   else if (mutation.isPending && mutationForDate) state = { status: 'running' }
   else if (run?.status === 'queued' || run?.status === 'running') state = { status: 'running' }
   else if (run?.status === 'failed') state = { status: 'error', message: calculationError(run.error?.code) }

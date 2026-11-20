@@ -2,7 +2,7 @@ import { isPositiveParameter, STANDARD_PARAMETERS } from '../utils/parameters'
 import { isReportDate } from '../utils/validateCurves'
 import type { ScenarioParameters } from '../utils/curveTypes'
 import type { CurvesService } from './types'
-import { invalidResponse, parsePreparation, parseInput, parseList, parseResult, parseState, record, runId, isRunId } from './httpContract'
+import { invalidResponse, preparationError, parsePreparation, parseInput, parseList, parseResult, parseState, record, runId, isRunId } from './httpContract'
 import type { RemoteSnapshot, RunDto } from './httpContract'
 
 export interface RemoteCurvesApi {
@@ -24,6 +24,7 @@ export class ApiRequestError extends Error {
   }
 }
 function httpMessage(status: number, code?: unknown): string {
+  if (typeof code === 'string' && ['INVALID_MARKET_DATA', 'SOURCE_UNAVAILABLE', 'PREPARATION_FAILED'].includes(code)) return preparationError(code)
   if (code === 'INPUT_DATA_NOT_READY') return 'Исходные ставки за эту дату ещё не готовы. Проверьте наличие данных.'
   if (code === 'RESULT_NOT_READY') return 'Расчёт ещё не завершён. Повторите получение результата.'
   if (code === 'RUN_STATE_CONFLICT') return 'Этот запуск нельзя пересчитать. Проверьте его состояние.'
