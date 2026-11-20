@@ -8,14 +8,18 @@ from typing import Any
 
 import asyncpg
 import pytest
-from pydantic import ValidationError
 
 from core.config import DatabaseSettings, IntegrationSettings, LoaderSettings
 from core.database import Database
 from core.process_lock import process_lock
 from tests.conftest import AS_OF, REPORT_DATE, ROOT
 from web.exceptions.curve_run import ImplementationUnavailable
-from web.exceptions.input_rate import MarketPermanentError, MarketTemporaryError, NoMarketData
+from web.exceptions.input_rate import (
+    InvalidMarketData,
+    MarketPermanentError,
+    MarketTemporaryError,
+    NoMarketData,
+)
 from web.integrations.adapters import EgorAdapter
 from web.repositories.input_rates import InputRatesRepository
 from web.repositories.models import MarketRates
@@ -175,7 +179,7 @@ async def test_loader_revalidates_copied_models_before_publication(
             update={"source_as_of": AS_OF + timedelta(hours=1), "points": points}
         )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(InvalidMarketData):
         await load_rates(database, rates.report_date, fetch, loader_settings)
     async with database.connection() as connection:
         assert await InputRatesRepository.read_current(connection, rates.report_date) == before

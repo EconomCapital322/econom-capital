@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from core.config import IntegrationSettings
 from web.exceptions.curve_run import ImplementationUnavailable
+from web.exceptions.input_rate import InvalidMarketData
 from web.integrations.contracts import BuildBase, BuildStress, FetchRates
 from web.integrations.slava_http import build_stress_http
 from web.repositories.models import (
@@ -39,7 +40,7 @@ class EgorAdapter:
         function = cast(FetchRates, load_function(self.settings.fetch_function))
         result = MarketRates.model_validate(await function(report_date))
         if result.report_date != report_date:
-            raise ValueError("Source returned another report date")
+            raise InvalidMarketData("Source returned another report date")
         return result
 
     def base(self, points: tuple[RatePoint, ...], spec: CalculationSpec) -> Curve:

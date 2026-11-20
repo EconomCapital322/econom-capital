@@ -9,16 +9,20 @@ import simplejson
 
 from core.config import AutomationSettings, LoaderSettings, Settings
 from core.database import Database
+from tests.fakes.implementations import base, stress
 from tests.test_api_worker import client_context
+from tests.test_storage import seed_run
 from web.calculations.market_grid import MARKET_MIDPOINTS
 from web.exceptions.http import ApiError
-from web.exceptions.input_rate import MarketTemporaryError, NoMarketData
+from web.exceptions.input_rate import InvalidMarketData, MarketTemporaryError, NoMarketData
 from web.repositories.input_rates import InputRatesRepository
-from web.repositories.models import Bucket, CalculationSpec, MarketRates
+from web.repositories.models import Bucket, CalculationSpec, MarketRates, ScenarioParameters
+from web.services.calculations import CalculationWorker
 from web.services.preparation import (
     MOSCOW,
     PreparationWorker,
     enqueue_dates,
+    history_dates,
     preparation_state,
     request_preparation,
 )
@@ -355,3 +359,55 @@ async def test_combined_worker_cli_processes_source_base_and_stress(
         async with db.connection() as connection:
             assert await connection.fetchval("SELECT status FROM curve_run") == "ready"
             assert await connection.fetchval("SELECT count(*) FROM curve_run") == 1
+
+
+async def test_history_reuses_ready_runs_and_reports_publication_and_errors(
+    api_settings: Settings,
+    rates: MarketRates,
+    parameters: ScenarioParameters,
+    spec: CalculationSpec,
+) -> None:
+    settings = enabled(api_settings)
+    assert settings.worker is not None
+    day = rates.report_date
+    start, end = day - timedelta(days=1), day + timedelta(days=3)
+    async with Database.open(settings.database) as db:
+        async with db.connection() as conn:
+            market_spec = spec.model_copy(update={"data_provenance": "market"})
+            run_id = await seed_run(conn, rates, parameters, market_spec)
+        calculation = CalculationWorker(db, settings.worker, base, stress)
+        assert await calculation.run_once()
+        assert await calculation.run_once()
+        assert await enqueue_dates(db, start, end) == 4
+        assert await enqueue_dates(db, start, end) == 0
+
+        async def fetch(day_requested: date) -> MarketRates:
+            if day_requested == start:
+                raise NoMarketData()
+            if day_requested == day + timedelta(days=1):
+                raise MarketTemporaryError()
+            if day_requested == day + timedelta(days=2):
+                raise InvalidMarketData()
+            return rates  # The source has returned a snapshot for another date.
+
+        worker = PreparationWorker(db, settings, fetch)
+        for _ in range(4):
+            assert await worker.run_once()
+        assert not await worker.run_once()
+        assert await enqueue_dates(db, start, end) == 0
+        rows = await history_dates(db, start, end)
+        assert [row["status"] for row in rows] == ["no_data", "ready", "failed", "failed", "failed"]
+        assert rows[1]["runId"] == str(run_id)
+        assert [row["errorCode"] for row in rows] == [
+            None,
+            None,
+            "SOURCE_UNAVAILABLE",
+            "INVALID_MARKET_DATA",
+            "INVALID_MARKET_DATA",
+        ]
+        async with db.connection() as conn:
+            assert await conn.fetchval("SELECT count(*) FROM curve_run") == 1
+            assert (
+                await conn.fetchval("SELECT count(*) FROM input_rate WHERE report_date<>$1", day)
+                == 0
+            )

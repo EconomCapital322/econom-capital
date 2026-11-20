@@ -4,15 +4,19 @@ import random
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
+
+from pydantic import ValidationError
 
 from core.config import LoaderSettings
 from core.database import Database
-from web.exceptions.input_rate import MarketTemporaryError, NoMarketData
+from web.exceptions.input_rate import InvalidMarketData, MarketTemporaryError, NoMarketData
 from web.integrations.contracts import FetchRates
 from web.repositories.input_rates import InputRatesRepository
 from web.repositories.models import MarketRates
 
 logger = logging.getLogger(__name__)
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 async def fetch_validated_rates(
@@ -26,9 +30,14 @@ async def fetch_validated_rates(
     for attempt in range(settings.max_attempts):
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
-                rates = MarketRates.model_validate(await fetch(report_date))
-            if rates.report_date != report_date:
-                raise ValueError("Source returned another report date")
+                fetched = await fetch(report_date)
+            data = fetched.model_dump() if isinstance(fetched, MarketRates) else fetched
+            rates = MarketRates.model_validate(data)
+            if (
+                rates.report_date != report_date
+                or rates.source_as_of.astimezone(MOSCOW).date() != report_date
+            ):
+                raise InvalidMarketData("Source returned another report date")
             break
         except NoMarketData:
             logger.info("MOEX has no data reportDate=%s", report_date)
@@ -51,6 +60,8 @@ async def fetch_validated_rates(
                 delay,
             )
             await sleep(delay)
+        except ValidationError as exc:
+            raise InvalidMarketData("Source returned invalid rates") from exc
         except Exception:
             logger.exception("MOEX implementation/validation failure reportDate=%s", report_date)
             raise
