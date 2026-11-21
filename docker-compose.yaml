@@ -1,0 +1,20 @@
+# A separate project/volume; never attaches the pre-existing irrbb_moex volume.
+name: economic-capital
+include:
+  - path: ./curves-module/docker-compose.yaml
+    env_file: ./curves-module/.env
+services:
+  calculator:
+    profiles: [calculator]
+    build:
+      context: .
+      dockerfile: integration/calculator.Dockerfile
+    environment:
+      CURVES_API_URL: http://api:8000
+    volumes:
+      - ./calculator/out:/app/calculator/out
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
