@@ -1,4 +1,4 @@
-module github.com/mrsskaa/curves-module/stress
+module github.com/EconomCapital322/econom-capital/curves-module/stress
 
 go 1.27.0
 

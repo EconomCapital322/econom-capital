@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/mrsskaa/curves-module/stress/internal/stress"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/stress"
 )
 
 func NewHandler(logger *slog.Logger) http.Handler {
