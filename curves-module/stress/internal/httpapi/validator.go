@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/mrsskaa/curves-module/stress/internal/stress"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/stress"
 )
 
 const (

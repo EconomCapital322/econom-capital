@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrsskaa/curves-module/stress/internal/config"
-	"github.com/mrsskaa/curves-module/stress/internal/logger"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/config"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/logger"
 )
 
 func TestNewJSONLogger(t *testing.T) {

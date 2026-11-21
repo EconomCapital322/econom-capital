@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mrsskaa/curves-module/stress/internal/config"
-	"github.com/mrsskaa/curves-module/stress/internal/httpapi"
-	"github.com/mrsskaa/curves-module/stress/internal/logger"
-	"github.com/mrsskaa/curves-module/stress/internal/server"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/config"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/httpapi"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/logger"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/server"
 )
 
 func main() {
