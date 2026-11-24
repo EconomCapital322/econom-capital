@@ -58,6 +58,7 @@ export const option = (key, label, selected) => `<option value="${esc(key)}"${ke
 const heading = (title, note, action = '') => `<header class="page-heading"><div><h1>${title}</h1>${note ? `<p class="sub">${note}</p>` : ''}</div>${action}</header>`;
 const h2 = (title, note) => `<div class="panel-head"><div><h2>${title}</h2>${note ? `<p class="note">${note}</p>` : ''}</div></div>`;
 const link = (url, text) => `<a class="button small" href="${esc(url)}">${esc(text)}</a>`;
+const assistantButton = `<button class="button small assistant-button" type="button" data-action="open-assistant">${icon('spark')}Спросить AI</button>`;
 const uploadHistoryLink = (label, style = 'button small') => `<a class="${style}" href="#data" data-action="upload-history">${icon('upload')}${label}</a>`;
 const empty = (title, body, actions = '') => `<section class="panel empty"><h2>${title}</h2><p class="sub">${body}</p>${actions ? `<div class="form-actions">${actions}</div>` : ''}</section>`;
 const table = (heads, rows, label) => `${heads.length >= 3 ? `<p class="table-hint note" data-columns="${heads.length}">Таблицу можно листать вправо.</p>` : ''}
@@ -70,7 +71,7 @@ function segments(action, selected, options, label) {
     `<button type="button" data-action="${action}" data-key="${key}" aria-pressed="${selected === key}">${title}</button>`).join('')}</div>`;
 }
 
-const metricName = (work) => titleOf(work, work.report.target);
+export const metricName = (work) => titleOf(work, work.report.target);
 const metricQuestion = (work) => {
   if (work.report.target === 'npv') return 'Почему изменился NPV?';
   if (work.report.target === 'stress_delta') return 'Почему изменился эффект стресса?';
@@ -306,10 +307,12 @@ export function methodologyContent(work) {
         'Остаток = наблюдаемое изменение по общим ID − ΔY_model',
         'Изменение = новые + выбывшие + ΔY_model + остаток'];
   const exports = r.analysisId ? `<div class="data-actions report-downloads">
-    ${link(reportUrl(work, 'analysis.html'), 'Отчёт HTML')}${link(reportUrl(work, 'analysis.json'), 'Отчёт JSON')}
+    <a class="button small" data-report-download href="${reportUrl(work, 'analysis.html')}">Отчёт HTML</a>
+    <a class="button small" data-report-download href="${reportUrl(work, 'analysis.json')}">Отчёт JSON</a>
     ${link(reportUrl(work, 'factors.csv'), 'Вклады CSV')}${r.diagnosticsReady === false ? '' : link(reportUrl(work, 'interactions.csv'), 'Взаимодействия CSV')}
     ${r.mode === 'ml' ? link(reportUrl(work, 'quality.csv'), 'Качество CSV') : ''}
     ${r.cashDetails ? link(reportUrl(work, 'cash-details.csv'), 'Детализация потоков CSV') : ''}</div>
+    <label class="check"><input type="checkbox" id="report-with-summary" checked> Включить сохранённое резюме в отчёт</label>
     <p class="note">Ревизия отчёта <code class="mono">${esc(r.analysisId)}</code></p>` : '';
   return `<div class="methodology-intro"><h3>Формулы разложения</h3><p class="note">${description}</p>
     <pre class="formula">${esc(equations.join('\n'))}</pre>
@@ -331,17 +334,17 @@ export function analysisPage(state) {
   const r = work.report;
   const unit = unitOf(work);
   const difference = resultDifference(r, unit);
-  const settings = '<button class="button small" type="button" data-action="edit-parameters">Изменить параметры</button>';
-  const ask = '<button class="button small" type="button" data-action="open-assistant">Спросить AI</button>';
+  const settings = `<button class="button small" type="button" data-action="edit-parameters">${icon('sliders')}Изменить параметры</button>`;
+  const ask = assistantButton;
   const scope = reportScope(work);
   if (research) {
     const menu = Object.entries(reportTabs(work)).map(([key, label]) =>
       `<button type="button" data-action="tab" data-key="${key}" aria-pressed="${tab === key}">${label}</button>`).join('');
     return `<div class="report-layout research-view">
-      <button type="button" class="text-button back-link" data-action="overview">К обзору</button>
+      <button type="button" class="text-button back-link" data-action="overview">${icon('arrow')}К обзору</button>
       <header class="report-header"><div><h1>Подробный анализ</h1><p class="research-metric">${esc(metricName(work))}</p>
         ${scope}</div><div class="data-actions">${ask}</div></header>
-      <section id="analysis-tabs" aria-label="Детали факторного анализа">
+      <section class="research-sheet" id="analysis-tabs" aria-label="Детали факторного анализа">
         <div class="tabs" role="group" aria-label="Разделы аналитики">${menu}</div>
         <div class="tab-body" id="tab-body">${analysisTab(state)}</div>
       </section>
@@ -352,23 +355,25 @@ export function analysisPage(state) {
   }
   return `<div class="report-layout">
     <header class="report-header overview-header"><h1>${esc(metricName(work))}</h1>${settings}${scope}</header>
-    <section class="report-totals" aria-label="Итог сравнения">
-      <div class="report-hero"><span>Изменение за период</span><strong class="hero-value" title="${delta(r.change, unit)}">${r.change > 0 ? '+' : ''}${compactTotal(r.change, unit)}</strong></div>
-      <dl class="period-figures">
-        <div><dt>На начало периода</dt><dd title="${fmt(r.start, unit)}">${compactTotal(r.start, unit)}</dd></div>
-        <div><dt>На конец периода</dt><dd title="${fmt(r.end, unit)}">${compactTotal(r.end, unit)}</dd></div>
-      </dl>
-    </section>
-    <div class="result-check" aria-label="Проверка результата">${statusBadge(r.status)}
-      <span class="difference" title="${difference.hint}"><span>${difference.label}</span><strong>${difference.value}</strong></span></div>
-    <section class="attribution" id="waterfall">
-      <header class="chart-head"><h2>Вклады факторов</h2>
-        <button class="text-button" id="chart-toggle" type="button" data-action="analysis-chart"
-          data-key="${chart === 'waterfall' ? 'contributions' : 'waterfall'}">${chart === 'waterfall' ? 'К вкладам' : 'Водопад'}</button></header>
-      <div id="bridge-chart">${analysisChart(state)}</div>
-      <p class="business-conclusion">${conclusion(work)}</p>
-    </section>
-    <div class="report-actions"><button type="button" class="button primary" data-action="research">Подробный анализ</button>${ask}</div>
+    <div class="report-sheet">
+      <section class="report-totals" aria-label="Итог сравнения">
+        <div class="report-hero"><span>Изменение за период</span><strong class="hero-value" title="${delta(r.change, unit)}">${r.change > 0 ? '+' : ''}${compactTotal(r.change, unit)}</strong></div>
+        <dl class="period-figures">
+          <div><dt>На начало периода</dt><dd title="${fmt(r.start, unit)}">${compactTotal(r.start, unit)}</dd></div>
+          <div class="period-end"><dt>На конец периода</dt><dd title="${fmt(r.end, unit)}">${icon('arrow')}${compactTotal(r.end, unit)}</dd></div>
+        </dl>
+      </section>
+      <div class="result-check" aria-label="Проверка результата">${statusBadge(r.status)}
+        <span class="difference" title="${difference.hint}"><span>${difference.label}</span><strong>${difference.value}</strong></span></div>
+      <section class="attribution" id="waterfall">
+        <header class="chart-head"><h2>Вклады факторов</h2>
+          <button class="button small chart-toggle" id="chart-toggle" type="button" data-action="analysis-chart"
+            aria-controls="bridge-chart" data-key="${chart === 'waterfall' ? 'contributions' : 'waterfall'}">${chart === 'waterfall' ? 'К вкладам' : 'Водопад'}</button></header>
+        <div id="bridge-chart">${analysisChart(state)}</div>
+        <p class="business-conclusion">${conclusion(work)}</p>
+      </section>
+      <div class="report-actions"><button type="button" class="button primary" data-action="research">Подробный анализ${icon('arrow')}</button>${ask}</div>
+    </div>
   </div>`;
 }
 
@@ -573,65 +578,100 @@ export function analysisTab(state) {
 }
 
 export function assistantStatus(state) {
-  const answer = state.answer;
-  const health = state.health;
+  const { health, answer } = state;
   const provider = health?.ai?.provider;
-  let title = 'Проверяем подключение';
-  let tone = '';
+  let title = 'Проверенные факты';
+  let tone = 'local';
   if (answer?.mode === 'llm') {
     title = answer.provider === 'deepseek' ? 'DeepSeek ответил' : 'Локальная модель ответила';
     tone = 'ready';
-  } else if (answer?.mode === 'facts' && !answer.empty) {
-    title = 'Проверенные факты';
-    tone = 'local';
-  } else if (health) {
-    title = health.llm && provider === 'deepseek' ? 'DeepSeek настроен'
-      : health.llm && provider === 'local' ? 'Локальная модель' : 'Проверенные факты';
-    tone = health.llm ? 'ready' : 'local';
+  } else if (answer?.status === 'forbidden' || !answer && health?.ai?.status === 'forbidden') {
+    title = 'Внешний AI запрещён';
+  } else if (['unavailable', 'timeout', 'authorization', 'payment', 'limited', 'model_unavailable'].includes(answer?.status)
+      || !answer && health?.ai?.status === 'unavailable') {
+    title = 'AI временно недоступен';
+  } else if (!answer && health?.llm) {
+    title = provider === 'deepseek' ? 'DeepSeek настроен' : 'Локальная модель';
+    tone = 'ready';
   }
   return `<span class="assistant-status ${tone}"><i aria-hidden="true"></i>${title}</span>`;
 }
 
+const pageQuestions = {
+  curves: ['Чем отличаются короткие и длинные ставки?', 'Что означают P, K и D?', 'Откуда взяты кривые?'],
+  scenarios: ['Почему PV отличается от базы?', 'Какой сценарий самый неблагоприятный?', 'Какие сроки дали главный вклад?'],
+  portfolio: ['Какие типы сделок в портфеле?', 'Как распределяются сроки?', 'Что показывают договорные потоки?'],
+  data: ['Есть ли пропуски и выбросы?', 'Какие признаки исключены из-за утечки цели?', 'Достаточно ли истории?'],
+};
+
 export function assistantPanel(state) {
-  const { workspace: work } = state;
-  const r = work.report;
-  const consent = work.source !== 'integrated' || (work.portfolioSource ?? 'synthetic') !== 'synthetic';
-  const questions = r.mode === 'valuation'
+  const { workspace: work, assistantContext: context } = state;
+  const analysisQuestions = work?.report?.mode === 'valuation'
     ? [metricQuestion(work), 'Как повлияла кривая ставок?', 'Как повлияли погашения?']
-    : ['Какие факторы главные?', 'Какие факторы взаимодействуют?', 'Насколько надёжен результат?'];
+    : ['Какие факторы главные?', context.analysisFocus?.kind === 'effect'
+        ? 'Какая форма зависимости у выбранного признака?' : 'Какие факторы взаимодействуют?', 'Насколько надёжен результат?'];
+  const questions = context.page === 'analysis' ? analysisQuestions : pageQuestions[context.page];
   return `<header class="drawer-head"><div><h2 id="assistant-title">Спектр AI</h2><div id="assistant-status">${assistantStatus(state)}</div></div>
       <form method="dialog"><button class="icon-button" aria-label="Закрыть помощника">${icon('close')}</button></form></header>
     <div class="drawer-body assistant" id="assistant">
-    <div class="assistant-context"><p>${esc(metricName(work))}</p><span>${day(r.before)} — ${day(r.after)}</span></div>
+    <div class="assistant-context"><p>${esc(context.title)}</p><span>${esc(context.subtitle)}</span></div>
     <div class="question-list" aria-label="Быстрые вопросы">${questions.map((question) =>
       `<button type="button" data-action="question" data-key="${esc(question)}">${esc(question)}${icon('chevron')}</button>`).join('')}</div>
+    <div id="answer" aria-live="polite">${assistantConversation(state)}</div>
+    <details class="assistant-limits"><summary>Как формируется ответ</summary>
+      <p class="note">Ассистент опирается на готовые результаты. С разрешения DeepSeek получает только допустимые агрегаты и очищенный вопрос.
+      Для загруженных данных облачная обработка требует отдельно настроенной политики. Источники открываются из ответа.</p></details>
+    </div>
+    <footer class="assistant-composer">
     <form class="ask-form" id="explain-form"><label class="sr-only" for="question">Вопрос по расчёту</label>
-      <div class="ask-input"><input type="search" id="question" name="question" maxlength="300" placeholder="Задать вопрос…" value="${esc(state.question ?? '')}">
+      <div class="ask-input"><input type="text" id="question" name="question" maxlength="300" placeholder="Задать вопрос…" value="${esc(state.question)}">
       <button class="button primary icon-button" type="submit" aria-label="Объяснить" ${state.asking ? 'disabled' : ''}>${icon('arrow')}</button></div>
-      ${consent ? `<label id="assistant-consent" class="check" ${state.health?.ai?.provider === 'deepseek' && state.health?.llm ? '' : 'hidden'}>
-        <input type="checkbox" name="allowExternal" ${state.allowExternal ? 'checked' : ''}> Разрешить DeepSeek обработать структуру ответа</label>` : ''}
+      <label id="assistant-consent" class="check" ${state.health?.ai?.provider === 'deepseek' && state.health?.llm ? '' : 'hidden'}>
+        <input type="checkbox" name="allowExternal" ${state.allowExternal ? 'checked' : ''}> Разрешить отправку агрегатов в DeepSeek</label>
     </form>
-    <p id="answer-focus" class="note" ${state.focusFactor ? '' : 'hidden'}>${state.focusFactor ? `Вопрос о компоненте «${esc(state.focusFactor.label)}».` : ''}</p>
-    <div id="answer" aria-live="polite">${state.asking ? '<p class="note checks-note">Подбираем факты по текущему расчёту…</p>' : explanation(state.answer)}</div>
-    <details class="assistant-limits"><summary>Как формируется ответ</summary><p class="note">Числа берутся из текущего отчёта. Провайдер получает категории и коды фактов. Исходный вопрос, данные и суммы остаются локально.</p></details>
-  </div>`;
+    <div class="assistant-actions">
+      <button type="button" class="text-button" data-action="new-dialogue">Новый диалог</button>
+      ${context.page === 'analysis' ? '<button type="button" class="text-button" data-action="prepare-summary">Сформировать аналитическое резюме</button>' : ''}
+    </div>
+    </footer>`;
+}
+
+export function assistantConversation(state) {
+  const latest = state.turns.at(-1);
+  const showingTurn = latest?.answer === state.answer;
+  const older = showingTurn ? state.turns.slice(0, -1) : state.turns;
+  const history = older.length ? `<details class="assistant-history"><summary>Предыдущие вопросы (${older.length})</summary>
+    ${older.map(({ question, answer }) => `<section class="assistant-turn"><p class="user-question">${esc(question)}</p>${explanation(answer)}</section>`).join('')}</details>` : '';
+  const summary = state.assistantContext?.page === 'analysis' && state.summary && state.answer !== state.summary
+    ? `<details class="assistant-history"><summary>Сохранённое резюме</summary>${explanation(state.summary)}</details>` : '';
+  const waiting = state.asking ? `<p class="note checks-note">Подбираем факты по текущему расчёту…</p>
+    <button type="button" class="text-button" data-action="cancel-explanation">Отменить ожидание</button>` : '';
+  const active = !state.asking && state.answer ? `<section class="assistant-response">${showingTurn ? `<p class="user-question">${esc(latest.question)}</p>` : ''}
+    ${explanation(state.answer)}</section>` : '';
+  const notice = state.assistantMessage ? `<p class="note">${esc(state.assistantMessage)}</p>` : '';
+  return waiting + notice + active + history + summary;
 }
 
 export function explanation(answer) {
   if (!answer) return '';
   if (answer.error) return `<p class="status error">${esc(answer.error)}</p>`;
   const failures = { forbidden: 'Облачная обработка для этих данных отключена.', unconfigured: 'AI не настроен.',
+    protected_question: 'Вопрос обработан локально.', no_verified_answer: 'Модель не нашла подтверждённого ответа.',
     authorization: 'Провайдер отклонил авторизацию.', payment: 'Провайдер отклонил запрос из-за состояния счёта.',
     limited: 'Провайдер ограничил частоту запросов.', timeout: 'Провайдер не ответил вовремя.',
     model_unavailable: 'Выбранная модель недоступна.', invalid_response: 'Не удалось проверить ответ модели.',
-    response_limit: 'Ответ модели превысил лимит.', unavailable: 'AI временно недоступен.', busy: 'AI обрабатывает другой запрос.' };
-  const mode = answer.mode === 'llm' ? (answer.provider === 'deepseek' ? 'DeepSeek' : 'Локальная модель') + ' сформировал порядок проверенных фактов.'
+    response_limit: 'Ответ модели превысил лимит.', context_limit: 'Контекст превышает лимит.',
+    unavailable: 'AI временно недоступен.', busy: 'AI обрабатывает другой запрос.' };
+  const mode = answer.mode === 'llm'
+    ? (answer.provider === 'deepseek' ? 'Объяснение DeepSeek проверено по источникам.' : 'Факты подобраны локальной моделью.')
     : (failures[answer.status] ? failures[answer.status] + ' ' : '') + 'Показаны проверенные факты расчёта.';
   if (answer.empty) return `<p class="note">${esc(answer.empty)}</p>`;
   const sections = answer.sections ?? [{ title: 'Результат', facts: answer.facts }];
   return `<p class="note checks-note">${esc(mode)}</p>${sections.map((section) => `<div class="explanation-section"><h3>${esc(section.title)}</h3>
-    <ul class="facts">${section.facts.map((fact) => `<li><p>${esc(fact.text)}</p><button type="button" class="ghost source" data-action="fact-source"
-      data-key="${esc(fact.id === 'method' ? '#analysis-methodology' : fact.source)}" data-detail="${esc(fact.detail ?? '')}">Открыть источник</button></li>`).join('')}</ul></div>`).join('')}`;
+    <ul class="facts">${section.facts.map((fact) => `<li><p>${esc(fact.text)}</p><div class="fact-links">
+      ${(fact.sources?.length ? fact.sources : [fact]).map((ref) => `<button type="button" class="ghost source" data-action="fact-source"
+        aria-label="Открыть источник · ${esc(ref.title)}" data-key="${esc(ref.source)}" data-detail="${esc(ref.detail ?? '')}">
+        ${esc(ref.title)}</button>`).join('')}</div></li>`).join('')}</ul></div>`).join('')}`;
 }
 
 function termLabel(label) {
@@ -641,7 +681,7 @@ function termLabel(label) {
 
 export function scenarioPage(state) {
   const { workspace: work } = state;
-  const title = 'Чувствительность портфеля к ставкам';
+  const title = 'Чувствительность к ставкам';
   if (!work?.periods?.length) return heading(title, '')
     + empty('Нужен портфель с рассчитанными потоками', 'Создайте тестовый портфель или загрузите архив со снимками калькулятора.',
       `<a href="#portfolio" data-action="new-run" class="button primary">Создать тестовый портфель</a>${uploadHistoryLink('Загрузить снимки')}`);
@@ -654,11 +694,11 @@ export function scenarioPage(state) {
   const plotted = (code) => item.curves[code].map((p) => ({ x: Math.log1p(p.years), value: p.rate, label: termLabel(p.label) }));
   const buckets = (item.bucketDeltas?.[active.code] ?? []).filter((entry) => Math.abs(entry.value) >= 0.01)
     .map((entry) => ({ ...entry, label: termLabel(entry.label) }));
-  return heading(title, '', `<button class="button small" type="button" data-action="compare-scenario" data-key="${esc(active.code)}"
-    data-date="${esc(item.date)}">Разобрать изменение сценария</button>`) + `
+  return heading(title, '', assistantButton) + `
     <div class="scenario-toolbar toolbar"><label class="field">Отчётная дата<select id="scenario-date">${dateOpts(dates, item.date)}</select></label>
       <span class="scope-meta">${n(item.deals)} сделок · ${esc(curveSources[item.curveSource] ?? 'Сохранённый снимок')}</span>
-      <a class="text-button" href="${esc(snapshotUrl(work, item))}">Открыть использованные кривые</a></div>
+      <button class="button small" type="button" data-action="compare-scenario" data-key="${esc(active.code)}"
+        data-date="${esc(item.date)}">Разобрать изменение сценария</button></div>
     <dl class="scenario-values" aria-label="Оценка сценария">
       <div><dt>PV базы</dt><dd title="${fmt(base.pv, ' ₽')}">${compact(base.pv, ' ₽')}</dd></div>
       <div><dt>PV при выбранном стрессе</dt><dd title="${fmt(active.pv, ' ₽')}">${compact(active.pv, ' ₽')}</dd></div>
@@ -671,6 +711,7 @@ export function scenarioPage(state) {
         ${lineChart([{ name: 'Базовая', color: 'var(--accent)', points: plotted('base') },
           { name: codes[active.code], color: 'var(--muted-strong)', points: plotted(active.code), dash: '6 4' }],
           { title: 'Базовая и выбранная стрессовая кривые', unit: '%', xLabel: 'Срок (логарифмическая шкала)', yLabel: 'Доходность, % годовых', tall: true })}
+        <a class="text-button" href="${esc(snapshotUrl(work, item))}">Открыть использованные кривые${icon('arrow')}</a>
       </section>
       <section class="stress-picker" aria-label="Стресс для сравнения">
         <h2>Сценарии</h2>
@@ -680,7 +721,7 @@ export function scenarioPage(state) {
             <strong class="${tone(entry.delta)}">${delta(entry.delta, ' ₽')}</strong></button>`).join('')}</div>
       </section>
     </div>
-    <details class="details technical" data-scenario-detail="results"><summary>Оценки и выгрузки для всех сценариев</summary>
+    <details class="details technical" id="scenario-results" data-scenario-detail="results"><summary>Оценки и выгрузки для всех сценариев</summary>
       <p class="note">PV — стоимость будущих платежей на выбранную дату.</p>
       ${table([['Сценарий'], ['PV, ₽', 'num'], ['Разница с базой, ₽', 'num']], item.scenarios.map((entry) =>
         `<tr class="${entry === active ? 'is-selected' : ''}"><th scope="row">${esc(codes[entry.code] ?? entry.name)}</th>
@@ -688,7 +729,7 @@ export function scenarioPage(state) {
       <div class="data-actions">${link(exportUrl(work, item.date + '/discounted_deal_summary.csv'), 'PV по сделкам')}
         ${link(exportUrl(work, item.date + '/standard-result.json'), 'Снимок кривых')}</div>
     </details>
-    <details class="details technical" data-scenario-detail="buckets"><summary>Вклад сроков платежей</summary>
+    <details class="details technical" id="scenario-buckets" data-scenario-detail="buckets"><summary>Вклад сроков платежей</summary>
       <p class="note">В каждом интервале сравниваются оценки платежей по двум кривым.</p>
       ${buckets.length ? bars(buckets, { unit: ' ₽', label: 'Вклад сроков платежей' })
         : '<p class="note">Вклады по срокам меньше копейки или отсутствуют.</p>'}
@@ -759,6 +800,10 @@ export function portfolioPreview(raw, expanded = false) {
 export function portfolioProgress(job) {
   if (!job) return '';
   const message = job.message ?? '';
+  if (job.state === 'failed') return `<div class="status error portfolio-failure">
+    <p role="alert">${esc(message)}</p>
+    ${job.retrySettings ? '<button class="button small" type="button" data-action="retry-portfolio">Повторить расчёт</button>' : ''}
+  </div>`;
   const total = job.total || 1;
   const stage = job.state === 'ready' ? 4 : /сверка выгрузок/i.test(message) ? 3
     : /дисконтирован|рассчитано/i.test(message) ? 2 : /калькулятор команды 1/i.test(message) ? 1
@@ -777,7 +822,7 @@ export function portfolioPage(state) {
   const last = work?.periods?.at(-1);
   const settings = { ...defaultPortfolio, ...work?.settings, ...state.draft };
   const selected = last && state.portfolioTab === 'holdings' ? 'holdings' : 'builder';
-  const title = heading('Портфель', '');
+  const title = heading('Портфель', '', selected === 'holdings' ? assistantButton : '');
   const navigation = last ? segments('portfolio-tab', selected, [['builder', 'Конструктор'], ['holdings', 'Состав портфеля']], 'Портфель') : '';
   const progress = `<div id="portfolio-progress" aria-live="polite">${portfolioProgress(state.portfolioJob)}</div>`;
   if (selected === 'holdings') {
@@ -789,7 +834,7 @@ export function portfolioPage(state) {
       ${toUpdate.runId !== pin.runId ? `<p class="note">Текущая оценка относится к прежнему снимку. Переоценка применит выбранные коэффициенты к тем же платежам за эту дату и сохранит новую ревизию.</p>
         <button class="button" type="button" data-action="curve-revalue" ${state.generating ? 'disabled' : ''}>Переоценить портфель</button>` : ''}
       <button class="text-button" type="button" data-action="curve-clear">Снять выбор</button></div>` : '';
-    return title + navigation + progress + selection + `<section class="panel holdings"><header class="panel-head"><div><h2>Состав портфеля</h2>
+    return title + navigation + progress + selection + `<section class="panel holdings" id="portfolio-holdings"><header class="panel-head"><div><h2>Состав портфеля</h2>
       <p class="note">${n(date.deals)} действующих сделок на ${day(date.date)}. Откройте ID, чтобы посмотреть платежи.</p></div>
       <div class="data-actions">${link(exportUrl(work, date.date + '/calculator_input.csv'), 'CSV для калькулятора')}
         <a class="button small" href="#analysis" data-action="overview">Открыть факторный анализ</a></div></header>
@@ -819,8 +864,9 @@ export function portfolioPage(state) {
         </div>
         <p class="note">Предыдущие даты приходятся на последние будни месяца.</p>
       </section>
-      <section><h2>Источник ставок</h2>
-        <label class="field curve-source">Источник кривых<select name="curveSource" aria-describedby="curve-note">${Object.entries(sources).map(([key, title]) => option(key, title, curve)).join('')}</select></label>
+      <section><h2><label for="portfolio-curve-source">Источник кривых</label></h2>
+        <div class="field curve-source"><select id="portfolio-curve-source" name="curveSource" aria-describedby="curve-note">
+          ${Object.entries(sources).map(([key, title]) => option(key, title, curve)).join('')}</select></div>
         <p class="note" id="curve-note">${sourceNotes[curve] ?? sourceNotes.api}</p>
         ${state.curveSelection ? `<div id="pinned-curve" class="curve-selection" ${curve !== 'api' ? 'hidden' : ''}>
           <p class="note">Закреплён выбранный запуск на ${day(state.curveSelection.reportDate)}. Остальные даты используют собственные стандартные кривые.</p>
@@ -837,7 +883,7 @@ export function portfolioPage(state) {
             .map(([key, label]) => input(key, label, settings[key], 'type="number" min="0" max="100" step="0.01"')).join('')}</div>
         <p class="note">Доли схем платежей и типов ставки в каждой группе должны давать 100%.</p>
       </details>
-      <div class="form-actions"><button class="button primary" type="submit" ${state.generating ? 'disabled' : ''}>Создать тестовый портфель</button>
+      <div class="form-actions"><button class="button primary" type="submit" ${state.generating ? 'disabled' : ''}>Создать тестовый портфель${icon('arrow')}</button>
         ${uploadHistoryLink('Загрузить снимки ZIP', 'text-button')}</div>
     </form>
     <aside class="panel portfolio-preview" aria-label="Параметры будущего портфеля"><div id="portfolio-preview">${portfolioPreview(settings)}</div></aside>
@@ -933,7 +979,7 @@ export function dataPage(state) {
       <button class="button primary" type="submit" disabled>Загрузить ZIP</button>
       <label class="check"><input type="checkbox" name="bank"> Банковская выгрузка</label></form></div>`}
   </section>`;
-  const title = heading('Данные', '');
+  const title = heading('Данные', '', work?.profile ? assistantButton : '');
   const connections = `<details class="details technical"><summary>Подключения</summary>
     <ul id="services" class="service-list" aria-live="polite">${servicesList(state.health)}</ul></details>`;
   if (!work?.profile) return title + importer + connections;

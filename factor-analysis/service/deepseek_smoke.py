@@ -11,7 +11,9 @@ from .llm import provider
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Проверка DeepSeek на синтетических фактах.')
     parser.add_argument('--live', action='store_true', help='Выполнить платный запрос к реальному API.')
-    if not parser.parse_args(argv).live:
+    parser.add_argument('--case', choices=('valuation', 'ml'), default='valuation')
+    args = parser.parse_args(argv)
+    if not args.live:
         parser.error('Для реального запроса укажите --live.')
     load_env(Path(__file__).resolve().parents[1])
     current = provider()
@@ -23,10 +25,25 @@ def main(argv=None):
         'factors': [{'key': 'cash_effect', 'value': 100}, {'key': 'discount_effect', 'value': -20}],
         'joint': -5, 'reconciliation': 0, 'warnings': [], 'interactions': [],
     }}
-    answer = explain(workspace, 'Как изменился NPV?')
-    if answer['mode'] == 'llm' and answer['provider'] == 'deepseek' and answer['facts']:
-        print('DeepSeek вернул проверенный план для синтетического отчёта.')
+    question = 'Что потянуло NPV вверх?'
+    if args.case == 'ml':
+        workspace['report'].update(mode='ml', status='caution', reliable=False, residual=19,
+            factors=[{'key': 'principal', 'value': 72}, {'key': 'contract_rate', 'value': -11}],
+            warnings=['Проверочные ошибки модели выше медианного ориентира.'],
+            effects=[{'key': 'principal', 'kind': 'numeric', 'shape': 'u', 'shapeLabel': 'U-образная',
+                      'support': 85, 'range': [200, 1500], 'turningRange': [650, 800], 'stability': .82}])
+        question = 'Какую форму зависимости выявили для остатка долга?'
+    answer = explain(workspace, question, allow_external=True)
+    expected = ('shape',) if args.case == 'ml' else ('rise', 'largest_positive', 'positive', 'offset')
+    if answer['mode'] == 'llm' and answer['provider'] == 'deepseek' \
+            and any(item.get('claimType') in expected for item in answer['facts']):
+        print('DeepSeek вернул проверенное объяснение для синтетического отчёта.')
+        for item in answer['facts']:
+            print(item['text'])
         return 0
+    if answer['mode'] == 'llm':
+        print('DeepSeek вернул проверенные факты. В ответе отсутствует проверяемая формулировка для этого сценария.')
+        return 1
     print(f'Проверка DeepSeek не пройдена. Статус {answer["status"]}. Доступно локальное объяснение.')
     return 1
 

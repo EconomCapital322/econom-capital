@@ -1,7 +1,7 @@
 import { day, esc } from './charts.mjs';
-import { analysisChart, analysisPage, analysisTab, assistantPanel, assistantStatus, comparisonPanel, dataPage, dealTable,
-  explanation, factorDetails, flowDialog, methodologyContent, pages, portfolioCurveNote, portfolioPage,
-  portfolioPreview, portfolioProgress, reportTabs, scenarioPage, servicesList } from './views.mjs';
+import { analysisChart, analysisPage, analysisTab, assistantConversation, assistantPanel, assistantStatus, comparisonPanel,
+  codes, dataPage, dealTable, factorDetails, flowDialog, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
+  portfolioPreview, portfolioProgress, reportTabs, scenarioPage, servicesList, titleOf } from './views.mjs';
 
 const main = document.querySelector('#content');
 const studioScreen = document.querySelector('#studio-screen');
@@ -16,7 +16,8 @@ const state = {
   scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
   chart: 'contributions', research: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
-  question: '', focusFactor: null, allowExternal: false, asking: false,
+  question: '', focusFactor: null, allowExternal: false, asking: false, assistantMessage: '',
+  assistantContext: null, dialogId: null, turns: [], summary: null,
   curveSelection: null,
 };
 let dealsRequest = 0;
@@ -101,7 +102,8 @@ function renderCurves(active) {
     const location = selection ?? curveRoute();
     curveModule.update({ active, location,
       valuationRunId: state.workspace?.periods?.find((p) => p.date === location.reportDate)?.runId,
-      onLocation: showCurveLocation, onRunSelect: selectCurveRun, onUse: useCurve });
+      onLocation: showCurveLocation, onRunSelect: selectCurveRun, onUse: useCurve,
+      onExplain: (curve) => openAssistant(null, curve) });
   } else if (active && !curveLoading) {
     curveLoading = import('/curve-ui/curves.js').then(({ mountCurves }) => {
       curveScreen.replaceChildren();
@@ -136,6 +138,11 @@ function swapWorkspace(workspace) {
   state.mapping = null;
   state.question = '';
   state.focusFactor = null;
+  state.assistantContext = null;
+  state.dialogId = null;
+  state.turns = [];
+  state.summary = null;
+  state.assistantMessage = '';
   state.allowExternal = false;
   state.asking = false;
   state.sourceFormat = workspace?.periods ? 'zip' : 'csv';
@@ -179,17 +186,83 @@ function openSettings() {
   if (!settings.open) settings.showModal();
 }
 
-function openAssistant() {
-  if (!state.workspace?.report) return;
+function assistantScope(factor, curve) {
+  const work = state.workspace;
+  const report = work?.report;
+  const page = state.route;
+  const scope = { page, workspaceId: work?.id ?? null, analysisId: report?.analysisId ?? null };
+  let title = pages[page], subtitle = '';
+  if (page === 'analysis') {
+    if (!report) return null;
+    scope.focusFactor = factor?.key ?? null;
+    title = factor?.label ?? metricName(work);
+    subtitle = day(report.before) + ' — ' + day(report.after);
+    if (!factor && state.research && state.tab === 'effects' && report.effects?.length) {
+      const selected = report.effects.find(item => item.key === state.effect)
+        ?? report.effects.find(item => item.points?.length) ?? report.effects[0];
+      scope.analysisFocus = { kind: 'effect', item: selected.key };
+      title = titleOf(work, selected.key);
+    }
+    if (!factor && state.research && state.tab === 'interactions' && report.interactions?.length) {
+      const item = state.pair ?? 0;
+      const selected = report.interactions[item];
+      if (selected) {
+        scope.analysisFocus = { kind: 'interaction', item };
+        title = titleOf(work, selected.a) + ' × ' + titleOf(work, selected.b);
+      }
+    }
+  } else if (page === 'curves') {
+    if (!curve) return null;
+    scope.curveRef = { reportDate: curve.reportDate, runId: curve.runId };
+    scope.curveWorkspaceId = curve.workspaceId ?? null;
+    scope.scenario = curve.scenario;
+    title = codes[curve.scenario] ?? title;
+    subtitle = day(curve.reportDate) + (curve.workspaceId ? ' · Снимок оценки' : ' · Готовый запуск');
+  } else if (page === 'data') {
+    if (!work?.profile) return null;
+    subtitle = 'Профиль загруженного набора';
+  } else {
+    if (!work?.periods?.length) return null;
+    scope.reportDate = (page === 'scenarios' ? state.scenarioDay : state.portfolioDay) ?? work.periods.at(-1).date;
+    if (page === 'scenarios') {
+      scope.scenario = document.querySelector('[data-action="scenario"][aria-pressed="true"]')?.dataset.key;
+      title = codes[scope.scenario] ?? title;
+    }
+    subtitle = day(scope.reportDate);
+  }
+  return { ...scope, key: JSON.stringify(scope), title, subtitle };
+}
+
+function openAssistant(factor = null, curve = null) {
+  const context = assistantScope(factor, curve);
+  if (!context) return;
+  if (state.assistantContext?.key !== context.key) {
+    stopWaiting();
+    state.dialogId = null;
+    state.turns = [];
+    state.answer = null;
+    state.question = '';
+    state.allowExternal = false;
+  }
+  state.assistantContext = context;
+  state.focusFactor = factor;
   assistant.innerHTML = assistantPanel(state);
   if (!assistant.open) assistant.showModal();
+  if (context.page === 'analysis' && state.summary?.analysisId !== context.analysisId) {
+    void api('/api/summary/' + context.workspaceId + '/' + context.analysisId).then((saved) => {
+      if (saved && state.assistantContext?.key === context.key && !state.summary) {
+        state.summary = saved;
+        refreshAnswer();
+      }
+    }).catch(() => {});
+  }
 }
 
 function refreshAssistant() {
   const status = document.querySelector('#assistant-status');
   if (status) status.innerHTML = assistantStatus(state);
   const consent = document.querySelector('#assistant-consent');
-  if (consent) consent.hidden = !(state.health?.llm && state.health?.ai?.provider === 'deepseek');
+  if (consent) consent.hidden = state.health?.ai?.provider !== 'deepseek' || !state.health?.llm;
 }
 
 async function updateHealth() {
@@ -256,8 +329,8 @@ const remember = (job) => {
   } catch { /* Running in a browser with storage disabled is supported. */ }
 };
 
-async function followJob(id, kind = 'report') {
-  remember({ id, kind });
+async function followJob(id, kind = 'report', portfolioSettings = null) {
+  remember({ id, kind, portfolioSettings });
   try {
     let errors = 0;
     for (;;) {
@@ -297,10 +370,17 @@ async function followJob(id, kind = 'report') {
             navigate('portfolio');
           } else navigate('analysis');
         }
-        notice(['diagnostics', 'portfolio'].includes(kind) ? '' : 'Факторное разложение готово.');
+        notice('');
         return true;
       }
-      if (job.state === 'failed') throw new Error(job.message);
+      if (job.state === 'failed') {
+        if (portfolioSettings) {
+          updatePortfolioJob({ ...job, retrySettings: portfolioSettings });
+          notice(state.route === 'portfolio' ? '' : job.message, 'error');
+          return false;
+        }
+        throw new Error(job.message);
+      }
       if (kind === 'portfolio') updatePortfolioJob(job);
       if (kind !== 'portfolio' || state.route !== 'portfolio') notice(job.message, '', job);
       else notice('');
@@ -331,7 +411,7 @@ async function launch(path, body, message, kind = 'report') {
   notice(message);
   try {
     const { job } = await api(path, { body });
-    return await followJob(job, kind);
+    return await followJob(job, kind, path === '/api/run' ? body : null);
   } catch (error) {
     notice(error.message, 'error');
     return false;
@@ -352,6 +432,11 @@ async function generate(form) {
   settings.useSavedCurves = settings.curveSource === 'saved';
   settings.demoCurves = settings.curveSource === 'fixture';
   if (settings.curveSource === 'api' && state.curveSelection) settings.curveSelection = state.curveSelection;
+  await runPortfolio(settings);
+}
+
+async function runPortfolio(settings) {
+  if (state.generating) return;
   state.draft = settings;
   updatePortfolioJob(null);
   await launch('/api/run', settings, 'Запускаем совместный расчёт.', 'portfolio');
@@ -453,51 +538,72 @@ async function diagnostics() {
   return await launch('/api/diagnostics', { workspaceId: work.id, analysisId: work.report.analysisId }, message, 'diagnostics');
 }
 
-async function ask(form) {
-  const initial = state.workspace;
-  if (!initial?.report || state.generating) return;
-  const values = new FormData(form);
-  const question = String(values.get('question') || '').trim();
-  state.question = question;
-  state.allowExternal = values.has('allowExternal');
-  const focusFactor = state.focusFactor?.key;
-  const button = form.querySelector('button[type="submit"]');
-  button.disabled = true;
+function stopWaiting(message = '') {
   explanationRequest?.abort();
-  const request = new AbortController();
-  explanationRequest = request;
-  state.asking = true;
-  document.querySelector('#answer').innerHTML = '<p class="note checks-note">Подбираем факты по текущему расчёту…</p>';
-  try {
-    const needsMLDetails = initial.report.diagnosticsReady === false && !focusFactor
-      && /нелинейн|насыщ|порог|взаим|совмест|пара факторов/i.test(question);
-    const needsCashDetails = initial.report.mode === 'valuation' && !initial.report.cashDetails && !focusFactor &&
-      /погашен|проценты по преж|выпавшие проценты|перенос (платеж|срок|поток)|остат(ок|ка) долга|баланс договора|договорн|график[а]? платеж|срок договора|детализац.*поток/i.test(question);
-    if ((needsMLDetails || needsCashDetails) && !await diagnostics()) throw new Error('Сначала завершите расчёт детализации.');
-    const answer = await api('/api/explain', { body: { workspaceId: initial.id, analysisId: initial.report.analysisId, question,
-      focusFactor, allowExternal: values.has('allowExternal') }, signal: request.signal });
-    if (request.signal.aborted || answer.analysisId !== (state.workspace?.report?.analysisId ?? null)) return;
-    state.answer = answer;
-  } catch (error) {
-    if (!request.signal.aborted) state.answer = { error: error.message };
-  } finally {
-    if (!request.signal.aborted && explanationRequest === request && initial.report.analysisId === state.workspace?.report?.analysisId) {
-      state.asking = false;
-      const submit = assistant.querySelector('#explain-form button[type="submit"]');
-      if (submit) submit.disabled = false;
-      const box = document.querySelector('#answer');
-      if (box) box.innerHTML = explanation(state.answer);
-      refreshAssistant();
-    }
-  }
+  explanationRequest = null;
+  state.asking = false;
+  state.assistantMessage = message;
+  const button = assistant.querySelector('#explain-form button[type="submit"]');
+  if (button) button.disabled = false;
+  refreshAnswer();
 }
 
-function setQuestionContext(factor) {
-  state.focusFactor = factor;
-  const context = document.querySelector('#answer-focus');
-  if (!context) return;
-  context.hidden = !factor;
-  context.textContent = factor ? `Вопрос о компоненте «${factor.label}».` : '';
+function newDialogue() {
+  stopWaiting();
+  state.turns = [];
+  state.dialogId = null;
+  state.answer = null;
+  state.question = '';
+  assistant.innerHTML = assistantPanel(state);
+  assistant.querySelector('#question')?.focus({ preventScroll: true });
+}
+
+function refreshAnswer() {
+  const host = assistant.querySelector('#answer');
+  if (host) host.innerHTML = assistantConversation(state);
+  refreshAssistant();
+}
+
+async function ask(form, summary = false) {
+  const context = state.assistantContext;
+  if (!context || state.generating) return;
+  const values = new FormData(form);
+  const question = summary ? '' : String(values.get('question') || '').trim();
+  if (!summary && !question) return;
+  state.allowExternal = values.has('allowExternal');
+  state.question = '';
+  if (!summary) form.elements.question.value = '';
+  state.assistantMessage = '';
+  if (!summary) state.answer = null;
+  explanationRequest?.abort();
+  const controller = new AbortController();
+  explanationRequest = controller;
+  state.asking = true;
+  form.querySelector('button[type="submit"]').disabled = true;
+  refreshAnswer();
+  try {
+    const { key, title, subtitle, ...scope } = context;
+    const answer = await api('/api/explain', { body: { ...scope, question, summary,
+      dialogId: summary ? null : state.dialogId, allowExternal: state.allowExternal }, signal: controller.signal });
+    if (controller.signal.aborted || state.assistantContext?.key !== key || answer.workspaceId !== scope.workspaceId
+        || answer.analysisId !== scope.analysisId || answer.page !== scope.page) return;
+    state.answer = answer;
+    if (summary) {
+      state.summary = answer;
+    } else {
+      state.dialogId = answer.dialogId;
+      state.turns = [...state.turns, { question, answer }].slice(-5);
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) state.answer = { error: error.message };
+  } finally {
+    if (!controller.signal.aborted && explanationRequest === controller) {
+      state.asking = false;
+      explanationRequest = null;
+      assistant.querySelector('#explain-form button[type="submit"]')?.removeAttribute('disabled');
+      refreshAnswer();
+    }
+  }
 }
 
 async function loadDeals() {
@@ -551,20 +657,45 @@ function reveal(target) {
 
 function openFactSource(key, detail) {
   if (assistant.open) assistant.close();
+  const contextual = {
+    '#scenario-results': 'scenarios', '#scenario-buckets': 'scenarios',
+    '#portfolio-holdings': 'portfolio', '#data-profile': 'data', '#data-setup': 'data', '#curve-context': 'curves',
+  }[key];
+  if (contextual) {
+    if (contextual === 'curves') {
+      reveal(curveScreen.shadowRoot?.querySelector('.results-panel') ?? curveScreen);
+      return;
+    }
+    if (contextual === 'portfolio') state.portfolioTab = 'holdings';
+    if (contextual === 'scenarios' && detail) state.scenarioCode = detail;
+    navigate(contextual, () => reveal(main.querySelector(key === '#data-profile' ? '#data-quality' : key)));
+    return;
+  }
   if (key === '#waterfall' && detail) {
+    state.research = false;
+    if (state.route !== 'analysis') {
+      navigate('analysis', () => selectFactor(detail));
+      return;
+    }
     selectFactor(detail);
     return;
   }
   if (drawer.open) drawer.close();
-  if (key === '#interactions' && detail) state.pair = Number(detail);
-  if (key === '#effects' && detail) state.effect = detail;
-  const targetTab = { '#quality': 'quality', '#interactions': 'interactions',
-    '#effects': 'effects', '#cash-details': 'cash' }[key];
+  if (key === '#interactions' && detail) {
+    state.pair = Number(detail);
+    state.pairDeal = null;
+  }
+  if (key === '#effects' && detail) {
+    state.effect = detail;
+    state.effectPlot = 'ale';
+  }
+  const targetTab = { '#quality': 'quality', '#importance': 'importance', '#interactions': 'interactions',
+    '#effects': 'effects', '#cash-details': 'cash', '#valuation-detail': 'contributions' }[key];
   if (targetTab && Object.hasOwn(reportTabs(state.workspace), targetTab)) state.tab = targetTab;
   state.research = key !== '#waterfall';
   const anchors = ['#waterfall', '#quality', '#interactions', '#effects', '#cash-details',
     '#valuation-detail', '#analysis-methodology'];
-  navigate('analysis', () => reveal((anchors.includes(key) ? main.querySelector(key) : null) ?? main.querySelector('#analysis-tabs')));
+  navigate('analysis', () => reveal((anchors.includes(key) ? main.querySelector(key) : null) ?? main.querySelector('#tab-body')));
 }
 
 function action(element) {
@@ -573,6 +704,9 @@ function action(element) {
   if (kind === 'analysis-chart') selectChart(key, element);
   if (kind === 'edit-parameters') openSettings();
   if (kind === 'open-assistant') openAssistant();
+  if (kind === 'new-dialogue') newDialogue();
+  if (kind === 'cancel-explanation') stopWaiting('Ожидание отменено.');
+  if (kind === 'prepare-summary') void ask(assistant.querySelector('#explain-form'), true);
   if (kind === 'overview' || kind === 'research') {
     state.research = kind === 'research';
     navigate('analysis');
@@ -593,6 +727,9 @@ function action(element) {
     state.portfolioTab = 'builder';
     state.portfolioJob = state.generating ? state.portfolioJob : null;
     navigate('portfolio');
+  }
+  if (kind === 'retry-portfolio' && state.portfolioJob?.retrySettings) {
+    void runPortfolio(state.portfolioJob.retrySettings);
   }
   if (kind === 'upload-history') {
     state.sourceFormat = 'zip';
@@ -616,16 +753,14 @@ function action(element) {
   }
   if (kind === 'question') {
     const form = document.querySelector('#explain-form');
-    setQuestionContext(null);
     form.elements.question.value = key;
     form.requestSubmit();
   }
   if (kind === 'explain-factor') {
     drawer.close();
-    openAssistant();
+    openAssistant({ key, label: element.dataset.label });
     const form = assistant.querySelector('#explain-form');
-    setQuestionContext({ key, label: element.dataset.label });
-    form.elements.question.value = ('Каков вклад компонента «' + element.dataset.label + '»?').slice(0, 300);
+    form.elements.question.value = 'Каков вклад выбранного компонента?';
     form.elements.question.focus({ preventScroll: true });
     form.requestSubmit();
   }
@@ -686,6 +821,13 @@ document.addEventListener('submit', (event) => {
 });
 document.addEventListener('change', (event) => {
   const element = event.target;
+  if (element.id === 'report-with-summary') {
+    for (const link of main.querySelectorAll('[data-report-download]')) {
+      const url = new URL(link.href);
+      url.searchParams.set('includeSummary', element.checked ? '1' : '0');
+      link.href = url;
+    }
+  }
   if (element.type === 'file' && element.classList.contains('sr-only')) {
     const file = element.files[0];
     const name = element.closest('.file-picker').querySelector('.file-name');
@@ -762,10 +904,13 @@ document.addEventListener('input', (event) => {
   if (element.form?.id === 'explain-form') {
     if (element.name === 'question') {
       state.question = element.value;
-      setQuestionContext(null);
     }
     if (element.name === 'allowExternal') state.allowExternal = element.checked;
   }
+});
+
+assistant.addEventListener('close', () => {
+  if (!assistant.open && state.asking) stopWaiting();
 });
 
 window.addEventListener('hashchange', () => {
@@ -784,12 +929,16 @@ async function start() {
   state.route = routeName();
   try {
     swapWorkspace(await api('/api/workspace'));
-    render();
     const job = rememberedJob();
     if (job) {
       state.generating = true;
-      void followJob(job.id, job.kind).finally(() => { state.generating = false; render(); });
+      if (job.portfolioSettings) {
+        state.draft = job.portfolioSettings;
+        state.curveSelection = job.portfolioSettings.curveSelection ?? null;
+      }
+      void followJob(job.id, job.kind, job.portfolioSettings).finally(() => { state.generating = false; render(); });
     }
+    render();
   } catch (error) {
     notice(error.message, 'error');
     render();

@@ -41,8 +41,12 @@ def assets():
 
 def build_local():
     target = assets().resolve()
-    if all((target / name).is_file() for name in BUILD_FILES):
-        return
+    outputs = [target / name for name in BUILD_FILES]
+    if all(path.is_file() for path in outputs):
+        built_at = min(path.stat().st_mtime_ns for path in outputs)
+        inputs = [*(FRONTEND / 'src').rglob('*'), FRONTEND / 'vite.config.ts', FRONTEND / 'package-lock.json']
+        if all(path.stat().st_mtime_ns <= built_at for path in inputs if path.is_file()):
+            return
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if not npm or not (FRONTEND / "package-lock.json").is_file():
         raise FileNotFoundError("Для сборки нужны исходники команды 2 и npm.")

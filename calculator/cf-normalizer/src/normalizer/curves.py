@@ -170,32 +170,40 @@ class CurvesClient:
                 raise CurvesError("Некорректный JSON в ответе API кривых.") from exc
         raise CurvesError("API кривых недоступен.")
 
-    def result(self, day: date):
-        query = "?" + urlencode({"reportDate": day.isoformat()})
-        value, raw = self.request("/curve-runs/standard-result" + query)
-        if value is not None:
-            return validate_result(value, day), raw
+    def _prepare(self, report_date: str, *, retry: bool):
         try:
             self.request(
-                "/curve-preparations", {"reportDate": day.isoformat(), "retry": False}
+                "/curve-preparations", {"reportDate": report_date, "retry": retry}
             )
         except ApiRejected:
             raise
         except CurvesError:
             # A lost response is not proof the server rejected the job.
             pass
+
+    def result(self, day: date):
+        report_date = day.isoformat()
+        query = "?" + urlencode({"reportDate": report_date})
+        value, raw = self.request("/curve-runs/standard-result" + query)
+        if value is not None:
+            return validate_result(value, day), raw
+        self._prepare(report_date, retry=False)
+        retried_source = False
         deadline = time.monotonic() + self.wait
         while time.monotonic() < deadline:
             prep, _ = self.request("/curve-preparations" + query)
-            if not isinstance(prep, dict) or prep.get("reportDate") != day.isoformat():
+            if not isinstance(prep, dict) or prep.get("reportDate") != report_date:
                 raise CurvesError("Несогласованное состояние подготовки даты.")
             status = prep.get("status")
             if status == "no_data":
                 raise CurvesError("Нет публикации MOEX за выбранную дату.")
             if status == "failed":
-                raise CurvesError(
-                    MESSAGES.get(prep.get("errorCode"), "Ошибка подготовки данных.")
-                )
+                code = prep.get("errorCode")
+                if code == "SOURCE_UNAVAILABLE" and not retried_source:
+                    retried_source = True
+                    self._prepare(report_date, retry=True)
+                    continue
+                raise CurvesError(MESSAGES.get(code, "Ошибка подготовки данных."))
             if status not in ("idle", "queued", "running", "ready"):
                 raise CurvesError("Неизвестное состояние подготовки даты.")
             run_id = prep.get("runId")

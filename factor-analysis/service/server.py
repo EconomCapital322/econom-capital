@@ -6,6 +6,7 @@ import argparse
 import base64
 import binascii
 from dataclasses import replace
+from decimal import Decimal
 from hashlib import sha256
 import csv
 import json
@@ -21,15 +22,17 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 from uuid import uuid4
 
+from .assistant_context import curve_evidence, data_evidence, pair_key, portfolio_evidence, scenario_evidence, stable_key
+from .assistant_privacy import policy
 from .attribution import analyze, feature_strings, pick_features
 from .config import load_env
 from .cash_details import calculate_cash_details
-from .explanations import explain
+from .explanations import StaleDialog, explain
 from .history import MAX_ARCHIVE, pack, revalue, unpack
 from .llm import provider, model_endpoint
 from .reporting import export, safe_dataset
 from .integration import (CODES, FEATURES, LABELS, ROOT, SCENARIOS, TARGETS, CurvesClient, core_path,
-                          curves_url, market_curve_run, portfolio_history, read_rows, selected_curve_ref)
+                          curves_url, market_curve_run, portfolio_history, read_rows, selected_curve_ref, validated_snapshot_curves)
 from .panel import discover, extract_csv, iso_date, number, profile_column, resolve_rows
 from .valuation import actual_pv, analyze_valuation, load_snapshot
 from . import curve_ui
@@ -107,6 +110,94 @@ def active_revision(workspace, request):
         if not re.fullmatch(ID, str(expected)) or current_report.get("analysisId") != expected \
                 or (workspace.get("report") or {}).get("analysisId") != expected:
             raise StaleReport("Отчёт изменился. Повторите запрос для текущего расчёта.")
+
+
+def assistant_revision(workspace, request, active):
+    revision = (workspace.get('report') or {}).get('analysisId')
+    if request.get('analysisId') != revision or revision and (
+            active is None or active['id'] != workspace['id'] or (active.get('report') or {}).get('analysisId') != revision):
+        raise StaleReport('Отчёт изменился. Повторите запрос для текущего расчёта.')
+    if not revision and request.get('page', 'analysis') == 'analysis':
+        raise ValueError('Сначала выполните анализ.')
+
+
+def assistant_period(workspace, selected):
+    periods = workspace.get('periods') or []
+    period = next((item for item in periods if item['date'] == selected), None) if selected is not None else next(reversed(periods), None)
+    if not period:
+        raise ValueError('На выбранную дату нет расчётного снимка.')
+    return period
+
+
+def assistant_context(workspace, folder, request, page):
+    if page == 'analysis':
+        selection = request.get('analysisFocus')
+        if selection is None:
+            return {}
+        if not isinstance(selection, dict) or set(selection) != {'kind', 'item'}:
+            raise ValueError('Выберите детализацию текущего отчёта.')
+        kind, item = selection['kind'], selection['item']
+        report = workspace['report']
+        if kind == 'effect' and isinstance(item, str) and any(row['key'] == item for row in report.get('effects', [])):
+            key = 'effect.' + stable_key(item)
+        elif kind == 'interaction' and type(item) is int and 0 <= item < len(report['interactions']):
+            pair = report['interactions'][item]
+            key = pair_key(pair['a'], pair['b'])
+        else:
+            raise ValueError('Выбранная детализация отсутствует в текущей ревизии.')
+        return {'focus': key, 'identity': key}
+    if page == 'data':
+        if not workspace.get('profile'):
+            raise ValueError('Загрузите данные для профилирования.')
+        return {'facts': data_evidence(workspace)}
+    if page == 'curves':
+        return assistant_curve_context(workspace, request)
+    period = assistant_period(workspace, request.get('reportDate'))
+    if page == 'scenarios':
+        selected = request.get('scenario')
+        if selected is not None and selected not in CODES[1:]:
+            raise ValueError('Выберите рассчитанный стресс-сценарий.')
+        facts, scenario = scenario_evidence(period, selected)
+        return {'facts': facts, 'identity': (period['date'], period['runId'], scenario)}
+    contracts = read_rows(folder / period['date'] / 'calculator_input.csv', ';')
+    return {'facts': portfolio_evidence(workspace, period, contracts), 'identity': (period['date'], period['runId'])}
+
+
+def assistant_curve_context(workspace, request):
+    selected = request.get('scenario', 'base')
+    if selected not in CODES:
+        raise ValueError('Выберите рассчитанную кривую.')
+    reference = request.get('curveRef')
+    selected_date, run_id = selected_curve_ref(reference)
+    text = selected_date.isoformat()
+    archive = request.get('curveWorkspaceId')
+    public = False
+    if archive is not None:
+        folder = run_folder(archive)
+        work = workspace if archive == workspace.get('id') else load(folder)
+        period = assistant_period(work, text)
+        if period['runId'] != run_id:
+            raise StaleReport('Выбранная кривая отличается от сохранённого снимка.')
+        result = json.loads((folder / text / 'curves' / 'standard-result.json').read_bytes(), parse_float=Decimal)
+        validated_snapshot_curves(result, selected_date)
+        public = policy(work)[0] == 'aggregate'
+    else:
+        client = CurvesClient(curves_url())
+        route = '/curve-runs/' + run_id
+        run, _ = client.request(route)
+        if run.get('status') != 'ready' or run.get('reportDate') != text or run.get('runId') != run_id:
+            raise ValueError('На выбранную дату нужен готовый запуск кривых.')
+        result, _ = client.request(route + '/result')
+        if result.get('runId') != run_id or result.get('reportDate') != text \
+                or result.get('usedParameters') != run.get('usedParameters'):
+            raise ValueError('Результат не совпадает с выбранным запуском кривых.')
+        if run.get('dataProvenance') == 'market' and run['usedParameters'].get('mode') == 'standard':
+            validated_snapshot_curves(result, selected_date)
+            public = True
+    if result['runId'] != run_id:
+        raise StaleReport('Результат не совпадает с выбранным снимком кривых.')
+    facts, scenario = curve_evidence(result, selected, archive is not None)
+    return {'facts': facts, 'identity': (text, run_id, archive, scenario), 'public': public, 'private': not public}
 
 
 def text_of(folder):
@@ -447,6 +538,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(current())
             if path == "/api/services":
                 return self.reply(services())
+            if (match := re.fullmatch(r"/api/summary/(" + ID + ")/(" + ID + ")", path)):
+                folder = run_folder(match[1]) / 'reports'
+                saved = folder / (match[2] + '.summary.json')
+                return self.reply(json.loads(saved.read_bytes()) if saved.is_file() else None)
             if (match := re.fullmatch(r"/api/job/(" + ID + ")", path)):
                 with LOCK:
                     job = JOBS.get(match[1], {}).copy()
@@ -456,8 +551,11 @@ class Handler(BaseHTTPRequestHandler):
             if (match := re.fullmatch(r"/api/export/(" + ID + ")/reports/(" + ID + ")/(" + REPORT_EXPORTS + ")", path)):
                 folder = run_folder(match[1]) / 'reports'
                 report = json.loads((folder / (match[2] + '.json')).read_bytes())
-                summary = folder / (match[2] + '.ai.json')
-                ai = json.loads(summary.read_bytes()) if summary.is_file() else None
+                summary = folder / (match[2] + '.summary.json')
+                if not summary.is_file():
+                    summary = folder / (match[2] + '.ai.json')
+                include = parse_qs(url.query).get('includeSummary', ['1']) == ['1']
+                ai = json.loads(summary.read_bytes()) if include and summary.is_file() else None
                 data, mime = export(report, match[3], ai)
                 return self.send_data(200, data, mime + '; charset=utf-8', match[3])
             if (match := re.fullmatch(r"/api/export/(" + ID + r")/history\.zip", path)):
@@ -494,7 +592,8 @@ class Handler(BaseHTTPRequestHandler):
             path = url.path
             if path.startswith("/api/v1/"):
                 return self.curve_request("POST", url, json_bytes(self.payload(curve_ui.MAX_CURVE_REQUEST)))
-            request = self.payload(ARCHIVE_BODY if path == '/api/import-history' else MAX_BODY)
+            max_body = {'/api/import-history': ARCHIVE_BODY, '/api/explain': 8192}.get(path, MAX_BODY)
+            request = self.payload(max_body)
             if path == "/api/run":
                 return self.reply({"job": start_job(lambda update: save_integration(request, update))}, 202)
             if path == "/api/revalue":
@@ -523,19 +622,27 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     WORKSPACE_WRITE.release()
             if path == '/api/explain':
-                folder = run_folder(request.get('workspaceId'))
-                workspace = load(folder)
-                active_revision(workspace, request)
+                page = request.get('page', 'analysis')
+                if page not in ('analysis', 'data', 'scenarios', 'portfolio', 'curves'):
+                    raise ValueError('Выберите область объяснения.')
+                identifier = request.get('workspaceId')
+                folder = run_folder(identifier) if identifier is not None or page != 'curves' else None
+                workspace = load(folder) if folder else {}
+                assistant_revision(workspace, request, current())
+                context = assistant_context(workspace, folder, request, page)
+                summary = request.get('summary') is True
                 rendered = explain(workspace, request.get('question', ''), allow_external=request.get('allowExternal') is True,
-                                   focus_factor=request.get('focusFactor'))
-                active_revision(workspace, request)
-                if rendered.get('analysisId') and rendered['facts']:
-                    atomic_write(folder / 'reports' / (rendered['analysisId'] + '.ai.json'), json_bytes(rendered))
+                                   focus_factor=request.get('focusFactor'), page=page, context=context,
+                                   dialog_id=request.get('dialogId'), summary=summary)
+                latest = load(folder) if folder else workspace
+                assistant_revision(latest, request, current())
+                if summary and rendered['analysisId'] and rendered['facts']:
+                    atomic_write(folder / 'reports' / (rendered['analysisId'] + '.summary.json'), json_bytes(rendered))
                 return self.reply(rendered)
             return self.reply({"error": "Страница не найдена."}, 404)
         except FileNotFoundError:
             self.reply({"error": "Рабочий набор не найден."}, 404)
-        except StaleReport as error:
+        except (StaleReport, StaleDialog) as error:
             self.reply({"error": str(error)}, 409)
         except (ValueError, csv.Error) as error:
             self.reply({"error": str(error)}, 400)

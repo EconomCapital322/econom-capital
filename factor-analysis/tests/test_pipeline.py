@@ -131,7 +131,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(detail['newlyIssued']['count'], report['added'])
         with patch.dict(os.environ, {'SPECTRUM_LLM_ENABLED': '0'}):
             answer = explain(detailed, 'Как повлияли погашения?')
-        self.assertEqual(answer['facts'][0]['id'], 'cash_part_paid_principal')
+        self.assertEqual(answer['facts'][0]['id'], 'cash.paid_principal')
         self.assertEqual(answer['facts'][0]['source'], '#cash-details')
         report = {**report, 'labels': {report['target']: '<img src=x onerror=alert(1)>'}}
         content, mime = export(report, 'analysis.html', answer)
