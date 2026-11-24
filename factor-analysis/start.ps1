@@ -80,7 +80,7 @@ if (-not $env:SPECTRUM_CFCORE) {
     if (-not $hasCore) {
         Write-Host "Сборка калькулятора cfcore..."
         cmake -S (Join-Path $RepoDir "calculator") -B (Join-Path $RepoDir "calculator\build") -DCMAKE_BUILD_TYPE=Release
-        cmake --build (Join-Path $RepoDir "calculator\build") --target cfcore_cli -j 4
+        cmake --build (Join-Path $RepoDir "calculator\build") --config Release --target cfcore_cli -j 4
     }
 }
 

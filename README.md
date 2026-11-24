@@ -5,30 +5,42 @@
 Калькулятор получает семь готовых кривых через публичный API и применяет переданные
 дисконт-факторы к своим денежным потокам. Прямых обращений калькулятора к MOEX или Go нет.
 
-Команда 3 соединяет оба модуля в «Спектре», чтобы считать сценарии для всего
-портфеля и разбирать изменение показателей между датами. Для запуска интерфейса
-из корня репозитория выполните команду для вашей системы:
+Команда 3 соединяет оба модуля в «Спектре». Расчётный режим сверяет NPV и ΔPV
+с выгрузками калькулятора. Универсальный ML-режим анализирует суммируемые метрики
+в своих CSV и выгрузках портфеля. Выберите команду запуска для вашей системы.
 
-**Windows (cmd.exe / Проводник):**
+**Windows (cmd.exe / Проводник)**
+
 ```cmd
 cd factor-analysis
 start.bat
 ```
 
-**Windows (PowerShell):**
+**Windows (PowerShell)**
+
 ```powershell
 cd factor-analysis
 .\start.ps1
 ```
 
-**macOS / Linux (или Git Bash):**
+**macOS, Linux или Git Bash**
+
 ```sh
-cd factor-analysis
-./start.command
+./factor-analysis/start.command
 ```
 
+Для рыночных кривых при запуске через `start.bat` или `start.ps1` отдельно поднимите API команды 2. [Запуск под Windows](factor-analysis/README.md#windows)
+
 После запуска откройте «Спектр» на порту 8780 и выберите **Портфель → Рассчитать портфель**.
-[Адрес интерфейса](http://127.0.0.1:8780/) · [Установка, экраны и обмен данными](factor-analysis/README.md)
+[Адрес интерфейса](http://127.0.0.1:8780/) · [Установка, экраны и обмен данными](factor-analysis/README.md) · [Чек-лист доработки «Спектра»](factor-analysis/docs/task-checklist.md)
+
+Для запуска команды 2 и «Спектра» через Docker используйте отдельный файл Compose.
+Образ «Спектра» содержит ядро команды 1.
+
+```sh
+make configure
+docker compose -f docker-compose.yaml -f factor-analysis/compose.yaml up -d --build
+```
 
 ## Запуск калькулятора и кривых через Docker
 
@@ -119,6 +131,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e './calculator/cf-normalizer[dev]'
 make check
+make check-factor-analysis
 make logs
 make down
 ```

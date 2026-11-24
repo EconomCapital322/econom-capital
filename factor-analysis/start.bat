@@ -84,7 +84,7 @@ if "%SPECTRUM_CFCORE%"=="" (
             if not exist "%REPO_DIR%\calculator\build\core\Release\cfcore.exe" (
                 echo Сборка калькулятора cfcore...
                 cmake -S "%REPO_DIR%\calculator" -B "%REPO_DIR%\calculator\build" -DCMAKE_BUILD_TYPE=Release
-                cmake --build "%REPO_DIR%\calculator\build" --target cfcore_cli -j 4
+                cmake --build "%REPO_DIR%\calculator\build" --config Release --target cfcore_cli -j 4
             )
         )
     )

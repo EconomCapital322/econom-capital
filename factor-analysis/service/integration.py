@@ -14,12 +14,14 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from .fixtures import curve_fixture
+
 ROOT = Path(__file__).resolve().parents[1]
 NORMALIZER = ROOT.parent / "calculator" / "cf-normalizer" / "src"
 sys.path.insert(0, str(NORMALIZER))
 
 from normalizer.curves import CODES, CurvesClient, save_curves, validate_result  # noqa: E402
-from normalizer.discounting import discount_flows  # noqa: E402
+from normalizer.discounting import LABELS as BUCKET_LABELS, discount_flows  # noqa: E402
 
 SCENARIOS = dict(zip(CODES, (
     "Базовая кривая", "Параллельный вверх", "Параллельный вниз",
@@ -33,9 +35,14 @@ LABELS = {
     "term_years": "Оставшийся срок, лет", "age_years": "Возраст сделки, лет",
     "payment_type": "График платежей", "rate_type": "Тип ставки",
     "market_1y": "Ставка бакета 1 год", "market_5y": "Ставка бакета 5 лет",
+    "market_short": "Ставка 1 месяц", "market_long": "Ставка 10 лет",
+    "market_level": "Средний уровень кривой", "market_slope": "Наклон 10 лет − 1 год",
+    "market_curvature": "Кривизна между 1 и 10 годами", "side": "Сторона сделки",
+    "cash_effect": "Денежные потоки", "discount_effect": "Коэффициенты дисконтирования",
 }
 TARGETS = ("npv", "stress_delta", "interest12", "cash12")
-FEATURES = ("principal", "contract_rate", "term_years", "age_years", "payment_type", "rate_type", "market_1y", "market_5y")
+FEATURES = ("principal", "contract_rate", "term_years", "age_years", "payment_type", "rate_type", "side",
+            "market_short", "market_long", "market_level", "market_slope", "market_curvature", "market_1y", "market_5y")
 DIRECTIONS = {"ANN": "Аннуитет", "RGM": "Равномерное погашение", "SIMPLE": "Тело в конце"}
 RATE_TYPES = {"FIXED": "Фиксированная", "FLOAT": "Плавающая"}
 
@@ -80,6 +87,13 @@ def curves_url():
     return os.environ.get("SPECTRUM_CURVES_URL", "http://127.0.0.1:8000")
 
 
+def validated_snapshot_curves(value, day):
+    if isinstance(value, dict) and value.get("source") == "synthetic_fixture" and value.get("dataProvenance") == "synthetic":
+        validate_result({**value, "source": "moex", "dataProvenance": "market"}, day)
+        return value
+    return validate_result(value, day)
+
+
 def portfolio_history(settings, destination, progress):
     scenario = settings.get("scenario", "parallel_up")
     if scenario not in SCENARIOS or scenario == "base":
@@ -91,6 +105,10 @@ def portfolio_history(settings, destination, progress):
     core = core_path()
     curves = CurvesClient(curves_url())
     cache_mode = settings.get("useSavedCurves") is True
+    fixture_mode = settings.get("demoCurves") is True
+    cache = Path(os.environ.get("SPECTRUM_CURVES_DIR", ROOT / ".local" / "curves"))
+    if cache_mode and fixture_mode:
+        raise ValueError("Выберите один источник кривых на весь расчёт.")
     batches = generated["batches"]
     positions, schedule = {}, defaultdict(list)
     panel, periods = [], []
@@ -100,8 +118,10 @@ def portfolio_history(settings, destination, progress):
         folder = destination / day.isoformat()
         folder.mkdir()
         progress(index - 1, len(batches), f"{day:%d.%m.%Y} · подготовка кривых команды 2")
-        if cache_mode:
-            saved = ROOT / ".local" / "curves" / f"{day}.json"
+        if fixture_mode:
+            curve_result, raw = curve_fixture(day, CODES, BUCKET_LABELS)
+        elif cache_mode:
+            saved = cache / f"{day}.json"
             if not saved.is_file():
                 raise ValueError(f"Нет сохранённых рыночных кривых на {day:%d.%m.%Y}. Включите расчёт через API.")
             raw = saved.read_bytes()
@@ -111,7 +131,6 @@ def portfolio_history(settings, destination, progress):
                 curve_result, raw = curves.result(day)
             except ValueError as error:
                 raise ValueError(f"{day:%d.%m.%Y}. {error}") from error
-            cache = ROOT / ".local" / "curves"
             cache.mkdir(parents=True, exist_ok=True)
             temporary = cache / f"{day}.tmp"
             temporary.write_bytes(raw)
@@ -151,19 +170,20 @@ def portfolio_history(settings, destination, progress):
                 schedule[flow["instrument_id"]].append(
                     (date.fromisoformat(flow["payment_date"]), Decimal(flow["amount"]))
                 )
+        progress(index - 1, len(batches), f"{day:%d.%m.%Y} · дисконтирование платежей по семи кривым")
         discount_flows(core_dir, input_path, curve_result, "all")
         rows, metrics = summarize(day, positions, curve_result, core_dir, flow_rows, scenario)
         panel.extend(rows)
         periods.append({
             **metrics, "date": day.isoformat(), "deals": len(positions), "flowRows": len(flow_rows),
             "runId": curve_result["runId"], "sha256": link["sha256"],
-            "curveSource": "saved" if cache_mode else "api",
+            "curveSource": "fixture" if fixture_mode else "saved" if cache_mode else "api",
         })
         progress(index, len(batches), f"{day:%d.%m.%Y} · рассчитано {len(positions)} сделок во всех 7 сценариях")
 
     write_rows(destination / "dataset.csv", panel, panel[0].keys())
     return {
-        "source": "integrated", "periods": periods, "scenario": scenario,
+        "source": "integrated", "portfolioSource": "synthetic", "periods": periods, "scenario": scenario,
         "settings": {**generated["settings"], "monthly": settings["monthly"], "periods": settings["periods"]},
         "uniqueDeals": generated["uniqueDeals"],
         "snapshotCount": len(panel), "method": "calendar-bucket-v1",
@@ -182,6 +202,9 @@ def summarize(day, positions, curve_result, core_dir, flows, stress_code):
         for c in curve_result["curves"]
     }
     base_rates = {p["label"]: p["rate"] for p in curves["base"]}
+    short, one, middle, long = (base_rates[key] for key in ("1m", "1y", "5y", "10y"))
+    curve_features = {"market_short": short, "market_long": long, "market_level": (one + middle + long) / 3,
+                      "market_slope": long - one, "market_curvature": 2 * middle - one - long}
     one_year = day.replace(year=day.year + 1) if (day.month, day.day) != (2, 29) else day.replace(year=day.year + 1, day=28)
     totals = defaultdict(float)
     interest = defaultdict(float)
@@ -214,9 +237,10 @@ def summarize(day, positions, curve_result, core_dir, flows, stress_code):
             "contract_rate": 100 * (float(contract["interest_rate"]) + float(contract["base_indicator_rate"] or "0")),
             "term_years": (date.fromisoformat(contract["maturity_dttm"]) - day).days / 365,
             "age_years": (day - date.fromisoformat(contract["deal_dttm"])).days / 365,
-            "payment_type": DIRECTIONS[contract["discriminator"]],
-            "rate_type": RATE_TYPES[contract["rate_type_cd"]],
-            "market_1y": base_rates["1y"], "market_5y": base_rates["5y"],
+            "payment_type": DIRECTIONS.get(contract["discriminator"], contract["discriminator"]),
+            "rate_type": RATE_TYPES.get(contract["rate_type_cd"], contract["rate_type_cd"]),
+            "side": contract["side"],
+            **curve_features,
         })
     totals_by_scenario = {code: sum(p[code] for p in prices.values()) for code in CODES}
     base = totals_by_scenario["base"]
