@@ -2,7 +2,9 @@ import csv
 from datetime import date
 from io import StringIO
 import math
+import os
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -93,6 +95,28 @@ class MLDiagnosticsTest(unittest.TestCase):
         self.assertEqual(max(category['importance'], key=lambda row: row['meanAbsShap'])['key'], 'group')
         self.assertEqual(next(item for item in category['effects'] if item['key'] == 'group')['kind'], 'category')
 
+    def test_response_plots_and_refits_respect_support_and_dependencies(self):
+        report = analyze(fixture('u'), {**FIELDS, 'features': ['size', 'rate', 'group']})
+        size = next(item for item in report['effects'] if item['key'] == 'size')
+        plots = size['plots']
+        self.assertFalse(plots['dependencies'])
+        self.assertEqual(len(plots['shap']), 120)
+        self.assertEqual(len(plots['ice']), 12)
+        self.assertTrue(all(line[0]['value'] == 0 and len(line) == len(plots['pdp']) for line in plots['ice']))
+        self.assertTrue(all(point['support'] == 120 for point in plots['pdp']))
+        self.assertEqual([item['seed'] for item in size['refitShapes']], report['stability']['seeds'])
+        self.assertEqual(set(report['stability']['importanceAcrossDates']['features']), {'size', 'rate', 'group'})
+        self.assertTrue(all('slope' in point for point in size['points']))
+        with patch.dict(os.environ, {'SPECTRUM_RESIDUAL_LIMIT': '.21', 'SPECTRUM_RANK_LIMIT': '.82', 'SPECTRUM_SIGN_LIMIT': '.86'}):
+            revised = analyze(fixture('u'), {**FIELDS, 'features': ['size', 'rate', 'group']}, diagnostics=False)
+        self.assertEqual(revised['reliabilityThresholds'], {'residualAndAggregate': .21, 'rank': .82, 'sign': .86})
+        self.assertEqual(revised['model'], report['model'])
+        report = analyze(fixture('mixed'), {**FIELDS, 'features': ['size', 'rate', 'corr_proxy']})
+        plots = next(item['plots'] for item in report['effects'] if item['key'] == 'size')
+        self.assertIn('corr_proxy', plots['dependencies'])
+        self.assertTrue(plots['shap'])
+        self.assertFalse(plots['ice'] or plots['pdp'])
+
     def test_drift_and_no_signal_and_manual_exclusions(self):
         result = analyze(fixture('drift'), {**FIELDS, 'forbidden': ['corr_proxy']}, diagnostics=False)
         self.assertIn('size', [row['key'] for row in result['drift']])
@@ -121,6 +145,9 @@ class MLDiagnosticsTest(unittest.TestCase):
         self.assertLess(max(grouped['dates']), report['before'])
         self.assertGreater(grouped['value'], 0)
         self.assertIsNone(next(item['value'] for item in report['importance'] if item['key'] == 'common_level'))
+        plots = next(item['plots'] for item in report['effects'] if item['key'] == 'common_level')
+        self.assertFalse(plots['pdp'])
+        self.assertIn('общий для даты', plots['reason'])
 
 
 if __name__ == '__main__':

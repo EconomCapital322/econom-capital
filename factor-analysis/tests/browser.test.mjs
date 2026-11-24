@@ -29,11 +29,15 @@ async function waitForServer(server) {
   });
 }
 
-async function record(page, name) {
+async function record(page, name, selector) {
   if (!screenshotDirectory) return;
   await mkdir(screenshotDirectory, { recursive: true });
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: join(screenshotDirectory, name + '.png'), fullPage: true, animations: 'disabled' });
+  const screenshot = { path: join(screenshotDirectory, name + '.png'), animations: 'disabled' };
+  if (selector) await page.locator(selector).screenshot(screenshot);
+  else {
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.screenshot({ ...screenshot, fullPage: true });
+  }
 }
 
 async function noOverflow(page, viewports) {
@@ -81,10 +85,23 @@ test('calculation, CSV analysis, exports, assistive fallback and responsive navi
     await record(page, '01-valuation');
     await page.getByRole('button', { name: 'Детали расчёта' }).click();
     await page.getByRole('heading', { name: 'Сверка и четыре пересчёта' }).waitFor();
+    await page.getByRole('button', { name: 'Разложить денежные потоки' }).click();
+    await page.getByRole('group', { name: 'Вклады в изменение денежных потоков' }).waitFor();
+    await page.getByText('Все вклады и их суммы', { exact: true }).click();
+    await page.getByRole('table', { name: 'Вклады в изменение денежных потоков' }).waitFor();
+    await noOverflow(page, cases);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await record(page, '08-cash-details', '#cash-details');
+    const downloadedCash = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Детализация CSV' }).click();
+    assert.equal((await downloadedCash).suggestedFilename(), 'cash-details.csv');
     await page.getByText('Экспорт', { exact: true }).click();
     const downloaded = page.waitForEvent('download');
     await page.getByRole('link', { name: 'Вклады CSV' }).click();
     assert.equal((await downloaded).suggestedFilename(), 'factors.csv');
+    const downloadedHtml = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Отчёт HTML' }).click();
+    assert.equal((await downloadedHtml).suggestedFilename(), 'analysis.html');
     await page.getByRole('link', { name: 'Сценарии ставок' }).click();
     await page.getByLabel('Стресс для сравнения').selectOption('steepener');
     await noOverflow(page, cases);
@@ -132,6 +149,19 @@ test('calculation, CSV analysis, exports, assistive fallback and responsive navi
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
     await record(page, '06-nonlinearity');
+    await page.locator('#effect-select').selectOption(untrusted);
+    const effectChart = page.getByLabel('Вид графика');
+    await effectChart.selectOption('shap');
+    await page.getByRole('img', { name: 'Значение признака и вклад SHAP' }).waitFor();
+    await effectChart.selectOption('ice');
+    await page.getByRole('img', { name: 'Изменение предсказания для отдельных наблюдений' }).waitFor();
+    await effectChart.selectOption('pdp');
+    await page.getByRole('img', { name: 'Среднее предсказание по выбранному признаку' }).waitFor();
+    await page.getByRole('columnheader', { name: 'Средний прогноз' }).waitFor();
+    if (screenshotDirectory) {
+      await page.locator('#effect-select').selectOption('темп');
+      await record(page, '09-pdp', '#tab-body');
+    }
     await page.getByRole('button', { name: 'Взаимодействия' }).click();
     await page.getByRole('heading', { name: 'Взаимодействия факторов' }).waitFor();
     await page.getByLabel('Пара факторов').selectOption({ index: 1 });

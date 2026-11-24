@@ -15,7 +15,7 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.preprocessing import StandardScaler
 
-from .effects import effect_curve, interaction_plot
+from .effects import SHAPES, effect_curve, interaction_plot, response_plots, sampled_shape
 from .panel import MAX_FEATURES, NULL, distribution, feature_audit, number, resolve_rows
 
 MIN_TRAIN_ROWS = 40
@@ -175,9 +175,13 @@ def training_folds(grouped, known_days, columns, excluded, selected, forbidden):
             continue
         x_train, x_test = encoding.transform(training), encoding.transform(testing)
         y0, y1 = target(training), target(testing)
-        experiments = {name: metrics(y1, Fit(name, x_train, y0, SEED).predict(x_test)) for name in MODELS}
+        experiments = {}
+        for name in MODELS:
+            fit = Fit(name, x_train, y0, SEED)
+            experiments[name] = {**metrics(y1, fit.predict(x_test)), 'parameters': fit.model.get_params()}
         folds.append({'date': day, 'trainedThrough': known_days[index - 1], 'trainRows': len(training),
-                      'testRows': len(testing), 'features': features, 'models': experiments,
+                      'trainingDates': known_days[:index], 'seed': SEED, 'testRows': len(testing),
+                      'features': list(encoding.indices), 'models': experiments,
                       **{name: row['mae'] for name, row in experiments.items()}, 'rmse': experiments['forest']['rmse']})
     return folds
 
@@ -313,12 +317,12 @@ def interaction_results(fit, encoding, encoded, last, groups, projection):
     return details
 
 
-def stability_checks(training, first, last, features, kinds, name, reference):
+def stability_checks(training, first, last, features, kinds, name, reference, *, keep_models=False):
     rng = np.random.default_rng(SEED + 1)
     ids = sorted({row['id'] for row in training})
     names = list(reference)
     reference_ranks = np.argsort(np.argsort([-abs(reference[key]) for key in names]))
-    results, rankings = defaultdict(list), []
+    results, rankings, fitted = defaultdict(list), [], []
     for seed in (173, 941):
         kept = set(rng.choice(ids, max(1, int(.8 * len(ids))), replace=False))
         subset = [row for row in training if row['id'] in kept]
@@ -327,13 +331,34 @@ def stability_checks(training, first, last, features, kinds, name, reference):
             continue
         groups, projection = group_projection(encoder)
         fit = Fit(name, encoder.transform(subset), target(subset), seed)
+        if keep_models:
+            fitted.append((seed, fit, encoder))
         values = fit.contributions(encoder.transform(first + last)) @ projection
         vals = dict(zip(groups, (values[len(first):] - values[:len(first)]).sum(axis=0)))
         current_ranks = np.argsort(np.argsort([-abs(vals.get(key, 0)) for key in names]))
         rankings.append(float(np.corrcoef(reference_ranks, current_ranks)[0, 1]) if len(names) > 1 else 1.)
         for key in names:
             results[key].append(float(vals.get(key, 0)))
-    return results, {'refits': len(rankings), 'rankCorrelations': rankings, 'trainingIdFraction': .8, 'seeds': [173, 941]}
+    return results, {'refits': len(rankings), 'rankCorrelations': rankings, 'trainingIdFraction': .8, 'seeds': [173, 941]}, fitted
+
+
+def importance_rank(importance_rows, before, after):
+    by_date = {day: {} for day in (before, after)}
+    for row in importance_rows:
+        for point in row['folds']:
+            by_date[point['date']][row['key']] = point['value']
+    left, right = by_date[before], by_date[after]
+    keys = sorted(left.keys() & right.keys())
+    if len(keys) < 3:
+        return {'features': keys, 'spearman': None}
+
+    def tied_ranks(values):
+        _, positions, counts = np.unique([values[key] for key in keys], return_inverse=True, return_counts=True)
+        return (np.cumsum(counts) - (counts + 1) / 2)[positions]
+
+    ranks = [tied_ranks(values) for values in (left, right)]
+    score = float(np.corrcoef(*ranks)[0, 1]) if all(np.ptp(row) for row in ranks) else None
+    return {'features': keys, 'spearman': score}
 
 
 def drift(training, testing, keys, kinds):
@@ -445,6 +470,8 @@ def analyze(panel, settings, *, protected=(), preferred=(), diagnostics=True):
     aggregate_error = float(validations[1]['aggregateError'] - validations[0]['aggregateError'])
     residual = observed - model_change
     residual_limit = ratio_limit('SPECTRUM_RESIDUAL_LIMIT', .35)
+    rank_limit = ratio_limit('SPECTRUM_RANK_LIMIT', .5)
+    sign_limit = ratio_limit('SPECTRUM_SIGN_LIMIT', .7)
     residual_ratio = abs(residual) / max(.01, abs(observed))
     if residual_ratio > residual_limit:
         warnings.append('Необъяснённый остаток велик относительно изменения по общим наблюдениям.')
@@ -469,12 +496,12 @@ def analyze(panel, settings, *, protected=(), preferred=(), diagnostics=True):
                            'Перестановка внутри даты для них не применяется.')
         if len(older) < MARKET_DATES:
             warnings.append('Рыночные признаки имеют мало независимых обучающих дат. Используйте расчётный эффект кривой для PV.')
-    refits, stability = stability_checks(training, first, last, groups, kinds, selected_model,
-                                        {item['key']: item['value'] for item in factors})
+    refits, stability, fitted = stability_checks(training, first, last, groups, kinds, selected_model,
+                                                {item['key']: item['value'] for item in factors}, keep_models=diagnostics)
     for item in factors:
         item['refits'] = refits[item['key']]
-    stable_rank = bool(stability['rankCorrelations']) and min(stability['rankCorrelations']) >= .5
-    stable_sign = all(item['signStability'] >= .7 for item in factors[:2]
+    stable_rank = bool(stability['rankCorrelations']) and min(stability['rankCorrelations']) >= rank_limit
+    stable_sign = all(item['signStability'] >= sign_limit for item in factors[:2]
                       if abs(item['value']) > .05 * max(1, abs(model_change)))
     if not (stable_rank and stable_sign):
         warnings.append('Лидирующие вклады чувствительны к подвыборке или переобучению.')
@@ -491,17 +518,29 @@ def analyze(panel, settings, *, protected=(), preferred=(), diagnostics=True):
     result.update(factors=factors, modelChange=model_change, numericalGap=numerical_gap, residual=residual,
                   quality=quality, validation=validations, aggregateChangeError=aggregate_error, model=trained_model,
                   stability=stability, residualRatio=residual_ratio, residualLimit=residual_limit,
+                  reliabilityThresholds={'residualAndAggregate': residual_limit, 'rank': rank_limit, 'sign': sign_limit},
                   drift=drift_rows, correlated=correlated, dateConstant=date_constant,
                   status='stable' if reliable else 'caution', reliable=reliable, criteria=criteria)
     if diagnostics:
         importance_rows, group_scores = importance(fit, encoder, predictions, groups, values[size:], correlated)
+        stability['importanceAcrossDates'] = importance_rank(importance_rows, before, after)
         scale = float(np.std(y_train))
         max_effect_sample = min(600, size)
         take = np.sort(rng.choice(size, max_effect_sample, replace=False))
         sample = [last[index] for index in take]
+        contributions_at_end = values[size:][take]
+        effects = [effect_curve(fit, encoder, item, sample, contributions_at_end, groups, scale, SEED) for item in factors]
+        for effect in effects:
+            if effect['kind'] != 'numeric':
+                continue
+            key = effect['key']
+            effect['plots'] = response_plots(fit, encoder, x_train, sample, contributions_at_end,
+                                             groups, key, key in date_constant, SEED)
+            effect['refitShapes'] = [{'seed': seed, 'shape': shape, 'label': SHAPES[shape]}
+                                     for seed, other, encoding in fitted
+                                     for shape in (sampled_shape(other, encoding, key, sample, scale),)]
         result.update(importance=importance_rows, groupedImportance=group_scores,
                       marketImportance=temporal_group_importance(grouped, older, (columns, excluded, selected, forbidden), selected_model) if date_constant else None,
                       interactions=interaction_results(fit, encoder, encoded, last, groups, projection),
-                      effects=[effect_curve(fit, encoder, item, sample, values[size:][take], groups, scale, SEED)
-                               for item in factors])
+                      effects=effects)
     return result

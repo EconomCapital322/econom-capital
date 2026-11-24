@@ -5,7 +5,7 @@ const main = document.querySelector('#content');
 const activity = document.querySelector('#activity');
 const inspector = document.querySelector('#inspector');
 const state = {
-  workspace: null, route: 'analysis', tab: 'timeline', factor: null, effect: null, scenarioCode: null,
+  workspace: null, route: 'analysis', tab: 'timeline', factor: null, effect: null, effectPlot: 'ale', scenarioCode: null,
   scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
 };
@@ -48,6 +48,7 @@ function swapWorkspace(workspace) {
   state.preview = null;
   state.factor = null;
   state.effect = null;
+  state.effectPlot = 'ale';
   state.answer = null;
   state.mapping = null;
 }
@@ -57,7 +58,8 @@ function render() {
   const work = state.workspace;
   const origin = work?.periods ? ({ synthetic: 'Синтетические сделки', bank: 'Банковские снимки', external: 'Загруженные сделки' })[work.portfolioSource] ?? 'Синтетические сделки' : '';
   const curves = work?.periods?.some((item) => item.curveSource === 'fixture') ? 'Есть учебные кривые' : 'Снимки кривых MOEX';
-  document.querySelector('#origin').textContent = origin ? `${origin} · ${curves}` : work?.filename ?? '';
+  document.querySelector('#origin').textContent = state.route === 'analysis' && work?.report ? ''
+    : origin ? `${origin} · ${curves}` : work?.filename ?? '';
   for (const anchor of document.querySelectorAll('[data-route]')) {
     if (anchor.dataset.route === state.route) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
@@ -82,8 +84,13 @@ async function updateHealth() {
     state.health = result;
     const provider = result.ai?.provider === 'deepseek' ? 'DeepSeek' : result.ai?.provider === 'local' ? 'Локальная модель' : 'Объяснение по фактам';
     host.innerHTML = Object.entries({ calculator: 'Калькулятор · команда 1', curves: 'Кривые · команда 2', llm: provider })
-      .map(([key, text]) => `<li class="${result[key] ? 'up' : 'down'}" title="${key === 'llm' && result.ai?.status === 'configured' ? 'Настроено, проверяется при запросе' : result[key] ? 'Подключено' : 'Сервис недоступен'}">
-        <i aria-hidden="true"></i>${text}<span class="sr-only">${result[key] ? ', подключено' : ', недоступно'}</span></li>`).join('');
+      .map(([key, text]) => {
+        const facts = key === 'llm' && result.ai?.provider === 'facts';
+        const status = facts ? 'Локальный режим' : key === 'llm' && result.ai?.status === 'configured'
+          ? 'Настроено, проверяется при запросе' : result[key] ? 'Подключено' : 'Сервис недоступен';
+        return `<li class="${result[key] || facts ? 'up' : 'down'}" title="${status}">
+          <i aria-hidden="true"></i>${text}<span class="sr-only">. ${status}</span></li>`;
+      }).join('');
   } catch {
     host.innerHTML = '<li class="down"><i></i>Состояние неизвестно</li>';
   }
@@ -285,7 +292,8 @@ async function importHistory(form) {
 async function diagnostics() {
   const work = state.workspace;
   if (!work?.report?.analysisId) return false;
-  return await launch('/api/diagnostics', { workspaceId: work.id, analysisId: work.report.analysisId }, 'Рассчитываем взаимодействия и форму эффектов.', 'diagnostics');
+  const message = work.report.mode === 'valuation' ? 'Сверяем и раскладываем денежные потоки.' : 'Рассчитываем взаимодействия и форму эффектов.';
+  return await launch('/api/diagnostics', { workspaceId: work.id, analysisId: work.report.analysisId }, message, 'diagnostics');
 }
 
 async function ask(form) {
@@ -300,7 +308,10 @@ async function ask(form) {
   let box = document.querySelector('#answer');
   box.innerHTML = '<p class="note checks-note">Подбираем факты по текущему расчёту…</p>';
   try {
-    if (initial.report.diagnosticsReady === false && /нелинейн|насыщ|порог|взаим|совмест|пара факторов/i.test(question)) {
+    const needsMLDetails = initial.report.diagnosticsReady === false && /нелинейн|насыщ|порог|взаим|совмест|пара факторов/i.test(question);
+    const needsCashDetails = initial.report.mode === 'valuation' && !initial.report.cashDetails &&
+      /погашен|проценты по преж|выпавшие проценты|перенос (платеж|срок|поток)|остат(ок|ка) долга|баланс договора|договорн|график[а]? платеж|срок договора|детализац.*поток/i.test(question);
+    if (needsMLDetails || needsCashDetails) {
       if (!await diagnostics()) throw new Error('Сначала завершите расчёт детализации.');
       box = document.querySelector('#answer') ?? box;
     }
@@ -390,7 +401,7 @@ function action(element) {
     if (key === '#waterfall' && detail) selectFactor(detail);
     if (key === '#interactions' && detail) state.pair = Number(detail);
     if (key === '#effects' && detail) state.effect = detail;
-    const targetTab = { '#quality': 'quality', '#interactions': 'interactions', '#effects': 'effects', '#valuation-detail': 'calculation' }[key];
+    const targetTab = { '#quality': 'quality', '#interactions': 'interactions', '#effects': 'effects', '#valuation-detail': 'calculation', '#cash-details': 'calculation' }[key];
     if (targetTab) selectTab(targetTab);
     (document.querySelector(key) ?? document.querySelector('#analysis-tabs'))?.scrollIntoView({ block: 'start' });
   }
@@ -433,6 +444,11 @@ document.addEventListener('change', (event) => {
     state.effect = element.value;
     selectTab('effects');
     document.querySelector('#effect-select')?.focus({ preventScroll: true });
+  }
+  if (element.id === 'effect-plot') {
+    state.effectPlot = element.value;
+    selectTab('effects');
+    document.querySelector('#effect-plot')?.focus({ preventScroll: true });
   }
   if (element.id === 'scenario-date') {
     state.scenarioDay = element.value;

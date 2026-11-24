@@ -1,3 +1,5 @@
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import json
 import os
 from urllib.error import HTTPError, URLError
@@ -5,6 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from service.explanations import CACHE, explain, plan
+from service.deepseek_smoke import main as smoke_test
 from service.llm import NoRedirect, ProviderError, chat, provider
 from service.reporting import csv_bytes
 
@@ -52,6 +55,28 @@ class ExplanationTest(unittest.TestCase):
                 self.assertEqual(explain(workspace(), 'NPV', allow_external=True)['status'], 'unconfigured')
             self.assertFalse(call.called)
 
+    def test_deepseek_example_uses_only_facts_in_scope_for_the_question(self):
+        current = workspace()
+        current['report'].update(mode='valuation', joint=0, reconciliation=0, cashDetails={
+            'common': 21, 'covered': 21,
+            'parts': [{'key': 'paid_principal', 'label': 'Локальная строка о погашениях', 'value': -75}],
+        })
+
+        def select_from_example(_, __, messages, **kwargs):
+            context = json.loads(messages[-1]['content'])
+            self.assertEqual(context['required'], ['cash_part_paid_principal'])
+            self.assertNotIn('overview', context['catalog'])
+            self.assertNotIn('Локальная строка', messages[-1]['content'])
+            available = set(context['catalog']) | set(context['limitations'])
+            for section in context['example']['sections']:
+                self.assertTrue(set(section['facts']) <= available)
+            return json.dumps(context['example'])
+
+        with patch.dict(os.environ, SETTINGS, clear=True), patch('service.llm.chat', side_effect=select_from_example):
+            result = explain(current, 'Как повлияли погашения?', allow_external=True)
+        self.assertEqual(result['mode'], 'llm')
+        self.assertEqual(result['facts'][0]['source'], '#cash-details')
+
     def test_drops_fabrication_and_uses_fallback_on_bad_plans(self):
         incorrect = [
             'not-json',
@@ -86,6 +111,23 @@ class ExplanationTest(unittest.TestCase):
         self.assertIn(',-82.61,', csv)
         self.assertIn("'=SUM", csv)
         self.assertIn("'\tref", csv)
+
+    def test_real_smoke_entrypoint_is_opt_in_and_uses_synthetic_facts(self):
+        captured = StringIO()
+        with patch.dict(os.environ, SETTINGS, clear=True), patch('service.deepseek_smoke.load_env'), \
+                patch('service.llm.chat', return_value=json.dumps(GOOD)) as call, redirect_stderr(captured), redirect_stdout(captured):
+            with self.assertRaises(SystemExit) as disabled:
+                smoke_test([])
+            self.assertEqual(disabled.exception.code, 2)
+            with patch.dict(os.environ, {'DEEPSEEK_API_KEY': ''}):
+                with self.assertRaises(SystemExit) as no_key:
+                    smoke_test(['--live'])
+                self.assertEqual(no_key.exception.code, 2)
+            call.assert_not_called()
+            self.assertEqual(smoke_test(['--live']), 0)
+            self.assertEqual(call.call_count, 1)
+            self.assertNotIn('2025', call.call_args.args[-1][-1]['content'])
+        self.assertNotIn(SETTINGS['DEEPSEEK_API_KEY'], captured.getvalue())
 
 
 class HttpTest(unittest.TestCase):

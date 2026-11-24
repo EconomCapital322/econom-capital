@@ -19,6 +19,8 @@ const chartLabels = {
   age_years: 'Возраст', payment_type: 'Схема выплат', rate_type: 'Тип ставки',
   market_1y: 'Кривая 1 год', market_5y: 'Кривая 5 лет',
 };
+const featureUnits = { principal: '₽', contract_rate: '%', term_years: 'лет', age_years: 'лет', market_1y: '%', market_5y: '%',
+  market_short: '%', market_long: '%', market_level: '%', market_slope: 'п.п.', market_curvature: 'п.п.' };
 const exportUrl = (workspace, path) => '/api/export/' + workspace.id + '/' + path;
 export const titleOf = (work, key) => {
   if (key === 'stress_delta' && (work.report?.scenario || work.scenario)) return 'ΔPV · ' + codes[work.report?.scenario || work.scenario];
@@ -81,17 +83,30 @@ export function factorDetails(work, key) {
     const after = cash ? r.states.v11 - r.states.v01 : r.states.v11 - r.states.v10;
     detail = `<p class="note">${cash ? 'Объединяет погашения, договорные изменения и перенос платежей по срокам.' : 'Изменение готовых весов на сопоставимых сроках.'}</p>
       <dl><dt>На начальном состоянии</dt><dd>${delta(before, unit)}</dd><dt>На конечном состоянии</dt><dd>${delta(after, unit)}</dd></dl>
-      <details><summary>Как рассчитано</summary><p class="note">Среднее эффекта в двух порядках подстановки. По срокам и видам платежей смотрите «Детали расчёта».</p></details>`;
+      <details><summary>Как рассчитано</summary><p class="note">Среднее эффекта в двух порядках подстановки. Сверено по выгрузкам калькулятора.</p>
+      <button class="ghost source" type="button" data-action="fact-source" data-key="${cash ? '#cash-details' : '#valuation-detail'}">Открыть детали расчёта</button></details>`;
   } else if (modelFactor) {
+    const featureUnit = work.periods && Object.hasOwn(featureUnits, modelFactor.key) ? ' ' + featureUnits[modelFactor.key] : '';
     const show = (facts) => facts.kind === 'numeric'
-      ? n(facts.mean)
+      ? `${n(facts.mean)}${facts.mean == null ? '' : esc(featureUnit)}`
       : Object.entries(facts.levels).slice(0, 3).map(([level, count]) => `${esc(level)} · ${count}`).join('<br>');
+    const numeric = modelFactor.before.kind === 'numeric';
+    const summary = numeric ? 'Среднее' : 'Частые категории';
+    const meanChange = numeric && modelFactor.before.mean != null && modelFactor.after.mean != null
+      ? `<dt>Изменение среднего</dt><dd>${delta(modelFactor.after.mean - modelFactor.before.mean, featureUnit === ' %' ? ' п.п.' : featureUnit)}</dd>` : '';
+    const pairs = r.interactions.map((pair, index) => ({ ...pair, index }))
+      .filter((pair) => [pair.a, pair.b].includes(modelFactor.key)).slice(0, 2);
+    const pairLinks = pairs.length ? `<p class="note">Связанные пары</p>${pairs.map((pair) => `<button class="ghost source" type="button"
+      data-action="fact-source" data-key="#interactions" data-detail="${pair.index}">${esc(titleOf(work, pair.a))} × ${esc(titleOf(work, pair.b))}</button>`).join('')}` : '';
     detail = `<p class="note">${esc((work.source === 'integrated' ? help[modelFactor.key] : null) ?? 'Вклад рассчитан по значениям признака в загруженной истории.')}</p>
-      <dl><dt>${day(r.before)}</dt><dd>${show(modelFactor.before)}</dd><dt>${day(r.after)}</dt><dd>${show(modelFactor.after)}</dd></dl>
+      <dl><dt>${summary} · ${day(r.before)}</dt><dd>${show(modelFactor.before) || '—'}</dd>
+        <dt>${summary} · ${day(r.after)}</dt><dd>${show(modelFactor.after) || '—'}</dd>${meanChange}</dl>
       <p class="note">Диапазон при повторной выборке общих сделок</p>
       <p class="note numeral">${delta(modelFactor.low, unit)} … ${delta(modelFactor.high, unit)}</p>
       <details><summary>Как рассчитано</summary><p class="note">${esc(r.model?.name ?? '')}. Вклад по общим наблюдениям, разность между датами.</p>
-      ${modelFactor.refits?.length ? `<p class="note">Вклады при повторном обучении<br>${modelFactor.refits.map((value) => delta(value, unit)).join(' · ')}</p>` : ''}</details>`;
+      <p class="note">Знак вклада совпал в ${n(modelFactor.signStability * 100)}% повторных выборок.</p>
+      ${modelFactor.refits?.length ? `<p class="note">Вклады при повторном обучении<br>${modelFactor.refits.map((value) => delta(value, unit)).join(' · ')}</p>` : ''}
+      ${pairLinks}<button class="ghost source" type="button" data-action="fact-source" data-key="#quality">Проверка модели</button></details>`;
   } else if (key === 'other') {
     detail += `<dl>${r.factors.slice(4).map((factor) => `<dt>${esc(titleOf(work, factor.key))}</dt><dd>${delta(factor.value, unit)}</dd>`).join('')}</dl>`;
   }
@@ -116,6 +131,12 @@ export function analysisPage(state) {
   const active = factor ?? bridge(work)[0].key;
   const warnings = r.warnings.length ? `<aside class="status warn" aria-label="Ограничения расчёта">${r.warnings.map((item) => `<p>${esc(item)}</p>`).join('')}</aside>` : '';
   const method = r.mode === 'valuation' ? 'Расчёт по денежным потокам и кривым' : 'Статистическая модель';
+  const origin = work.periods
+    ? ({ synthetic: 'Синтетические договоры', bank: 'Банковский портфель', external: 'Загруженный портфель' })[work.portfolioSource] ?? 'История портфеля'
+    : work.filename ?? 'Загруженный CSV';
+  const inputs = work.periods?.filter((period) => [r.before, r.after].includes(period.date)) ?? [];
+  const curveOrigin = inputs.length && (inputs.every((period) => period.curveSource === 'fixture') ? 'Учебные кривые'
+    : inputs.some((period) => period.curveSource === 'fixture') ? 'Рыночные и учебные кривые' : 'Рыночные кривые');
   const draft = state.comparison ?? {};
   const mode = draft.mode ?? r.mode ?? 'ml';
   const availableTargets = mode === 'valuation' ? ['npv', 'stress_delta'] : work.options.targets;
@@ -125,7 +146,7 @@ export function analysisPage(state) {
   const relative = r.start > Math.max(.01, Math.abs(r.end) * 1e-9) && r.end >= 0 ? ` · ${esc(signed(100 * (r.change / r.start), '%'))}` : '';
   const largest = r.factors[0];
   const best = largest && r.factors.reduce((a, b) => Math.abs(a.value) >= Math.abs(b.value) ? a : b);
-  const output = r.analysisId ? `<details class="export"><summary class="button small">Экспорт</summary><div>${link(reportUrl(work, 'analysis.json'), 'Отчёт JSON')}${link(reportUrl(work, 'factors.csv'), 'Вклады CSV')}${r.diagnosticsReady === false ? '' : link(reportUrl(work, 'interactions.csv'), 'Взаимодействия CSV')}${r.mode === 'ml' ? link(reportUrl(work, 'quality.csv'), 'Качество CSV') : ''}</div></details>` : '';
+  const output = r.analysisId ? `<details class="export"><summary class="button small">Экспорт</summary><div>${link(reportUrl(work, 'analysis.html'), 'Отчёт HTML')}${link(reportUrl(work, 'analysis.json'), 'Отчёт JSON')}${link(reportUrl(work, 'factors.csv'), 'Вклады CSV')}${r.diagnosticsReady === false ? '' : link(reportUrl(work, 'interactions.csv'), 'Взаимодействия CSV')}${r.mode === 'ml' ? link(reportUrl(work, 'quality.csv'), 'Качество CSV') : ''}</div></details>` : '';
   const change = (r.change > 0 ? '+' : '') + compact(r.change, unit);
   const tabsForMode = reportTabs(work);
   return heading('Факторный анализ', `${esc(titleOf(work, r.target))} · ${method}`, output) + `
@@ -137,7 +158,8 @@ export function analysisPage(state) {
       <label class="field">Конечная дата<select id="to" name="after">${dateOpts(r.profile.dates, draft.after ?? r.after)}</select></label>
       <button class="button primary" type="submit" ${state.generating ? 'disabled' : ''}>Разложить изменение</button>
     </form>
-    <div class="analysis-context"><span>${day(r.before)} — ${day(r.after)}</span><span class="result-status ${esc(r.status || 'caution')}">${statuses[r.status] ?? 'Требуется осторожность'}</span></div>
+    <div class="analysis-context"><span>${day(r.before)} — ${day(r.after)}</span><span class="result-status ${esc(r.status || 'caution')}">${statuses[r.status] ?? 'Требуется осторожность'}</span>
+      <a href="#data" class="analysis-source">${esc(origin)}${curveOrigin ? ' · ' + esc(curveOrigin) : ''}</a></div>
     <section class="metrics" aria-label="Изменение выбранного показателя">
       ${card('Начальная оценка', compact(r.start, unit), day(r.before), '', exact(r.start, unit))}
       ${card('Конечная оценка', compact(r.end, unit), day(r.after), '', exact(r.end, unit))}
@@ -171,7 +193,34 @@ export function analysisPage(state) {
     </section>`;
 }
 
-function valuationDetail(work) {
+function cashFlowDetail(work, unit, busy) {
+  const detail = work.report.cashDetails;
+  if (!detail) return `<section class="diagnostic-detail" id="cash-details">${h2('Детализация денежных потоков', 'Погашения, перенос сроков и изменения условий по общим сделкам.')}
+    <button type="button" data-action="diagnostics" class="button primary" ${busy ? 'disabled' : ''}>Разложить денежные потоки</button></section>`;
+  const structureLabels = { ASSET: 'Активы', LIABILITY: 'Обязательства', FIXED: 'Фиксированная ставка', FLOAT: 'Плавающая ставка',
+    ANN: 'Аннуитет', RGM: 'Равномерное погашение', SIMPLE: 'Основной долг в конце' };
+  const structureNames = { side: 'Сторона', discriminator: 'Схема', rate_type_cd: 'Ставка' };
+  const chartLabels = { paid_principal: 'Погашения по графику', paid_interest: 'Проценты по графику',
+    elapsed_other: 'Прочие плановые платежи', calendar_shift: 'Перенос платежей по срокам', rebase: 'Прогноз при прежних условиях',
+    balance: 'Изменение остатка долга', rate: 'Изменение условий ставки', schedule: 'Изменение срока и графика',
+    undivided: 'Общий эффект пересмотра' };
+  const chart = detail.parts.filter((part) => Math.abs(part.value) >= .005)
+    .map((part) => ({ ...part, chartLabel: chartLabels[part.key] }));
+  return `<section class="diagnostic-detail" id="cash-details">${h2('Детализация денежных потоков', `Договорные условия проверены для ${detail.covered} из ${detail.common} общих сделок. Проверочных запусков C++ — ${detail.recalculations}.`)}
+    ${detail.message ? `<p class="status warn">${esc(detail.message)}</p><button type="button" data-action="diagnostics" class="button" ${busy ? 'disabled' : ''}>Повторить проверку в C++</button>` : ''}
+    ${chart.length ? `<div class="chart-scroll" tabindex="0" aria-label="Прокручиваемый график детализации">${bars(chart, { unit, left: 255, label: 'Вклады в изменение денежных потоков' })}</div>` : ''}
+    <details class="details"><summary>Все вклады и их суммы</summary>
+      ${table([['Компонент'], ['Вклад', 'num']], detail.parts.map((part) => `<tr><th scope="row">${esc(part.label)}</th><td class="num">${delta(part.value, unit)}</td></tr>`), 'Вклады в изменение денежных потоков')}</details>
+    <p class="note">Платежи за прошедший период взяты из прежнего договорного графика. Вклад новых ID уже учтён отдельно на основном графике.</p>
+    <details class="details"><summary>Изменение состава портфеля</summary><p class="note">Новых ID ${detail.newlyIssued.added}. Из них ${detail.newlyIssued.count} имеют дату выдачи в интервале. Их остаток на конец с учётом стороны сделки ${fmt(detail.newlyIssued.signedBalance, unit)}.</p>
+      ${table([['Группа'], ['Сделок в начале', 'num'], ['Сделок в конце', 'num'], ['Остаток в начале', 'num'], ['Остаток в конце', 'num']],
+        detail.structure.map((item) => `<tr><th scope="row">${esc(structureNames[item.field])} · ${esc(structureLabels[item.label] ?? item.label ?? '—')}</th>
+        <td class="num">${item.before}</td><td class="num">${item.after}</td><td class="num">${fmt(item.signedBalanceBefore, unit)}</td><td class="num">${fmt(item.signedBalanceAfter, unit)}</td></tr>`), 'Структура портфеля')}</details>
+    ${detail.excluded.length ? `<details class="details"><summary>Почему часть сделок сгруппирована</summary><ul class="inline-notes">${detail.excluded.map((item) => `<li>${esc(item.reason)} · ${item.count}</li>`).join('')}</ul></details>` : ''}
+    <p class="note">Эти строки в сумме дают вклад денежных потоков на основном графике. ${link(reportUrl(work, 'cash-details.csv'), 'Детализация CSV')}</p></section>`;
+}
+
+function valuationDetail(work, busy) {
   const r = work.report;
   const unit = unitOf(work);
   const descriptions = [['V₀₀', r.states.v00, 'Начальные потоки и веса'], ['V₁₀', r.states.v10, 'Конечные потоки, начальные веса'],
@@ -179,6 +228,7 @@ function valuationDetail(work) {
   return `<div id="valuation-detail">${h2('Сверка и четыре пересчёта', 'Подстановка для общих сделок. Веса сопоставляются по относительным бакетам.')}
     <div class="score-strip">${descriptions.map(([name, value, label]) => `<div class="score"><span>${name} · ${label}</span><strong>${fmt(value, unit)}</strong></div>`).join('')}</div>
     <p class="note">Совместный эффект ${delta(r.joint, unit)} уже распределён между денежными потоками и дисконтированием. ${r.target === 'stress_delta' ? 'Вес здесь равен DF выбранного стресса минус DF базы.' : 'Вес здесь равен DF базы.'}</p>
+    ${cashFlowDetail(work, unit, busy)}
     <details class="details"><summary>Вклады по срокам и видам платежей</summary>${table([['Срок'], ['Платёж'], ['Потоки в начале', 'num'], ['Потоки в конце', 'num'],
       ['Вклад потоков', 'num'], ['Вклад весов', 'num']], r.buckets.map((row) => `<tr><td>${esc(row.bucket)}</td><td>${row.kind === 'PRINCIPAL' ? 'Основной долг' : row.kind === 'INTEREST' ? 'Проценты' : esc(row.kind)}</td>
       <td class="num">${fmt(row.cfBefore, unit)}</td><td class="num">${fmt(row.cfAfter, unit)}</td><td class="num">${delta(row.cash, unit)}</td><td class="num">${delta(row.discount, unit)}</td></tr>`), 'Эффекты по срокам')}</details>
@@ -232,6 +282,7 @@ function interactionPanel(state, work, unit) {
 function qualityPanel(work, unit) {
   const r = work.report;
   if (!r.validation?.length) return h2('Проверка модели', 'Для надёжной оценки пока недостаточно истории.');
+  const thresholds = r.reliabilityThresholds;
   return `<div id="quality">${h2('Проверка модели разложения', `${esc(r.model.name)} обучена по ${day(r.model.trainedThrough)}. Обе даты сравнения проверяются без переобучения.`)}
     ${table([['Дата'], ['Наблюдений', 'num'], ['MAE', 'num'], ['RMSE', 'num'], ['R²', 'num'], ['Смещение на сделку', 'num'], ['Ошибка суммы', 'num'], ['MAE медианы', 'num']],
       r.validation.map((item) => `<tr><th scope="row">${day(item.date)}</th><td class="num">${item.rows}</td><td class="num">${fmt(item.mae, unit)}</td>
@@ -244,14 +295,61 @@ function qualityPanel(work, unit) {
         <td class="num">${fmt(item.linear, unit)}</td><td class="num">${fmt(item.forest, unit)}</td><td class="num">${fmt(item.extra, unit)}</td></tr>`), 'Сравнение кандидатов по MAE')
         : '<p class="note">Мало дат для отдельного сравнения кандидатов. Используется базовый случайный лес.</p>'}</details>
     <details class="details"><summary>Устойчивость и ограничения</summary><p class="note">${r.stability.refits} повторных обучений по подвыборкам ID. Корреляция рейтингов ${r.stability.rankCorrelations.map(n).join(' · ')}.</p>
+      ${thresholds ? `<p class="note">Пороги статуса. Остаток и ошибка изменения суммы до ${n(thresholds.residualAndAggregate * 100)}%, корреляция рейтингов от ${n(thresholds.rank)}, совпадение знака от ${n(thresholds.sign * 100)}%.</p>` : ''}
       <ul class="inline-notes">${[...r.limitations, ...r.warnings].map((line) => `<li>${esc(line)}</li>`).join('')}</ul></details></div>`;
+}
+
+function effectPanel(state, work, unit) {
+  const effects = work.report.effects;
+  if (!effects.length) return h2('Нелинейные эффекты', 'Эффекты появятся после проверки модели.');
+  const effect = effects.find((item) => item.key === state.effect) ?? effects.find((item) => item.points.length) ?? effects[0];
+  const numeric = effect.kind === 'numeric';
+  const mode = numeric ? state.effectPlot ?? 'ale' : 'ale';
+  const name = titleOf(work, effect.key);
+  const xUnit = work.periods && Object.hasOwn(featureUnits, effect.key) && !name.endsWith(`, ${featureUnits[effect.key]}`)
+    ? `, ${featureUnits[effect.key]}` : '';
+  const plotModes = { ale: 'ALE · локальный эффект', shap: 'SHAP · наблюдаемые вклады',
+    ice: 'ICE · отдельные наблюдения', pdp: 'PDP · средняя оценка' };
+  const plots = effect.plots;
+  const labels = { ale: 'Накопленный локальный эффект', shap: 'Значение признака и вклад SHAP',
+    ice: 'Изменение предсказания для отдельных наблюдений', pdp: 'Среднее предсказание по выбранному признаку' };
+  const notes = {
+    ale: 'По вертикали — накопленный локальный эффект относительно среднего по выборке.',
+    shap: 'По вертикали — вклад SHAP для наблюдения из отчёта на конечную дату. Используются исходные значения признака.',
+    ice: 'Линия показывает изменение прогноза для одного наблюдения относительно первой точки. Остальные признаки фиксированы.',
+    pdp: 'По вертикали — средний прогноз при заданном значении признака на конечной выборке. Остальные признаки сохраняются.',
+  };
+  const sourceLabel = numeric ? plotModes[mode] : 'Вклады по категориям';
+  let chart;
+  if (!numeric) chart = bars(effect.points.map((item) => ({ label: item.x, value: item.value })), { unit, label: sourceLabel });
+  else if (mode === 'ice') {
+    chart = plots?.ice?.length ? lineChart(plots.ice.map((points, i) => ({ name: `Наблюдение ${i + 1}`, color: i % 3 ? '#6d93aa' : '#286e65', points })),
+      { title: labels.ice, unit }) : '';
+  } else {
+    const points = mode === 'ale' ? effect.points : plots?.[mode];
+    chart = points?.length ? lineChart([{ name, color: '#286e65', points }], { title: labels[mode], unit, connect: mode !== 'shap' }) : '';
+  }
+  const affected = plots?.dependencies?.map((key) => titleOf(work, key)).join(', ');
+  const warning = !chart ? `<p class="status warn">${esc(plots?.reason ?? 'Для этого графика недостаточно наблюдений.')}${affected ? ' ' + esc(affected) : ''}</p>` : '';
+  const records = mode === 'ale' ? effect.points : mode === 'pdp' ? plots?.pdp : [];
+  const refits = effect.refitShapes?.length && mode === 'ale' ? `<p class="note">Форма при переобучении на подвыборках. ${effect.refitShapes.map((item) => esc(item.label)).join(' · ')}</p>` : '';
+  return `<div id="effects" class="panel-head"><div><h2>Как меняется эффект</h2><p class="note">${esc(sourceLabel)}. Ось X — ${esc(name + xUnit)}.</p></div>
+    <div class="effect-controls"><label class="field">Признак<select id="effect-select">${effects.map((item) => option(item.key, titleOf(work, item.key), effect.key)).join('')}</select></label>
+      ${numeric ? `<label class="field">Вид графика<select id="effect-plot" aria-label="Вид графика">${Object.entries(plotModes).map(([key, label]) => option(key, label, mode)).join('')}</select></label>` : ''}</div></div>
+    ${mode === 'ale' ? `<div class="effect-summary"><strong>${esc(effect.shapeLabel ?? 'Тип зависимости не подтверждён')}</strong><span>${effect.support ?? 0} наблюдений${effect.range ? ` · диапазон ${effect.range.map(n).join(' – ')}` : ''}${effect.stability != null && effect.shape !== 'unconfirmed' ? ` · форма в ${n(effect.stability * 100)}% повторных выборок` : ''}</span></div>` : ''}
+    ${chart || warning}${refits}<p class="note">${numeric ? notes[mode] : 'Средний вклад SHAP по категории. Группы с менее чем тремя наблюдениями скрыты.'}</p>
+    ${['ice', 'pdp'].includes(mode) && chart ? `<p class="note">Сетка ограничена центральной частью обучения и конечной даты. Опорная выборка — ${plots.predictionRows} наблюдений. График описывает реакцию модели на подстановку.</p>` : ''}
+    ${records?.length ? table([['Значение'], [mode === 'pdp' ? 'Средний прогноз' : 'Эффект', 'num'], ['Наблюдений', 'num'],
+      ...(mode === 'ale' && numeric ? [['Наклон на единицу признака', 'num'], ['Разброс при повторной выборке', 'num']] : [])],
+      records.map((item) => `<tr><td>${typeof item.x === 'number' ? n(item.x) : esc(item.x)}</td><td class="num">${mode === 'pdp' ? fmt(item.value, unit) : delta(item.value, unit)}</td><td class="num">${item.support}</td>
+        ${mode === 'ale' && numeric ? `<td class="num">${delta(item.slope, unit)}</td><td class="num">${item.low == null ? '—' : `${delta(item.low, unit)} – ${delta(item.high, unit)}`}</td>` : ''}</tr>`), 'Данные графика эффекта') : ''}`;
 }
 
 export function analysisTab(state) {
   const { workspace: work, tab } = state;
   const r = work.report;
   const unit = unitOf(work);
-  if (tab === 'calculation') return valuationDetail(work);
+  if (tab === 'calculation') return valuationDetail(work, state.generating);
   if (r.mode === 'ml' && ['importance', 'interactions', 'effects'].includes(tab) && r.diagnosticsReady === false) {
     return h2('Углублённая аналитика', 'Дополнительный расчёт запускается по запросу.')
       + `<button type="button" data-action="diagnostics" class="button primary" ${state.generating ? 'disabled' : ''}>Рассчитать детализацию</button>`;
@@ -278,25 +376,11 @@ export function analysisTab(state) {
           <td class="num">${delta(item.high, unit)}</td><td class="num">${item.folds.length}</td></tr>`), 'Глобальная важность по датам') : '')
       + (r.groupedImportance?.length ? `<details class="details"><summary>Коррелирующие группы признаков</summary>${table([['Группа'], ['Рост MAE', 'num']], r.groupedImportance.map((item) => `<tr><th scope="row">${item.keys.map(factorLabel).join(', ')}</th><td class="num">${delta(item.value, unit)}</td></tr>`), 'Перестановка групп')}</details>` : '')
       + (r.marketImportance ? `<details class="details"><summary>Совместная важность общих признаков даты</summary><p class="note">Рост MAE ${delta(r.marketImportance.value, unit)}. Использованы ${r.marketImportance.dates.length} независимых дат и отдельная модель ${esc(r.marketImportance.model)}, обученная до ${day(r.marketImportance.trainedThrough)}.</p></details>` : '')
+      + (r.stability?.importanceAcrossDates ? `<p class="note">Совпадение рейтингов перестановочной важности между двумя датами. Спирмен ${n(r.stability.importanceAcrossDates.spearman)}, признаков ${r.stability.importanceAcrossDates.features.length}.</p>` : '')
       + (unavailable.length ? `<p class="note">${unavailable.join(', ')}. Эти признаки постоянны внутри проверочных дат, поэтому внутридневная перестановка для них неинформативна.</p>` : '');
   }
   if (tab === 'interactions') return interactionPanel(state, work, unit);
-  if (tab === 'effects') {
-    if (!r.effects.length) return h2('Нелинейные эффекты', 'Эффекты появятся после проверки модели.');
-    const populated = r.effects.find((item) => item.key === state.effect) ?? r.effects.find((item) => item.points.length) ?? r.effects[0];
-    const chart = populated.kind === 'numeric'
-      ? lineChart([{ name: titleOf(work, populated.key), color: '#286e65', points: populated.points }], { title: 'Накопленный локальный эффект', unit })
-      : bars(populated.points.map((item) => ({ label: item.x, value: item.value })), { unit, label: 'Средний вклад по категориям' });
-    return `<div id="effects" class="panel-head"><div><h2>Как меняется эффект</h2><p class="note">Числовые признаки показаны через накопленный локальный эффект (ALE).</p></div>
-      <label class="field">Признак<select id="effect-select">${r.effects.map((item) => option(item.key, titleOf(work, item.key), populated.key)).join('')}</select></label></div>
-      <div class="effect-summary"><strong>${esc(populated.shapeLabel ?? 'Тип зависимости не подтверждён')}</strong><span>${populated.support ?? 0} наблюдений${populated.range ? ` · диапазон ${populated.range.map(n).join(' – ')}` : ''}${populated.stability != null && populated.shape !== 'unconfirmed' ? ` · форма в ${n(populated.stability * 100)}% повторных выборок` : ''}</span></div>
-      ${chart}<p class="note">${populated.kind === 'numeric'
-        ? 'Значения центрированы относительно выборки. Изгиб показывает, что эффект зависит от диапазона признака.'
-        : 'Для категорий показан средний вклад SHAP по группе. Группы менее трёх наблюдений скрыты.'}</p>
-      ${populated.points.length ? table([['Уровень / значение'], ['Эффект', 'num'], ['Наблюдений', 'num'], ['Разброс при пересэмплировании', 'num']],
-        populated.points.map((item) => `<tr><td>${typeof item.x === 'number' ? n(item.x) : esc(item.x)}</td><td class="num">${delta(item.value, unit)}</td><td class="num">${item.support}</td><td class="num">${item.low == null ? '—' : `${delta(item.low, unit)} – ${delta(item.high, unit)}`}</td></tr>`),
-        'Данные графика эффекта') : ''}`;
-  }
+  if (tab === 'effects') return effectPanel(state, work, unit);
   if (tab === 'quality') return qualityPanel(work, unit);
   const questions = r.mode === 'valuation' ? ['Почему изменился NPV?', 'Как повлияло изменение кривой?', 'Чем отличаются методы?']
     : ['Какие факторы главные?', 'Какие факторы взаимодействуют?', 'Как читать нелинейный эффект?', 'Насколько надёжен результат?'];
@@ -468,6 +552,9 @@ export function dataPage(state) {
   const picked = new Set(prefs.features ?? work.report?.settings?.features ?? candidates.filter((col) => col.distinct > 1).map((col) => col.name));
   const dateFields = columns.filter((col) => col.kind === 'date' && !col.missing).map((col) => col.name);
   const dates = state.preview?.dates ?? opts.dates ?? work.profile.dates ?? [];
+  const ids = state.preview?.distinctIds ?? work.profile.distinctIds;
+  const problemColumns = columns.filter((col) => col.missing > 0 || col.outliers > 0).length;
+  const factorCount = state.preview?.featureCount ?? work.report?.selectedFeatures?.length;
   const field = (name, title, keys) => `<label class="field">${title}
     <select name="${name}" data-column="${name}" aria-label="${title}">
     ${option('', 'Выберите колонку', prefs[name])}${keys.map((key) => option(key, titleOf(work, key), prefs[name])).join('')}</select></label>`;
@@ -486,7 +573,7 @@ export function dataPage(state) {
     work.profile.preview.map((row) => `<tr>${columns.map((col) => `<td>${esc(row[col.name])}</td>`).join('')}</tr>`), 'Предпросмотр таблицы')}</details>` : '';
   const ready = Boolean(prefs.dateColumn && prefs.idColumn && prefs.target);
   return heading('Данные', 'Настройте входную таблицу, проверьте качество и источники.', link(exportUrl(work, 'dataset.csv'), 'Скачать CSV'))
-    + importForms + `<section class="panel">${h2('Настройка ML-анализа', `${n(work.profile.rows)} строк · ${dates.length} дат${work.profile.distinctIds ? ` · ${n(work.profile.distinctIds)} уникальных ID` : ''} · ${candidates.length} потенциальных факторов`)}
+    + importForms + `<section class="panel">${h2('Настройка ML-анализа', `${n(work.profile.rows)} строк · ${dates.length} дат${ids ? ` · ${n(ids)} уникальных ID` : ''} · ${candidates.length} потенциальных факторов${factorCount != null ? ` · ${factorCount} отобрано` : ''}`)}
       <form id="mapping-form"><div class="form-grid">${integrated ? '' : field('dateColumn', 'Дата', dateFields) + field('idColumn', 'ID', columns.map((col) => col.name))}
         ${field('target', 'Целевая метрика', targets)}${integrated ? '' : `<label class="field">Единица измерения<input name="unit" maxlength="20" value="${esc(prefs.unit ?? '')}" placeholder="Например, ₽ или шт."></label>
         <label class="field">Агрегация<select name="aggregation">${option('sum', 'Сумма по наблюдениям', prefs.aggregation ?? 'sum')}${option('mean', 'Среднее или коэффициент', prefs.aggregation)}</select></label>`}
@@ -503,7 +590,7 @@ export function dataPage(state) {
           <button class="button primary" type="submit" ${!ready || state.generating ? 'disabled' : ''}>Рассчитать ML-вклады</button></div>
       </form>${preview}</section>${evidence}
       <section class="panel"><details class="details"><summary>Профиль таблицы</summary>
-      <p class="note">Выбросы отмечены по межквартильному размаху. Решения об отборе принимаются на обучающем периоде.</p>
+      <p class="note">Колонок с пропусками или выбросами ${problemColumns}. Выбросы отмечены по межквартильному размаху. Решения об отборе принимаются на обучающем периоде.</p>
       ${table([['Колонка'], ['Тип'], ['Пропуски', 'num'], ['Различных', 'num'], ['Выбросы', 'num'], ['Диапазон', 'num']], columnRows, 'Профиль колонок')}
       </details></section>`;
 }

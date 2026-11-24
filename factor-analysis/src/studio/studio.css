@@ -223,6 +223,7 @@ dialog::backdrop { background: #112536a8; }
 .compare-toolbar { flex-wrap: wrap; }
 .compare-toolbar .field { min-width: min(100%, 145px); }
 .analysis-context { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 3px 0 12px; color: var(--muted); font-size: 13px; }
+.analysis-source { min-width: 0; overflow-wrap: anywhere; }
 .result-status { font-size: 12px; font-weight: 650; border: 1px solid var(--rule); border-radius: 5px; padding: 4px 8px; color: var(--ink); }
 .result-status.verified, .result-status.stable { background: #e8f4ef; border-color: #b7d9cd; color: #17584c; }
 .result-status.caution, .result-status.insufficient { background: #fff4dc; border-color: #e3cb98; color: #714912; }
@@ -254,3 +255,8 @@ dialog::backdrop { background: #112536a8; }
   .heat-cell { min-height: 38px; }
   .score strong { overflow-wrap: anywhere; }
 }
+.diagnostic-detail { margin: 20px 0 16px; }
+.diagnostic-detail .table-wrap { margin-bottom: 10px; }
+.effect-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; max-width: 100%; }
+.effect-controls .field { min-width: 0; }
+.effect-controls select { max-width: 100%; }

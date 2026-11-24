@@ -75,7 +75,7 @@ export function waterfall({ start, end, bars, active, unit }) {
 export function bars(items, { unit = '', action, active, label, left = 195, narrow = false } = {}) {
   const values = items.filter((item) => Number.isFinite(item.value));
   if (!values.length) return '<p class="note">Недостаточно наблюдений для графика.</p>';
-  const width = narrow ? 610 : 740, right = 68, top = 18, row = 33;
+  const width = narrow ? 610 : 740, right = 96, top = 18, row = 33;
   left = narrow ? Math.min(left, 155) : left;
   const end = width - right, plot = end - left;
   const maximum = Math.max(0, ...values.map((item) => item.value));
@@ -88,10 +88,13 @@ export function bars(items, { unit = '', action, active, label, left = 195, narr
     const xEnd = x(item.value);
     const act = action ? `data-action="${action}" data-key="${esc(item.key)}" role="button" tabindex="0" aria-pressed="${active === item.key}"` : '';
     const type = item.value >= 0 ? 'up' : 'down';
+    const name = item.chartLabel ?? item.label;
+    const limit = narrow ? 26 : 33;
+    const display = name.length > limit ? name.slice(0, limit - 1) + '…' : name;
     return `<g ${act} aria-label="${esc(item.label)} ${esc(signed(item.value, unit))}">
       <title>${esc(item.label)} · ${esc(signed(item.value, unit))}</title>
       ${action ? `<rect class="bar-hit" x="2" y="${y - 6}" width="${width - 5}" height="${row - 2}" rx="4"/>` : ''}
-      <text class="group-label" x="6" y="${y + 12}">${esc(wrap(item.label, narrow ? 25 : 31).join(' ').slice(0, narrow ? 26 : 33))}</text>
+      <text class="group-label" x="6" y="${y + 12}">${esc(display)}</text>
       <rect class="bar-${type}" x="${Math.min(zero, xEnd)}" y="${y}" width="${Math.max(1.5, Math.abs(zero - xEnd))}" height="16" rx="3"/>
       <text class="value" text-anchor="end" x="${width - 6}" y="${y + 12}">${esc((item.value > 0 ? '+' : '') + short(item.value, unit))}</text></g>`;
   }).join('');

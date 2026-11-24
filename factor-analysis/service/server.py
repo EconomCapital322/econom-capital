@@ -23,6 +23,7 @@ from uuid import uuid4
 
 from .attribution import analyze, feature_strings, pick_features
 from .config import load_env
+from .cash_details import calculate_cash_details
 from .explanations import explain
 from .history import MAX_ARCHIVE, pack, unpack
 from .llm import provider, model_endpoint
@@ -43,7 +44,7 @@ WORKSPACE_WRITE = threading.Lock()
 JOBS = {}
 LOG = logging.getLogger("spectrum")
 ARCHIVE_BODY = (MAX_ARCHIVE * 4 // 3) + 8192
-REPORT_EXPORTS = r"analysis\.json|factors\.csv|interactions\.csv|quality\.csv"
+REPORT_EXPORTS = r"analysis\.json|analysis\.html|factors\.csv|interactions\.csv|quality\.csv|cash-details\.csv"
 INTEGRATED = {"integrated", "historical"}
 
 
@@ -270,7 +271,7 @@ def start_job(task, initial="Подготовка портфеля"):
     return ident
 
 
-def analysis_task(request, *, diagnostics=False):
+def analysis_task(request, *, diagnostics=False, update=lambda *_: None):
     folder = run_folder(request.get('workspaceId'))
     workspace = load(folder)
     active_revision(workspace, request)
@@ -278,7 +279,14 @@ def analysis_task(request, *, diagnostics=False):
         report = workspace.get('report')
         if not report or not report.get('analysisId'):
             raise ValueError('Сначала рассчитайте основной отчёт.')
-        if report['mode'] != 'ml' or report.get('diagnosticsReady'):
+        if report['mode'] == 'valuation':
+            if report.get('cashDetails') and not report['cashDetails'].get('message'):
+                return workspace
+            detail = calculate_cash_details(folder, report, update)
+            workspace = {**workspace, 'report': {**report, 'cashDetails': detail}}
+            publish(folder, workspace)
+            return workspace
+        if report.get('diagnosticsReady'):
             return workspace
         return compute(folder, extract_csv(text_of(folder)), workspace, report['settings'], diagnostics=True,
                        revision=report['analysisId'])
@@ -306,6 +314,7 @@ def preview_config(request):
     excluded_features = feature_strings(request.get('forbidden', []))
     picked, _, audit = pick_features(names, training, excluded, features, excluded_features)
     return {'dates': dates, 'before': before, 'after': after, 'trainingRows': len(training), 'featureAudit': audit,
+            'distinctIds': len({row['id'] for row in rows}), 'featureCount': len(picked),
             'message': f'Колонки проверены. Обучающих строк {len(training)}, кандидатов в модель {len(picked)}.'}
 
 
@@ -468,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in ('/api/analyze', '/api/diagnostics'):
                 detail = path == '/api/diagnostics'
                 if detail or request.get('background') is True:
-                    task = lambda _: analysis_task(request, diagnostics=detail)
+                    task = lambda update: analysis_task(request, diagnostics=detail, update=update)
                     return self.reply({'job': start_job(task, 'Расчёт аналитических показателей')}, 202)
                 if not WORKSPACE_WRITE.acquire(blocking=False):
                     return self.reply({'error': 'Дождитесь окончания текущего расчёта.'}, 409)
