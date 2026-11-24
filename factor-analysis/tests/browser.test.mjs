@@ -262,8 +262,14 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await ledger.getByRole('button', { name: 'Денежные потоки', exact: true }).click();
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
     await page.keyboard.press('Escape');
-    await page.getByRole('group', { name: 'Разделы аналитики' }).getByRole('button', { name: 'Денежные потоки', exact: true }).click();
-    await page.getByRole('button', { name: 'Разложить денежные потоки' }).click();
+    const researchTabs = page.getByRole('group', { name: 'Разделы аналитики' });
+    const cashTab = researchTabs.getByRole('button', { name: 'Денежные потоки', exact: true });
+    const decompose = page.getByRole('button', { name: 'Разложить денежные потоки' });
+    await cashTab.click();
+    await decompose.click({ trial: true });
+    await researchTabs.getByRole('button', { name: 'Динамика', exact: true }).click();
+    await cashTab.click();
+    await decompose.click();
     await page.getByRole('group', { name: 'Вклады в изменение денежных потоков' }).waitFor();
     await page.getByText('Все вклады и их суммы', { exact: true }).click();
     await page.getByRole('table', { name: 'Вклады в изменение денежных потоков' }).waitFor();

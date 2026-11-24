@@ -365,7 +365,9 @@ function selectTab(tab, focus = false) {
     if (focus && control.dataset.key === tab) control.focus({ preventScroll: true });
   }
   syncIndicators(target.parentElement);
-  if (focus) animateContent(target);
+  // Animate the heading so the interactive content keeps a stable hit area.
+  const heading = focus && target.querySelector('h2');
+  if (heading) animateContent(heading);
 }
 
 const pause = (millis) => new Promise((resolve) => setTimeout(resolve, millis));
