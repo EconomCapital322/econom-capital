@@ -148,13 +148,31 @@ export function parseResult(value: unknown, run: RunStateDto): CurveCalculation 
   timestamp(dto['completedAt'])
   const used = parameters(dto.usedParameters)
   if (used.mode !== run.usedParameters.mode || ['p', 'k', 'd'].some(key => used[key as keyof ScenarioParameters] !== run.usedParameters[key as keyof ScenarioParameters])) return invalidResponse()
-  const curves = array(dto['curves']).map(curve), base = curves.find(c => c.code === 'base')
+  const result = resultCurves(dto.curves, run.reportDate, used, run.dataProvenance, run.runOrigin)
+  if (run.baseCurve && JSON.stringify(run.baseCurve.points) !== JSON.stringify(result.baseCurve)) return invalidResponse()
+  return result
+}
+
+function resultCurves(value: unknown, reportDate: string, used: UsedParameters,
+  dataProvenance: DataProvenance, runOrigin?: RunOrigin): CurveCalculation {
+  const curves = array(value).map(curve), base = curves.find(c => c.code === 'base')
   if (curves.length !== 7 || new Set(curves.map(c => c.code)).size !== 7 || !base) return invalidResponse()
-  const result = { dataProvenance: run.dataProvenance, runOrigin: run.runOrigin, reportDate: run.reportDate, parameters: { p: used.p, k: used.k, d: used.d }, baseCurve: base.points,
+  const result = { dataProvenance, runOrigin, reportDate, parameters: { p: used.p, k: used.k, d: used.d }, baseCurve: base.points,
     stressCurves: curves.filter((c): c is { code: StressScenarioCode; points: DiscountedCurvePoint[] } => c.code !== 'base') }
   if (!isCompleteCalculation(result)) return invalidResponse()
-  if (run.baseCurve && JSON.stringify(run.baseCurve.points) !== JSON.stringify(base.points)) return invalidResponse()
   return result
+}
+
+export function parseSavedResult(value: unknown, reportDate: string, selectedRunId?: string): CurveCalculation {
+  const dto = record(value)
+  const id = runId(dto.runId)
+  if (selectedRunId && id !== selectedRunId) return invalidResponse()
+  checkDate(dto.reportDate, reportDate)
+  timestamp(dto.completedAt)
+  const kind = provenance(dto.dataProvenance ?? 'market')
+  if (dto.source !== (kind === 'market' ? 'moex' : 'synthetic_fixture')) return invalidResponse()
+  return resultCurves(dto.curves, reportDate, parameters(dto.usedParameters), kind,
+    dto.runOrigin === undefined ? undefined : origin(dto.runOrigin))
 }
 export function inputPreview(input: InputRatesDto, result?: CurveCalculation | null): CurvePreview | null {
   if (!input.available && !result) return null

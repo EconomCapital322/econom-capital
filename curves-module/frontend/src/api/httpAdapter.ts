@@ -9,7 +9,7 @@ export interface RemoteCurvesApi {
   cacheKey: string
   list(reportDate: string, signal: AbortSignal): Promise<RunDto[]>
   prepare(reportDate: string, retry?: boolean): Promise<void>
-  snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string, readOnly?: boolean): Promise<RemoteSnapshot>
+  snapshot(reportDate: string, signal: AbortSignal, preferredRunId?: string, readOnly?: boolean, exact?: boolean): Promise<RemoteSnapshot>
   start(reportDate: string, parameters: ScenarioParameters, parentRunId?: string): Promise<string>
 }
 export class ApiRequestError extends Error {
@@ -117,7 +117,7 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
       if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
       return parseList(await request(`/curve-runs?reportDate=${encodeURIComponent(reportDate)}`, { signal }), reportDate)
     },
-    async snapshot(reportDate, signal, preferredRunId, readOnly = false) {
+    async snapshot(reportDate, signal, preferredRunId, readOnly = false, exact = false) {
       if (!isReportDate(reportDate)) throw new Error('Выберите корректную отчётную дату.')
       // An explicit historical selection is read-only, even after a reload.
       if (preferredRunId && !isRunId(preferredRunId)) throw new ApiRequestError('Ссылка на расчёт некорректна. Выберите запуск в истории.', 422)
@@ -143,7 +143,7 @@ export function createHttpCurvesService(baseUrl = '', fetcher: typeof fetch = fe
       } catch (error) {
         // Only a missing explicitly selected run may fall back. Transport errors
         // must remain errors; never hide them by opening a different calculation.
-        if (!preferredRunId || !(error instanceof ApiRequestError) || error.status !== 404) throw error
+        if (exact || !preferredRunId || !(error instanceof ApiRequestError) || error.status !== 404) throw error
         const latest = parseList(await request(`/curve-runs${query}`, { signal }), reportDate)
         availableRuns = latest
         selectedId = latest.find(item => item.runId !== preferredRunId)?.runId ?? ''

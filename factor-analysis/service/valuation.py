@@ -9,7 +9,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from .integration import CODES, SCENARIOS, read_rows, validated_snapshot_curves
+from .integration import CODES, SCENARIOS, curve_metadata, read_rows, validated_snapshot_curves
 from normalizer.discounting import LABELS as BUCKETS, bucket_for
 
 ZERO = Decimal(0)
@@ -109,7 +109,7 @@ def read_snapshot(folder, text, signature):
         return Snapshot(text, sides, flows, dfs, actual, {
             'date': text, 'runId': curve_result['runId'], 'sha256': sha256(raw).hexdigest(),
             'method': METHOD, 'files': list(FILES),
-            'curveProvenance': curve_result.get('dataProvenance', 'market'),
+            **curve_metadata(curve_result),
         })
     except (KeyError, AttributeError, TypeError, UnicodeError, InvalidOperation) as error:
         raise ValueError('Некорректные колонки выгрузки расчёта. Проверьте формат истории.') from error

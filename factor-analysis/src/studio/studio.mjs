@@ -1,22 +1,30 @@
 import { day, esc } from './charts.mjs';
-import { analysisChart, analysisPage, analysisTab, assistantStatus, dataPage, dealTable, explanation, factorDetails, flowDialog,
-  pages, portfolioCurveNote, portfolioPage, portfolioPreview, portfolioProgress, reportTabs, scenarioPage } from './views.mjs';
+import { analysisChart, analysisPage, analysisTab, assistantPanel, assistantStatus, comparisonPanel, dataPage, dealTable,
+  explanation, factorDetails, flowDialog, methodologyContent, pages, portfolioCurveNote, portfolioPage,
+  portfolioPreview, portfolioProgress, reportTabs, scenarioPage, servicesList } from './views.mjs';
 
 const main = document.querySelector('#content');
+const studioScreen = document.querySelector('#studio-screen');
+const curveScreen = document.querySelector('#curve-screen');
 const activity = document.querySelector('#activity');
 const inspector = document.querySelector('#inspector');
 const drawer = document.querySelector('#factor-drawer');
+const assistant = document.querySelector('#assistant-drawer');
+const settings = document.querySelector('#settings-dialog');
 const state = {
   workspace: null, route: 'analysis', tab: 'timeline', factor: null, effect: null, effectPlot: 'ale', scenarioCode: null,
   scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
-  chart: 'contributions', compareExpanded: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
+  chart: 'contributions', research: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
   question: '', focusFactor: null, allowExternal: false, asking: false,
+  curveSelection: null,
 };
 let dealsRequest = 0;
 let flowRequest = 0;
 let healthTimer;
 let explanationRequest, mappingRequest;
+let afterNavigation;
+let curveModule, curveLoading, curveLocation;
 
 async function api(path, { body, ...options } = {}) {
   const response = await fetch(path, body ? {
@@ -40,8 +48,69 @@ function updatePortfolioJob(job) {
 }
 
 function routeName() {
-  const route = location.hash.slice(1);
+  const route = location.hash.slice(1).split('?')[0];
   return Object.hasOwn(pages, route) ? route : 'analysis';
+}
+
+function curveRoute() {
+  const params = new URLSearchParams(location.hash.split('?')[1]);
+  const reportDate = params.get('reportDate');
+  const workspaceId = params.get('workspaceId');
+  const runId = params.get('runId') || undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+    return { reportDate, runId, workspaceId: /^[a-f0-9]{32}$/.test(workspaceId) ? workspaceId : undefined };
+  }
+  return curveLocation ?? {
+    reportDate: state.workspace?.periods?.at(-1)?.date ??
+      new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format(new Date()),
+  };
+}
+
+function showCurveLocation(next) {
+  if (!next.workspaceId) curveLocation = next;
+  const hash = new URLSearchParams({ reportDate: next.reportDate });
+  if (next.runId) hash.set('runId', next.runId);
+  if (next.workspaceId) hash.set('workspaceId', next.workspaceId);
+  history.replaceState(history.state, '', '#curves?' + hash);
+  renderCurves(true);
+}
+
+function selectCurveRun(reportDate, runId) {
+  if (curveLocation?.reportDate !== reportDate) return;
+  curveLocation = { reportDate, runId };
+  if (state.route === 'curves' && !curveRoute().workspaceId) showCurveLocation(curveLocation);
+}
+
+function useCurve(selection) {
+  state.curveSelection = selection;
+  const period = state.workspace?.periods?.find((p) => p.date === selection.reportDate);
+  if (period) {
+    state.portfolioTab = 'holdings';
+    state.portfolioDay = period.date;
+  } else {
+    state.portfolioTab = 'builder';
+    state.draft = { ...state.draft, valuationDate: selection.reportDate, curveSource: 'api' };
+  }
+  navigate('portfolio');
+}
+
+function renderCurves(active) {
+  const selection = active ? curveRoute() : curveLocation;
+  if (active && !selection.workspaceId) curveLocation = selection;
+  if (curveModule) {
+    const location = selection ?? curveRoute();
+    curveModule.update({ active, location,
+      valuationRunId: state.workspace?.periods?.find((p) => p.date === location.reportDate)?.runId,
+      onLocation: showCurveLocation, onRunSelect: selectCurveRun, onUse: useCurve });
+  } else if (active && !curveLoading) {
+    curveLoading = import('/curve-ui/curves.js').then(({ mountCurves }) => {
+      curveScreen.replaceChildren();
+      curveModule = mountCurves(curveScreen);
+      renderCurves(state.route === 'curves');
+    }).catch(() => {
+      curveScreen.innerHTML = '<h1>Кривые доходности</h1><p class="status error" role="alert">Модуль кривых не загрузился. Проверьте сборку интерфейса и обновите страницу.</p>';
+    });
+  }
 }
 
 function swapWorkspace(workspace) {
@@ -49,14 +118,16 @@ function swapWorkspace(workspace) {
   mappingRequest?.abort();
   dealsRequest++;
   flowRequest++;
-  if (inspector.open) inspector.close();
-  if (drawer.open) drawer.close();
+  closeDialogs();
+  assistant.replaceChildren();
+  settings.replaceChildren();
   state.workspace = workspace;
   state.tab = 'timeline';
   state.pair = null;
   state.pairDeal = null;
   state.comparison = null;
-  state.compareExpanded = false;
+  state.research = false;
+  state.chart = 'contributions';
   state.preview = null;
   state.factor = null;
   state.effect = null;
@@ -71,22 +142,47 @@ function swapWorkspace(workspace) {
 }
 
 function render() {
-  document.querySelector('#crumb').textContent = pages[state.route];
   for (const anchor of document.querySelectorAll('[data-route]')) {
     if (anchor.dataset.route === state.route) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
   }
-  main.innerHTML = { analysis: analysisPage, scenarios: scenarioPage, portfolio: portfolioPage, data: dataPage }[state.route](state);
+  const curvesActive = state.route === 'curves';
+  curveScreen.hidden = !curvesActive;
+  studioScreen.hidden = curvesActive;
+  renderCurves(curvesActive);
+  if (curvesActive) return;
+  studioScreen.innerHTML = { analysis: analysisPage, scenarios: scenarioPage, portfolio: portfolioPage, data: dataPage }[state.route](state);
   if (state.route === 'portfolio') void loadDeals();
 }
 
-function navigate(route) {
+function closeDialogs() {
+  for (const dialog of [inspector, drawer, assistant, settings]) {
+    if (dialog.open) dialog.close();
+  }
+}
+
+function navigate(route, enter) {
   if (state.route === route) {
     render();
     window.scrollTo(0, 0);
+    main.focus({ preventScroll: true });
+    enter?.();
   } else {
+    afterNavigation = enter ? { route, enter } : null;
     location.hash = route;
   }
+}
+
+function openSettings() {
+  if (!state.workspace?.report) return;
+  settings.innerHTML = comparisonPanel(state);
+  if (!settings.open) settings.showModal();
+}
+
+function openAssistant() {
+  if (!state.workspace?.report) return;
+  assistant.innerHTML = assistantPanel(state);
+  if (!assistant.open) assistant.showModal();
 }
 
 function refreshAssistant() {
@@ -97,21 +193,13 @@ function refreshAssistant() {
 }
 
 async function updateHealth() {
-  const host = document.querySelector('#services');
   try {
-    const result = await api('/api/services');
-    state.health = result;
-    const provider = result.ai?.provider === 'local' ? 'Локальная модель' : 'DeepSeek';
-    host.innerHTML = Object.entries({ calculator: 'Калькулятор', curves: 'Кривые ставок', llm: provider }).map(([key, text]) => {
-      const facts = key === 'llm' && result.ai?.provider === 'facts';
-      const status = facts ? 'Выключен' : key === 'llm' && result.ai?.status === 'configured'
-        ? 'Настроен' : result[key] ? 'Подключено' : 'Недоступно';
-      return `<li class="${result[key] ? 'up' : facts ? '' : 'down'}"><i aria-hidden="true"></i><span>${text}</span><small>${status}</small></li>`;
-    }).join('');
+    state.health = await api('/api/services');
   } catch {
-    host.innerHTML = '<li class="down"><i aria-hidden="true"></i>Состояние неизвестно</li>';
-    state.health = { ai: { provider: 'facts' }, llm: false };
+    state.health = { ai: { provider: 'facts' }, llm: false, unavailable: true };
   }
+  const host = document.querySelector('#services');
+  if (host) host.innerHTML = servicesList(state.health);
   refreshAssistant();
 }
 
@@ -129,29 +217,17 @@ function selectFactor(key) {
   else if (selectedInDrawer) drawer.querySelector(controlId === 'factor-select' ? '#factor-select' : '.drawer-head button')?.focus({ preventScroll: true });
 }
 
-function selectChart(chart) {
+function selectChart(chart, control) {
   if (!['contributions', 'waterfall'].includes(chart)) return;
   state.chart = chart;
   document.querySelector('#bridge-chart').innerHTML = analysisChart(state);
-  for (const control of document.querySelectorAll('[data-action="analysis-chart"]')) {
-    control.setAttribute('aria-pressed', String(control.dataset.key === chart));
-  }
+  control.dataset.key = chart === 'waterfall' ? 'contributions' : 'waterfall';
+  control.textContent = chart === 'waterfall' ? 'К вкладам' : 'Водопад';
 }
 
 function applyComparison(form, rerender) {
   state.comparison = Object.fromEntries(new FormData(form));
-  if (rerender) render();
-  else {
-    const report = state.workspace?.report;
-    const draft = state.comparison;
-    const note = form.querySelector('.pending-note');
-    if (note && report) {
-      const submitted = draft.mode === report.mode && draft.target === report.target && draft.before === report.before
-        && draft.after === report.after && (draft.target !== 'stress_delta' || draft.scenario === report.scenario);
-      note.hidden = submitted;
-      form.querySelector('.compare-draft').hidden = submitted;
-    }
-  }
+  if (rerender) openSettings();
 }
 
 function selectTab(tab, focus = false) {
@@ -201,6 +277,8 @@ async function followJob(id, kind = 'report') {
         if (kind === 'diagnostics' && state.workspace?.report?.analysisId === latest.report.analysisId) {
           state.workspace = latest;
           if (state.route === 'analysis') selectTab(state.tab);
+          const method = document.querySelector('#methodology-body');
+          if (method) method.innerHTML = methodologyContent(latest);
           if (drawer.open) selectFactor(state.factor);
         } else {
           swapWorkspace(latest);
@@ -210,6 +288,10 @@ async function followJob(id, kind = 'report') {
           state.dealPage = 0;
           state.dealQuery = '';
           if (kind === 'portfolio') {
+            if (latest.periods.some((p) => p.date === state.curveSelection?.reportDate && p.runId === state.curveSelection.runId)) {
+              state.portfolioDay = state.curveSelection.reportDate;
+              state.curveSelection = null;
+            }
             updatePortfolioJob({ ...job, message: 'Портфель рассчитан. Можно открыть договорные платежи и факторный анализ.' });
             state.portfolioTab = 'holdings';
             navigate('portfolio');
@@ -242,6 +324,7 @@ async function launch(path, body, message, kind = 'report') {
     mappingRequest?.abort();
   }
   const locked = [...main.querySelectorAll('button[type="submit"], [data-action="diagnostics"]'),
+    ...settings.querySelectorAll('button[type="submit"]'),
     ...drawer.querySelectorAll('[data-action="diagnostics"]')]
     .map((control) => [control, control.disabled]);
   for (const [control] of locked) control.disabled = true;
@@ -257,6 +340,8 @@ async function launch(path, body, message, kind = 'report') {
     for (const [control, previous] of locked) {
       if (control.isConnected) control.disabled = previous;
     }
+    const submit = settings.querySelector('#compare-form button[type="submit"]');
+    if (submit) submit.disabled = false;
   }
 }
 
@@ -266,9 +351,17 @@ async function generate(form) {
   for (const key of ['count', 'monthly', 'periods', 'liabilityShare']) settings[key] = Number(settings[key]);
   settings.useSavedCurves = settings.curveSource === 'saved';
   settings.demoCurves = settings.curveSource === 'fixture';
+  if (settings.curveSource === 'api' && state.curveSelection) settings.curveSelection = state.curveSelection;
   state.draft = settings;
   updatePortfolioJob(null);
   await launch('/api/run', settings, 'Запускаем совместный расчёт.', 'portfolio');
+}
+
+async function revaluePortfolio() {
+  const work = state.workspace;
+  if (!work?.report || !state.curveSelection) return;
+  await launch('/api/revalue', { workspaceId: work.id, analysisId: work.report.analysisId, curveSelection: state.curveSelection },
+    'Готовим переоценку по выбранным кривым.', 'portfolio');
 }
 
 function settingsFrom(form, config) {
@@ -286,8 +379,12 @@ function settingsFrom(form, config) {
 }
 
 async function analyze(form, config = false) {
-  if (!state.workspace) return;
+  if (!state.workspace || state.generating) return;
   const body = { ...settingsFrom(form, config), background: true };
+  if (!config) {
+    applyComparison(form, false);
+    settings.close();
+  }
   await launch('/api/analyze', body, body.mode === 'valuation' ? 'Проверяем выгрузки и рассчитываем вклады.' : 'Подбираем модель и проверяем её на датах сравнения.');
 }
 
@@ -386,7 +483,8 @@ async function ask(form) {
   } finally {
     if (!request.signal.aborted && explanationRequest === request && initial.report.analysisId === state.workspace?.report?.analysisId) {
       state.asking = false;
-      button.disabled = false;
+      const submit = assistant.querySelector('#explain-form button[type="submit"]');
+      if (submit) submit.disabled = false;
       const box = document.querySelector('#answer');
       if (box) box.innerHTML = explanation(state.answer);
       refreshAssistant();
@@ -431,26 +529,59 @@ async function showFlows(id) {
   }
 }
 
-function selectScenario(code) {
-  state.scenarioCode = code;
-  main.innerHTML = scenarioPage(state);
-  main.querySelector('[data-action="scenario"][aria-pressed="true"]')?.focus({ preventScroll: true });
+function refreshScenarios(focus) {
+  const open = new Set([...main.querySelectorAll('details[data-scenario-detail][open]')]
+    .map((element) => element.dataset.scenarioDetail));
+  render();
+  for (const disclosure of main.querySelectorAll('details[data-scenario-detail]')) {
+    disclosure.open = open.has(disclosure.dataset.scenarioDetail);
+  }
+  main.querySelector(focus)?.focus({ preventScroll: true });
+}
+
+function reveal(target) {
+  if (!target) return;
+  const disclosure = target.closest('details');
+  if (disclosure) disclosure.open = true;
+  const focus = target.matches('details') ? target.querySelector('summary') : target;
+  if (focus.tabIndex < 0) focus.tabIndex = -1;
+  focus.focus({ preventScroll: true });
+  target.scrollIntoView({ block: 'start' });
+}
+
+function openFactSource(key, detail) {
+  if (assistant.open) assistant.close();
+  if (key === '#waterfall' && detail) {
+    selectFactor(detail);
+    return;
+  }
+  if (drawer.open) drawer.close();
+  if (key === '#interactions' && detail) state.pair = Number(detail);
+  if (key === '#effects' && detail) state.effect = detail;
+  const targetTab = { '#quality': 'quality', '#interactions': 'interactions',
+    '#effects': 'effects', '#cash-details': 'cash' }[key];
+  if (targetTab && Object.hasOwn(reportTabs(state.workspace), targetTab)) state.tab = targetTab;
+  state.research = key !== '#waterfall';
+  const anchors = ['#waterfall', '#quality', '#interactions', '#effects', '#cash-details',
+    '#valuation-detail', '#analysis-methodology'];
+  navigate('analysis', () => reveal((anchors.includes(key) ? main.querySelector(key) : null) ?? main.querySelector('#analysis-tabs')));
 }
 
 function action(element) {
   const { action: kind, key } = element.dataset;
   if (kind === 'factor') selectFactor(key);
-  if (kind === 'analysis-chart') selectChart(key);
-  if (kind === 'toggle-comparison') {
-    state.compareExpanded = !state.compareExpanded;
-    element.form.dataset.expanded = String(state.compareExpanded);
-    element.setAttribute('aria-expanded', String(state.compareExpanded));
+  if (kind === 'analysis-chart') selectChart(key, element);
+  if (kind === 'edit-parameters') openSettings();
+  if (kind === 'open-assistant') openAssistant();
+  if (kind === 'overview' || kind === 'research') {
+    state.research = kind === 'research';
+    navigate('analysis');
   }
   if (kind === 'analysis-mode') {
     const form = element.closest('form');
     form.elements.mode.value = key;
     applyComparison(form, true);
-    main.querySelector('[data-action="analysis-mode"][aria-pressed="true"]')?.focus({ preventScroll: true });
+    settings.querySelector('[data-action="analysis-mode"][aria-pressed="true"]')?.focus({ preventScroll: true });
   }
   if (kind === 'source-format' || kind === 'portfolio-tab') {
     if (kind === 'source-format') state.sourceFormat = key;
@@ -467,8 +598,14 @@ function action(element) {
     state.sourceFormat = 'zip';
     navigate('data');
   }
+  if (kind === 'calculation-sources') {
+    navigate('data', () => reveal(main.querySelector('#data-sources') ?? main.querySelector('#data-quality')));
+  }
   if (kind === 'tab') selectTab(key, true);
-  if (kind === 'scenario') selectScenario(key);
+  if (kind === 'scenario') {
+    state.scenarioCode = key;
+    refreshScenarios('[data-action="scenario"][aria-pressed="true"]');
+  }
   if (kind === 'flow') void showFlows(key);
   if (kind === 'diagnostics') void diagnostics();
   if (kind === 'check-mapping') void checkMapping(element.form);
@@ -485,10 +622,10 @@ function action(element) {
   }
   if (kind === 'explain-factor') {
     drawer.close();
-    const form = document.querySelector('#explain-form');
+    openAssistant();
+    const form = assistant.querySelector('#explain-form');
     setQuestionContext({ key, label: element.dataset.label });
     form.elements.question.value = ('Каков вклад компонента «' + element.dataset.label + '»?').slice(0, 300);
-    form.closest('#assistant').scrollIntoView({ block: 'nearest' });
     form.elements.question.focus({ preventScroll: true });
     form.requestSubmit();
   }
@@ -497,32 +634,28 @@ function action(element) {
     const at = dates.indexOf(element.dataset.date);
     state.comparison = { mode: 'valuation', target: 'stress_delta', scenario: key,
       before: dates[Math.max(0, at - 1)], after: dates[Math.max(1, at)] };
-    state.compareExpanded = true;
-    navigate('analysis');
+    state.research = false;
+    navigate('analysis', openSettings);
   }
   if (kind === 'deal-page') {
     state.dealPage = Math.max(0, Number(key));
     void loadDeals();
   }
-  if (kind === 'fact-source') {
-    const { detail } = element.dataset;
-    if (key === '#waterfall' && detail) {
-      selectFactor(detail);
-      return;
-    }
-    if (drawer.open) drawer.close();
-    if (key === '#interactions' && detail) state.pair = Number(detail);
-    if (key === '#effects' && detail) state.effect = detail;
-    const targetTab = { '#quality': 'quality', '#interactions': 'interactions', '#effects': 'effects', '#valuation-detail': 'calculation', '#cash-details': 'calculation' }[key];
-    if (targetTab) selectTab(targetTab);
-    (document.querySelector(key) ?? document.querySelector('#analysis-tabs'))?.scrollIntoView({ block: 'start' });
+  if (kind === 'curve-revalue') void revaluePortfolio();
+  if (kind === 'curve-clear') {
+    state.curveSelection = null;
+    render();
   }
+  if (kind === 'fact-source') openFactSource(key, element.dataset.detail);
 }
 
 document.addEventListener('click', (event) => {
   const element = event.target.closest('[data-action]');
   if (!element) return;
-  if (['new-run', 'upload-history'].includes(element.dataset.action) && element.tagName === 'A') event.preventDefault();
+  if (['new-run', 'upload-history', 'overview', 'calculation-sources'].includes(element.dataset.action) && element.tagName === 'A') {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+  }
   action(element);
 });
 document.addEventListener('keydown', (event) => {
@@ -573,8 +706,7 @@ document.addEventListener('change', (event) => {
   }
   if (element.id === 'scenario-date') {
     state.scenarioDay = element.value;
-    render();
-    document.querySelector('#scenario-date')?.focus({ preventScroll: true });
+    refreshScenarios('#scenario-date');
   }
   if (element.id === 'pair-deal') {
     state.pairDeal = element.value;
@@ -621,8 +753,11 @@ document.addEventListener('input', (event) => {
   if (element.form?.id === 'generate-form') {
     const draft = Object.fromEntries(new FormData(element.form));
     state.draft = draft;
-    document.querySelector('#portfolio-preview').innerHTML = portfolioPreview(draft);
+    const preview = document.querySelector('#portfolio-preview');
+    preview.innerHTML = portfolioPreview(draft, preview.querySelector('details').open);
     document.querySelector('#curve-note').textContent = portfolioCurveNote(draft.curveSource);
+    const pinned = document.querySelector('#pinned-curve');
+    if (pinned) pinned.hidden = draft.curveSource !== 'api';
   }
   if (element.form?.id === 'explain-form') {
     if (element.name === 'question') {
@@ -635,15 +770,18 @@ document.addEventListener('input', (event) => {
 
 window.addEventListener('hashchange', () => {
   if (location.hash === '#content') return;
+  closeDialogs();
   state.route = routeName();
+  const next = afterNavigation;
+  afterNavigation = null;
   render();
   window.scrollTo(0, 0);
   main.focus({ preventScroll: true });
+  if (next?.route === state.route) next.enter();
 });
 
 async function start() {
   state.route = routeName();
-  document.querySelector('.services').open = !matchMedia('(max-width: 810px)').matches;
   try {
     swapWorkspace(await api('/api/workspace'));
     render();

@@ -25,12 +25,14 @@ from .attribution import analyze, feature_strings, pick_features
 from .config import load_env
 from .cash_details import calculate_cash_details
 from .explanations import explain
-from .history import MAX_ARCHIVE, pack, unpack
+from .history import MAX_ARCHIVE, pack, revalue, unpack
 from .llm import provider, model_endpoint
 from .reporting import export, safe_dataset
-from .integration import CODES, FEATURES, LABELS, ROOT, SCENARIOS, TARGETS, core_path, curves_url, portfolio_history, read_rows
+from .integration import (CODES, FEATURES, LABELS, ROOT, SCENARIOS, TARGETS, CurvesClient, core_path,
+                          curves_url, market_curve_run, portfolio_history, read_rows, selected_curve_ref)
 from .panel import discover, extract_csv, iso_date, number, profile_column, resolve_rows
 from .valuation import actual_pv, analyze_valuation, load_snapshot
+from . import curve_ui
 
 load_env(ROOT)
 DATA = Path(os.environ.get("SPECTRUM_DATA_DIR", ROOT / ".local" / "runs")).resolve()
@@ -138,6 +140,28 @@ def save_integration(settings, update):
                    {**SIGNALS, "mode": "valuation", "scenario": "base"})
 
 
+def revalue_portfolio(request, update):
+    workspace = current()
+    if not workspace or workspace["id"] != request.get("workspaceId"):
+        raise StaleReport("Открыт другой рабочий набор. Обновите страницу перед переоценкой.")
+    active_revision(workspace, request)
+    day, run_id = selected_curve_ref(request.get("curveSelection"))
+    period = next((p for p in workspace.get("periods", []) if p["date"] == day.isoformat()), None)
+    if period is None:
+        raise ValueError("Эта дата отсутствует в сохранённом портфеле.")
+    if period["runId"] == run_id:
+        raise ValueError("Этот запуск уже использован для выбранной даты.")
+    update(0, len(workspace["periods"]), "Проверяем готовый запуск кривых команды 2")
+    curves, raw = market_curve_run(CurvesClient(curves_url()), day, run_id)
+    folder = DATA / uuid4().hex
+    folder.mkdir()
+    details = revalue(run_folder(workspace["id"]), folder, workspace, day, curves, raw, update)
+    result = workspace["report"]
+    update(len(details["periods"]), len(details["periods"]), "Сверка переоценки и новое разложение NPV")
+    return compute(folder, extract_csv(text_of(folder)), details,
+                   {**SIGNALS, "mode": "valuation", "scenario": "base", "before": result.get("before"), "after": result.get("after")})
+
+
 def import_history(encoded, update, provenance=None):
     if not isinstance(encoded, str) or len(encoded) > ARCHIVE_BODY:
         raise ValueError("Импортируйте ZIP размером до 16 МБ.")
@@ -212,8 +236,9 @@ def compute(folder, dataset, workspace, settings, *, diagnostics=False, revision
         report = analyze(dataset, {**settings, 'target': target}, protected=TARGETS if integrated else (),
                          preferred=FEATURES if integrated else (), diagnostics=diagnostics)
         if integrated:
-            report['sources'] = [{'date': item['date'], 'runId': item['runId'], 'sha256': item['sha256'],
-                                  'curveSource': item['curveSource']} for item in workspace['periods']]
+            metadata = ('date', 'runId', 'sha256', 'curveSource', 'curveProvenance', 'curveParameters',
+                        'curveCompletedAt', 'source')
+            report['sources'] = [{key: item[key] for key in metadata if key in item} for item in workspace['periods']]
             if target == 'stress_delta':
                 report['scenario'] = scenario
         else:
@@ -364,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'")
         if name:
             self.send_header("Content-Disposition", f'attachment; filename="{name}"')
         self.end_headers()
@@ -410,6 +435,12 @@ class Handler(BaseHTTPRequestHandler):
                     "/spectrum.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
             if path in mime:
                 return self.static(path[1:], mime[path])
+            if path in ("/curve-ui/curves.js", "/curve-ui/curves.css"):
+                content_type = "text/javascript" if path.endswith(".js") else "text/css"
+                result = (curve_ui.assets() / path.rsplit("/", 1)[-1]).read_bytes()
+                return self.send_data(200, result, content_type + "; charset=utf-8")
+            if path.startswith("/api/v1/"):
+                return self.curve_request("GET", url)
             if path == "/favicon.ico":
                 return self.send_data(204, b"", "image/x-icon")
             if path == "/api/workspace":
@@ -459,10 +490,15 @@ class Handler(BaseHTTPRequestHandler):
         if not self.verify_request():
             return
         try:
-            path = urlsplit(self.path).path
+            url = urlsplit(self.path)
+            path = url.path
+            if path.startswith("/api/v1/"):
+                return self.curve_request("POST", url, json_bytes(self.payload(curve_ui.MAX_CURVE_REQUEST)))
             request = self.payload(ARCHIVE_BODY if path == '/api/import-history' else MAX_BODY)
             if path == "/api/run":
                 return self.reply({"job": start_job(lambda update: save_integration(request, update))}, 202)
+            if path == "/api/revalue":
+                return self.reply({"job": start_job(lambda update: revalue_portfolio(request, update))}, 202)
             if path == '/api/import-history':
                 task = lambda update: import_history(request.get('archive'), update, request.get('provenance'))
                 return self.reply({'job': start_job(task, 'Проверка архива исторических снимков')}, 202)
@@ -512,6 +548,10 @@ class Handler(BaseHTTPRequestHandler):
         data = safe_dataset(path, ';' if filename == 'calculator_input.csv' else ',') if filename.endswith('.csv') else path.read_bytes()
         return self.send_data(200, data, mime + "; charset=utf-8", filename)
 
+    def curve_request(self, method, url, body=None):
+        status, data = curve_ui.proxy(method, url.path, url.query, body)
+        return self.send_data(status, data, "application/json; charset=utf-8")
+
     def static(self, name, mime):
         return self.send_data(200, (STATIC / name).read_bytes(), mime if mime.startswith("font/") else mime + "; charset=utf-8")
 
@@ -525,10 +565,21 @@ class Handler(BaseHTTPRequestHandler):
         query = args.get("q", [""])[0][:100].casefold()
         if mode == "flows":
             identifier = args.get("id", [""])[0]
-            filename = folder / selected / "core" / "cashflows.csv"
-            return {"id": identifier, "date": selected, "rows": [
-                row for row in read_rows(filename) if row["instrument_id"] == identifier
-            ]}
+            root = folder / selected
+            inputs = read_rows(root / "calculator_input.csv", ";")
+            contract = next((row for row in inputs if row["deal_id"] == identifier), None)
+            if contract is None:
+                raise FileNotFoundError()
+            fields = ("side", "currency_id", "deal_dttm", "maturity_dttm", "current_principal_amt",
+                      "interest_rate", "base_indicator_rate", "rate_type_cd", "discriminator")
+            summary = next((row for row in read_rows(root / "core" / "deal_summary.csv")
+                            if row["instrument_id"] == identifier), {})
+            return {"id": identifier, "date": selected,
+                    "contract": {key: contract[key] for key in fields if contract.get(key)},
+                    "totals": {key: summary[key] for key in ("total_principal", "total_interest") if summary.get(key)},
+                    "prices": {row["curveCode"]: row["present_value"]
+                               for row in read_rows(root / "core" / "discounted_deal_summary.csv") if row["instrument_id"] == identifier},
+                    "rows": [row for row in read_rows(root / "core" / "cashflows.csv") if row["instrument_id"] == identifier]}
         index = max(0, int(args.get("page", ["0"])[0]))
         date_col, id_col = options["dateColumn"], options["idColumn"]
         if not date_col or not id_col:

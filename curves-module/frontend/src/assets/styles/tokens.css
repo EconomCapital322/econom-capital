@@ -1,5 +1,5 @@
 /* UI Figma: Colors 3263:9444, Typography 3263:9432, Elements 3263:9460. */
-:root {
+:root, :host {
   /* The palette swatch and the component blue differ in the source design. */
   --color-primary: #1eaff7;
   --color-accent: #00b4fb;
@@ -49,7 +49,7 @@
 }
 
 /* Main screen and parameter dialog exported as SVG on 23.10.2026. */
-:root {
+:root, :host {
   --curve-controls-bg: #f5f5f5;
   --curve-results-bg: #ffffff;
   --curve-chart-grid: #e7ebef;

@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from uuid import UUID
 
 from .fixtures import curve_fixture
 
@@ -24,9 +25,9 @@ from normalizer.curves import CODES, CurvesClient, save_curves, validate_result 
 from normalizer.discounting import LABELS as BUCKET_LABELS, discount_flows  # noqa: E402
 
 SCENARIOS = dict(zip(CODES, (
-    "Базовая кривая", "Параллельный вверх", "Параллельный вниз",
-    "Увеличение наклона", "Уменьшение наклона", "Короткие ставки вверх",
-    "Короткие ставки вниз",
+    "Базовая кривая", "Общий рост ставок", "Общее снижение ставок",
+    "Увеличение наклона кривой", "Уменьшение наклона кривой", "Рост краткосрочных ставок",
+    "Снижение краткосрочных ставок",
 ), strict=True))
 LABELS = {
     "npv": "NPV базы", "stress_delta": "ΔPV выбранного сценария к базе",
@@ -94,6 +95,43 @@ def validated_snapshot_curves(value, day):
     return validate_result(value, day)
 
 
+def selected_curve_ref(value):
+    try:
+        day = date.fromisoformat(value["reportDate"])
+        run_id = str(UUID(value["runId"]))
+        if day.isoformat() != value["reportDate"] or run_id != value["runId"]:
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        raise ValueError("Выберите корректную дату и Run ID кривых.") from error
+    return day, run_id
+
+
+def market_curve_run(client, day, run_id):
+    route = "/curve-runs/" + run_id
+    state, _ = client.request(route)
+    if (not isinstance(state, dict) or state.get("reportDate") != day.isoformat()
+            or state.get("runId") != run_id or state.get("status") != "ready"):
+        raise ValueError("Выбранный запуск кривых недоступен или ещё не готов.")
+    if state.get("dataProvenance") != "market" or (state.get("usedParameters") or {}).get("mode") != "standard":
+        raise ValueError("Для оценки доступны рыночные кривые со стандартными P = 4, K = 5, D = 3.")
+    result, raw = client.request(route + "/result")
+    validate_result(result, day)
+    if result["runId"] != run_id or result["usedParameters"] != state["usedParameters"]:
+        raise ValueError("Результат кривых не соответствует выбранному запуску.")
+    if {p["bucketLabel"] for p in result["curves"][0]["points"]} != set(BUCKET_LABELS):
+        raise ValueError("В выбранном запуске нужны все 23 календарных бакета.")
+    return result, raw
+
+
+def curve_metadata(result):
+    parameters = result["usedParameters"]
+    return {
+        "source": result["source"], "curveProvenance": result.get("dataProvenance", "market"),
+        "curveCompletedAt": result["completedAt"],
+        "curveParameters": {"mode": parameters["mode"], **{k: float(parameters[k]) for k in ("p", "k", "d")}},
+    }
+
+
 def portfolio_history(settings, destination, progress):
     scenario = settings.get("scenario", "parallel_up")
     if scenario not in SCENARIOS or scenario == "base":
@@ -110,6 +148,13 @@ def portfolio_history(settings, destination, progress):
     if cache_mode and fixture_mode:
         raise ValueError("Выберите один источник кривых на весь расчёт.")
     batches = generated["batches"]
+    pinned = settings.get("curveSelection")
+    if pinned is not None:
+        selected_day, run_id = selected_curve_ref(pinned)
+        if cache_mode or fixture_mode:
+            raise ValueError("Выбранный Run ID можно применить только при расчёте через API.")
+        if not any(batch["date"] == selected_day.isoformat() for batch in batches):
+            raise ValueError("Дата выбранных кривых должна входить в период расчёта портфеля.")
     positions, schedule = {}, defaultdict(list)
     panel, periods = [], []
 
@@ -126,6 +171,8 @@ def portfolio_history(settings, destination, progress):
                 raise ValueError(f"Нет сохранённых рыночных кривых на {day:%d.%m.%Y}. Включите расчёт через API.")
             raw = saved.read_bytes()
             curve_result = validate_result(json.loads(raw, parse_float=Decimal), day)
+        elif pinned is not None and day == selected_day:
+            curve_result, raw = market_curve_run(curves, day, run_id)
         else:
             try:
                 curve_result, raw = curves.result(day)
@@ -177,7 +224,9 @@ def portfolio_history(settings, destination, progress):
         periods.append({
             **metrics, "date": day.isoformat(), "deals": len(positions), "flowRows": len(flow_rows),
             "runId": curve_result["runId"], "sha256": link["sha256"],
-            "curveSource": "fixture" if fixture_mode else "saved" if cache_mode else "api",
+            "curveSource": "fixture" if fixture_mode else "saved" if cache_mode else
+            "pinned" if pinned is not None and day == selected_day else "api",
+            **curve_metadata(curve_result),
         })
         progress(index, len(batches), f"{day:%d.%m.%Y} · рассчитано {len(positions)} сделок во всех 7 сценариях")
 

@@ -12,6 +12,7 @@ export interface ParametersDialogProps {
   onApply: (value: ScenarioParameters) => void
   onClose: () => void
   initialErrors?: Partial<Record<keyof ScenarioParameters, string>>
+  portalTarget?: ShadowRoot
 }
 
 type Draft = Record<keyof ScenarioParameters, string>
@@ -20,7 +21,7 @@ function toDraft(value: Readonly<ScenarioParameters>): Draft {
   return { p: String(value.p), k: String(value.k), d: String(value.d) }
 }
 
-export function ParametersDialog({ initialValue, onApply, onClose, initialErrors }: ParametersDialogProps): ReactPortal {
+export function ParametersDialog({ initialValue, onApply, onClose, initialErrors, portalTarget }: ParametersDialogProps): ReactPortal {
   const [draft, setDraft] = useState(() => toDraft(initialValue))
   const [edited, setEdited] = useState<Record<keyof ScenarioParameters, boolean>>(() => ({
     p: initialValue.p !== STANDARD_PARAMETERS.p,
@@ -44,12 +45,13 @@ export function ParametersDialog({ initialValue, onApply, onClose, initialErrors
       if (!focusable?.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+      const active = portalTarget?.activeElement ?? document.activeElement
+      if (event.shiftKey && active === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', handleKeyDown) }
-  }, [onClose])
+  }, [onClose, portalTarget])
 
   function adjust(key: keyof ScenarioParameters, delta: number) {
     const current = Number(draft[key])
@@ -113,6 +115,6 @@ export function ParametersDialog({ initialValue, onApply, onClose, initialErrors
           </div>
         </div>
       </div>
-    </>, document.body,
+    </>, portalTarget ?? document.body,
   )
 }
