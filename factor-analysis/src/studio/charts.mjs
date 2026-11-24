@@ -1,14 +1,18 @@
 const numberFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const exactFormat = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const scaleFormat = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 });
+const smallFormat = new Intl.NumberFormat('ru-RU', { notation: 'scientific', maximumFractionDigits: 2 });
+const unsignedZero = (value) => value === 0 ? 0 : value;
 
 export function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
-export const n = (value) => Number.isFinite(value) ? numberFormat.format(value) : '—';
-export const exact = (value, unit = '') => Number.isFinite(value) ? exactFormat.format(value) + unit : '—';
-export const short = (value, unit = '') => Number.isFinite(value) ? scaleFormat.format(value) + unit : '—';
+export const n = (value) => Number.isFinite(value) ? numberFormat.format(unsignedZero(value)) : '—';
+export const exact = (value, unit = '') => Number.isFinite(value)
+  ? (Math.abs(value) > 0 && Math.abs(value) < .005 ? smallFormat : exactFormat).format(unsignedZero(value)) + unit : '—';
+export const short = (value, unit = '') => Number.isFinite(value)
+  ? (Math.abs(value) > 0 && Math.abs(value) < .05 ? smallFormat : scaleFormat).format(unsignedZero(value)) + unit : '—';
 export const signed = (value, unit = '') => (value > 0 ? '+' : '') + exact(value, unit);
 export const tone = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : '';
 export const day = (iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso ?? '') ? iso.split('-').reverse().join('.') : '';
@@ -34,7 +38,7 @@ export function waterfall({ start, end, bars, active, unit }) {
     current += bar.value;
   }
   values.push({ key: 'end', label: 'Конец', value: end, total: true });
-  const extrema = [start, end, ...values.filter((v) => !v.total).flatMap((v) => [v.from, v.to])];
+  const extrema = [0, start, end, ...values.filter((v) => !v.total).flatMap((v) => [v.from, v.to])];
   const low = Math.min(...extrema), high = Math.max(...extrema);
   const span = high - low || Math.max(1, Math.abs(high) * 0.03);
   const step = nice(span / 5);
@@ -45,13 +49,13 @@ export function waterfall({ start, end, bars, active, unit }) {
   const barWidth = Math.min(72, band * 0.66);
   const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => {
     const value = min + i * step;
-    return `<line class="grid" x1="${l}" x2="${w - r}" y1="${y(value)}" y2="${y(value)}"/><text x="${l - 9}" y="${y(value) + 4}" text-anchor="end">${short(value, unit)}</text>`;
+    return `<line class="grid" x1="${l}" x2="${w - r}" y1="${y(value)}" y2="${y(value)}"/><text x="${l - 9}" y="${y(value) + 4}" text-anchor="end">${esc(short(value, unit))}</text>`;
   }).join('');
   const drawings = values.map((entry, i) => {
     const x = l + (i + 0.5) * band;
-    const top = y(entry.total ? entry.value : Math.max(entry.from, entry.to));
-    const bottom = y(entry.total ? min : Math.min(entry.from, entry.to));
-    const state = entry.total ? 'total' : entry.key === 'residual' ? 'residual' : entry.value >= 0 ? 'up' : 'down';
+    const top = y(entry.total ? Math.max(entry.value, 0) : Math.max(entry.from, entry.to));
+    const bottom = y(entry.total ? Math.min(entry.value, 0) : Math.min(entry.from, entry.to));
+    const state = entry.total ? 'total' : ['residual', 'reconciliation'].includes(entry.key) ? 'residual' : entry.value >= 0 ? 'up' : 'down';
     const label = wrap(entry.chartLabel ?? entry.label, Math.max(6, Math.min(15, Math.floor(band / 6.5))));
     const figure = entry.total ? short(entry.value) : (entry.value > 0 ? '+' : '') + short(entry.value);
     const tail = i < values.length - 1
@@ -65,7 +69,7 @@ export function waterfall({ start, end, bars, active, unit }) {
       <text class="group-label" x="${x}" y="${b + 20}" text-anchor="middle">${esc(label[0])}${label[1] ? `<tspan x="${x}" dy="13">${esc(label[1])}</tspan>` : ''}</text></g>`;
   }).join('');
   return `<div class="chart-scroll" tabindex="0" aria-label="Прокручиваемый график вкладов"><svg class="chart chart-waterfall" role="group" aria-label="Водопад изменения показателя. Нажмите на столбец, чтобы открыть детали" viewBox="0 0 ${w} ${h}">${ticks}${drawings}</svg></div>
-    <p class="note">Нижняя граница оси ${short(min, unit)}. Нажмите на столбец для пояснения.</p>`;
+    <p class="note">Итоговые столбцы начинаются от нуля. Нажмите на столбец для пояснения.</p>`;
 }
 
 export function bars(items, { unit = '', action, active, label, left = 195, narrow = false } = {}) {
@@ -95,7 +99,7 @@ export function bars(items, { unit = '', action, active, label, left = 195, narr
     <line class="zero" x1="${zero}" x2="${zero}" y1="6" y2="${top + row * values.length - 4}"/>${rows}</svg>`;
 }
 
-export function lineChart(series, { unit = '', title = '', axes = [], factor = false } = {}) {
+export function lineChart(series, { unit = '', title = '', axes = [], connect = true } = {}) {
   const points = series.flatMap((entry) => entry.points).filter((entry) => Number.isFinite(entry.value));
   if (points.length < 2) return '<p class="note">Недостаточно точек для графика.</p>';
   const w = 730, h = 239, l = 67, r = 17, t = 17, b = 197;
@@ -116,7 +120,7 @@ export function lineChart(series, { unit = '', title = '', axes = [], factor = f
     (i % Math.ceil(a.length / 7) === 0 && x(p.x) - l > 35 && w - r - x(p.x) > 36))
     .map((p, i, a) => `<text x="${x(p.x)}" y="${b + 18}" text-anchor="${i === 0 ? 'start' : i === a.length - 1 ? 'end' : 'middle'}">${esc(p.label ?? n(p.x))}</text>`).join('');
   const traces = series.map((entry) => `<g stroke="${entry.color}" aria-label="${esc(entry.name)}">
-    <polyline fill="none" stroke-width="2.7" stroke-linejoin="round" points="${entry.points.map((p) => x(p.x) + ',' + y(p.value)).join(' ')}"/>
+    ${connect ? `<polyline fill="none" stroke-width="2.7" stroke-linejoin="round" points="${entry.points.map((p) => x(p.x) + ',' + y(p.value)).join(' ')}"/>` : ''}
     ${entry.points.map((p) => `<circle cx="${x(p.x)}" cy="${y(p.value)}" r="${p.selected ? 5.5 : 3.4}" fill="${p.selected ? entry.color : '#fff'}" stroke-width="2">
       <title>${esc(p.label ?? n(p.x))} · ${esc(exact(p.value, unit))}${p.support ? ' · ' + p.support + ' строк' : ''}</title></circle>`).join('')}</g>`).join('');
   return `<svg class="chart" role="img" aria-label="${esc(title)}" viewBox="0 0 ${w} ${h}">${grid}${marks}${traces}</svg>`;

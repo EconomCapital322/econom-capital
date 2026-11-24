@@ -8,3 +8,7 @@
 **/out
 **/__pycache__
 curves-module
+**/.local
+**/.env
+**/.env.*
+!**/.env.example

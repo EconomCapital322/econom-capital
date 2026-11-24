@@ -36,7 +36,21 @@ if [[ ! -x "$repo_dir/.venv/bin/python" ]]; then
   "$python_bin" -m venv "$repo_dir/.venv"
 fi
 python_bin="$repo_dir/.venv/bin/python"
-if ! "$python_bin" -c 'import sklearn, shap' >/dev/null 2>&1; then
+if ! "$python_bin" - <<'CHECK_SPECTRUM_REQUIREMENTS'
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+
+for spec in Path('requirements.txt').read_text().splitlines():
+    if not spec.strip() or spec.startswith('#'):
+        continue
+    name, required = spec.split('==')
+    try:
+        if version(name) != required:
+            raise SystemExit(1)
+    except PackageNotFoundError:
+        raise SystemExit(1) from None
+CHECK_SPECTRUM_REQUIREMENTS
+then
   "$python_bin" -m pip install -r requirements.txt
 fi
 
@@ -45,7 +59,7 @@ if [[ -z "${SPECTRUM_CFCORE:-}" && ! -x "$module_dir/.local/bin/cfcore" && ! -x 
   cmake --build "$repo_dir/calculator/build" --target cfcore_cli -j 4
 fi
 
-if [[ "$curves" == "http://127.0.0.1:8000" ]] && ! present "$curves/openapi.json"; then
+if [[ "${SPECTRUM_SKIP_CURVES:-0}" != "1" && "$curves" == "http://127.0.0.1:8000" ]] && ! present "$curves/openapi.json"; then
   (
     cd "$repo_dir"
     if ! docker info >/dev/null 2>&1 && command -v open >/dev/null 2>&1; then
@@ -57,7 +71,6 @@ if [[ "$curves" == "http://127.0.0.1:8000" ]] && ! present "$curves/openapi.json
     fi
     make configure
     export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-econ-spectrum-local}"
-    export AUTOMATION__ENABLED="${AUTOMATION__ENABLED:-false}"
     config=(-f docker-compose.yaml)
     ca="${SPECTRUM_MOEX_CA:-$module_dir/.local/certs/moex-ca.pem}"
     if [[ -f "$ca" ]]; then
@@ -68,11 +81,11 @@ if [[ "$curves" == "http://127.0.0.1:8000" ]] && ! present "$curves/openapi.json
   ) || printf 'API кривых недоступен. Можно открыть последний расчёт и использовать сохранённые кривые.\n' >&2
 fi
 
-llm="${SPECTRUM_LLM_URL:-http://127.0.0.1:8089/v1}"
-export SPECTRUM_LLM_URL="$llm"
-if [[ "$llm" == "http://127.0.0.1:8089/v1" && -x .local/llm/bin/mlx_lm.server ]] && ! present "$llm/models"; then
+llm="$("$python_bin" -c 'from pathlib import Path; import os; from service.config import load_env; load_env(Path.cwd()); print(os.environ.get("SPECTRUM_LLM_URL", "http://127.0.0.1:8089/v1"))')"
+local_mode="$("$python_bin" -c 'from pathlib import Path; from service.config import load_env; load_env(Path.cwd()); from service.llm import provider; selected = provider(); print(selected.model if selected.name == "local" and selected.status == "available" else "")')"
+if [[ -n "$local_mode" && "$llm" == "http://127.0.0.1:8089/v1" && -x .local/llm/bin/mlx_lm.server ]] && ! present "$llm/models"; then
   HF_HUB_DISABLE_TELEMETRY=1 .local/llm/bin/mlx_lm.server --host 127.0.0.1 --port 8089 \
-    --allowed-origins "http://127.0.0.1:$port" --model "${SPECTRUM_LLM_MODEL:-mlx-community/Qwen2.5-1.5B-Instruct-4bit}" \
+    --allowed-origins "http://127.0.0.1:$port" --model "$local_mode" \
     > .local/llm.log 2>&1 &
   model_pid="$!"
 fi

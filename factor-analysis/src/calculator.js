@@ -19,7 +19,7 @@ const Calculator = (() => {
       const principalRule = deal.paymentType === 'BULLET' ? ['', '', ''] : monthly;
       const floating = deal.rateType === 'FLOATING';
       return [
-        Number(deal.id.slice(4)), deal.valuationDate, amortization[deal.paymentType], 'RUB', 'ASSET', 0,
+        Number(deal.id.slice(4)), deal.valuationDate, amortization[deal.paymentType], 'RUB', deal.side ?? 'ASSET', 0,
         deal.principal.toFixed(2), deal.valuationDate, deal.maturityDate, floating ? 'FLOAT' : 'FIXED',
         (floating ? deal.spread : deal.rate).toFixed(4), floating ? deal.benchmark.toFixed(4) : '',
         '', '', '0', 'ACT_365', ...monthly, ...principalRule, '', '', '', '', '', '', '',

@@ -142,7 +142,7 @@ def discover(panel, excluded, *, names=()):
         if re.search(r"(?:^|[_\W])(?:id|код|номер|идентификатор)(?:$|[_\W])", col.name.casefold()):
             continue
         result.append(col.name)
-    return result[:MAX_FEATURES]
+    return result
 
 
 def resolve_rows(panel, settings):
@@ -183,3 +183,47 @@ def distribution(rows, features, kinds):
             facts.append({"name": name, "kind": "category", "count": len(observed),
                           "levels": dict(Counter(observed).most_common(8))})
     return facts
+
+
+ID_LABEL = re.compile(r'(?:^|[_\W])(?:id|uid|guid|код|номер|идентификатор)(?:$|[_\W])', re.I)
+FUTURE_LABEL = re.compile(r'(?:^|[_\W])(?:future|lead\d*|next|t\+\d+|after|будущ\w*|следующ\w*|после)(?:$|[_\W])', re.I)
+
+
+def feature_audit(names, rows, excluded, forbidden=()):
+    """Determine eligibility using the training prefix only."""
+    import numpy as np
+
+    observed = np.array([row['observed'] for row in rows], dtype=float)
+    results = []
+    for name in names:
+        reason = None
+        raw = [row['values'][name] for row in rows]
+        col = profile_column(name, raw)
+        if name in excluded:
+            reason = 'Выбранная дата, ID, метрика или другая расчётная метрика'
+        elif name in forbidden:
+            reason = 'Колонка исключена пользователем'
+        elif ID_LABEL.search(name):
+            reason = 'Потенциальный технический идентификатор'
+        elif FUTURE_LABEL.search(name):
+            reason = 'Название указывает на значение из будущего или после даты наблюдения'
+        elif not rows:
+            reason = 'Нет наблюдений до начала сравнения'
+        elif col.missing > len(rows) / 2:
+            reason = 'Более 50% пропусков в обучающих строках'
+        elif col.kind == 'date':
+            reason = 'Дата требует отдельного временного преобразования'
+        elif col.distinct <= 1:
+            reason = 'Значение постоянно в обучающем периоде'
+        elif col.kind == 'category' and col.distinct > 30:
+            reason = 'Более 30 категорий в обучающем периоде'
+        elif col.kind == 'numeric':
+            values = np.array([np.nan if (value := number(text)) is None else value for text in raw])
+            valid = np.isfinite(values)
+            if np.sum(valid) >= 20 and np.ptp(observed[valid]) > 0:
+                corr = np.corrcoef(values[valid], observed[valid])[0, 1]
+                if abs(corr) >= 0.99999999:
+                    reason = 'Почти точное линейное преобразование цели. Проверьте утечку'
+        results.append({'name': name, 'kind': col.kind, 'eligible': reason is None, 'reason': reason,
+                        'missing': col.missing, 'distinct': col.distinct})
+    return results

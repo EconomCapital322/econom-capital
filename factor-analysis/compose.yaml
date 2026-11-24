@@ -1,0 +1,25 @@
+services:
+  spectrum:
+    build:
+      context: .
+      dockerfile: factor-analysis/Dockerfile
+    ports:
+      - 127.0.0.1:${SPECTRUM_DOCKER_PORT:-8780}:8780
+    environment:
+      SPECTRUM_CURVES_URL: http://api:8000
+      SPECTRUM_LLM_PROVIDER: ${SPECTRUM_LLM_PROVIDER:-disabled}
+      SPECTRUM_LLM_ENABLED: ${SPECTRUM_LLM_ENABLED:-true}
+      SPECTRUM_ALLOW_EXTERNAL_LLM: ${SPECTRUM_ALLOW_EXTERNAL_LLM:-false}
+      SPECTRUM_LLM_TIMEOUT: ${SPECTRUM_LLM_TIMEOUT:-12}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    volumes:
+      - spectrum_data:/data
+volumes:
+  spectrum_data:
