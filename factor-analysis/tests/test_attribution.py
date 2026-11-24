@@ -73,11 +73,12 @@ class AttributionTest(unittest.TestCase):
 
     def test_explanation_scope_keeps_pairs_and_quality_relevant(self):
         facts = fact_library(self.report, {}, "")
-        catalog, required = scope(facts, "Есть ли взаимодействие факторов?")
+        catalog, required, intent, effect = scope(facts, "Есть ли взаимодействие факторов?")
         self.assertEqual(required, ["pair_0"])
         self.assertNotIn("overview", catalog)
+        self.assertEqual((intent, effect), ('interaction', 'factor_interaction'))
         self.assertEqual(scope(facts, "Какая ошибка у модели?")[1], ["quality"])
-        self.assertEqual(scope(facts, "Сколько стоит яблоко?"), ([], []))
+        self.assertEqual(scope(facts, "Сколько стоит яблоко?"), ([], [], 'out_of_scope', 'none'))
 
     def test_profile_flags_an_outlier_without_removing_rows(self):
         column = profile_column("principal", ["1", "2", "3", "4", "5", "7", "60", ""])

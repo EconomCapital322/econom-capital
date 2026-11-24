@@ -128,6 +128,23 @@ class MLDiagnosticsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'суммируемую'):
             analyze(fixture('linear'), {**FIELDS, 'aggregation': 'mean'})
 
+    def test_sign_can_be_unstable_even_when_the_bootstrap_agrees(self):
+        def invert_one_refit(training, first, last, features, kinds, name, reference, *, keep_models=False):
+            return ({key: [value, -value] for key, value in reference.items()},
+                    {'rankCorrelations': [1., 1.], 'refits': 2}, [])
+
+        panel = fixture('threshold')
+        settings = {**FIELDS, 'features': ['size', 'rate']}
+        with patch.dict(os.environ, {'SPECTRUM_SIGN_LIMIT': '.7'}), \
+                patch('service.attribution.stability_checks', side_effect=invert_one_refit):
+            report = analyze(panel, settings, diagnostics=False)
+        lead = report['factors'][0]
+        self.assertGreater(lead['signStability'], .7)
+        self.assertEqual(lead['refitSignMatches'], 1)
+        self.assertTrue(report['criteria']['stableRank'])
+        self.assertFalse(report['criteria']['stableSign'])
+        self.assertEqual(report['status'], 'caution')
+
     def test_date_shared_features_are_checked_as_blocks(self):
         history = StringIO()
         rows = csv.writer(history)

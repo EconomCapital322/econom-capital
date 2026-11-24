@@ -77,6 +77,66 @@ class ExplanationTest(unittest.TestCase):
         self.assertEqual(result['mode'], 'llm')
         self.assertEqual(result['facts'][0]['source'], '#cash-details')
 
+    def test_factor_drawer_uses_exact_key_and_keeps_names_and_values_local(self):
+        current = workspace()
+        current['report']['factors'].extend([{'key': 'FX', 'value': 170.25}, {'key': 'Private field', 'value': 318.10}])
+
+        def select_from_example(_, __, messages, **kwargs):
+            payload = messages[-1]['content']
+            context = json.loads(payload)
+            self.assertEqual(context['required'], ['factor_1'])
+            for private in ('FX', '170.25', 'Private field', 'secret.csv'):
+                self.assertNotIn(private, payload)
+            return json.dumps(context['example'])
+
+        with patch.dict(os.environ, SETTINGS, clear=True), patch('service.llm.chat', side_effect=select_from_example):
+            result = explain(current, 'Каков вклад FX?', allow_external=True, focus_factor='factor:FX')
+            with self.assertRaisesRegex(ValueError, 'Компонент не входит'):
+                explain(current, '', focus_factor='factor:fx')
+        self.assertEqual(result['mode'], 'llm')
+        self.assertEqual(result['facts'][0]['detail'], 'factor:FX')
+        self.assertIn('170,25', result['facts'][0]['text'])
+
+    def test_demonstration_questions_use_only_semantic_codes_on_the_cloud(self):
+        exact = workspace()
+        exact['report'].update(mode='valuation', joint=-1, reconciliation=-1e-27,
+            factors=[{'key': 'cash_effect', 'value': 37}, {'key': 'discount_effect', 'value': -48}],
+            cashDetails={'common': 21, 'covered': 21,
+                         'parts': [{'key': 'paid_principal', 'label': 'Private payment note', 'value': -75}]})
+        model = workspace('c' * 32)
+        model['report'].update(interactions=[{'a': 'private field', 'b': 'another field', 'strength': 3, 'rows': 20}],
+            warnings=['Private caution text'], validation=[{'mae': 11}, {'mae': 12}],
+            model={'name': 'Extra Trees'}, aggregateChangeError=-5)
+        cases = (
+            (exact, 'Почему изменился NPV?', 'overview', 'metric_change', 'overview'),
+            (exact, 'Как повлияли денежные потоки?', 'cashflows', 'cashflow_total', 'factor_0'),
+            (exact, 'Как повлияла кривая ставок?', 'rate_curve', 'discounting', 'factor_1'),
+            (exact, 'Как повлияли погашения?', 'cashflow_breakdown', 'scheduled_principal', 'cash_part_paid_principal'),
+            (model, 'Какие факторы взаимодействуют?', 'interaction', 'factor_interaction', 'pair_0'),
+            (model, 'Почему модели нужно доверять с осторожностью?', 'quality', 'model_validation', 'quality'),
+        )
+        for work, question, intent, effect, required in cases:
+            with self.subTest(question=question):
+                def reply(_, __, messages, **kwargs):
+                    body = messages[-1]['content']
+                    context = json.loads(body)
+                    self.assertEqual((context['method'], context['intent'], context['effect']),
+                                     (work['report']['mode'], intent, effect))
+                    self.assertIn(required, context['required'])
+                    self.assertIn(required, context['categories'])
+                    for private in (question, 'Private ', 'private field', 'secret.csv', '2718', '2026-'):
+                        self.assertNotIn(private, body)
+                    return json.dumps(context['example'])
+
+                with patch.dict(os.environ, SETTINGS, clear=True), patch('service.llm.chat', side_effect=reply):
+                    result = explain(work, question, allow_external=True)
+                self.assertEqual(result['mode'], 'llm')
+                self.assertIn(required, {fact['id'] for fact in result['facts']})
+        with patch.dict(os.environ, {'SPECTRUM_LLM_ENABLED': '0'}):
+            check = explain(exact, 'Проверка расчёта')
+        self.assertIn('0,00', check['facts'][0]['text'])
+        self.assertNotIn('-0,00', check['facts'][0]['text'])
+
     def test_drops_fabrication_and_uses_fallback_on_bad_plans(self):
         incorrect = [
             'not-json',

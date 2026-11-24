@@ -500,9 +500,12 @@ def analyze(panel, settings, *, protected=(), preferred=(), diagnostics=True):
                                                 {item['key']: item['value'] for item in factors}, keep_models=diagnostics)
     for item in factors:
         item['refits'] = refits[item['key']]
+        item['refitSignMatches'] = sum(1 for value in item['refits'] if np.sign(value) == np.sign(item['value']))
     stable_rank = bool(stability['rankCorrelations']) and min(stability['rankCorrelations']) >= rank_limit
-    stable_sign = all(item['signStability'] >= sign_limit for item in factors[:2]
-                      if abs(item['value']) > .05 * max(1, abs(model_change)))
+    leading = [item for item in factors[:2] if abs(item['value']) > .05 * max(1, abs(model_change))]
+    stable_sign = all(item['signStability'] >= sign_limit
+                      and (not item['refits'] or item['refitSignMatches'] / len(item['refits']) >= sign_limit)
+                      for item in leading)
     if not (stable_rank and stable_sign):
         warnings.append('Лидирующие вклады чувствительны к подвыборке или переобучению.')
     trained_model = {'key': selected_model, 'name': MODELS[selected_model], 'seed': SEED,
