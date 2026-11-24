@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14283b">
+  <title>Спектр · Анализ портфеля</title>
+  <link rel="stylesheet" href="/studio.css">
+  <script type="module" src="/studio.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#content">К содержимому</a>
+  <div class="shell">
+    <aside class="rail">
+      <a class="brand" href="#analysis"><span class="brandmark" aria-hidden="true"><i></i><i></i><i></i></span><span>Спектр<small>Анализ портфеля</small></span></a>
+      <nav aria-label="Разделы">
+        <a href="#analysis" data-route="analysis"><span aria-hidden="true">▥</span>Факторный анализ</a>
+        <a href="#scenarios" data-route="scenarios"><span aria-hidden="true">⌁</span>Сценарии ставок</a>
+        <a href="#portfolio" data-route="portfolio"><span aria-hidden="true">▤</span>Портфель</a>
+        <a href="#data" data-route="data"><span aria-hidden="true">◫</span>Данные</a>
+      </nav>
+      <div class="services">
+        <h2>Подключения</h2>
+        <ul id="services" aria-live="polite"><li><i></i>Проверяем сервисы</li></ul>
+      </div>
+    </aside>
+    <div class="body">
+      <header class="topbar">
+        <div id="crumb">Рабочая область</div>
+        <div id="origin" class="origin"></div>
+        <a href="#portfolio" class="button small primary">Новый расчёт</a>
+      </header>
+      <div class="alert-container" id="activity" aria-live="polite"></div>
+      <main id="content" tabindex="-1"><p class="loading">Открываем последний расчёт…</p></main>
+    </div>
+  </div>
+  <dialog id="inspector" aria-labelledby="inspector-title"></dialog>
+  <noscript>Включите JavaScript, чтобы открыть «Спектр».</noscript>
+</body>
+</html>
