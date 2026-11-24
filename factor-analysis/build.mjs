@@ -14,5 +14,5 @@ const html = template
   .replace(/\s*<!-- @template-help:begin -->[\s\S]*?<!-- @template-help:end -->\s*/, '')
   .replace('<!-- @style -->', () => `<style>${css}</style>`)
   .replace('<!-- @script -->', () => `<script>\n${script.replace(/<\/script/gi, '<\\/script')}\n</script>`);
-await writeFile(new URL('index.html', root), html);
-console.log('Готово: index.html');
+await writeFile(new URL('legacy.html', root), html);
+console.log('Готово: legacy.html');
