@@ -66,6 +66,8 @@ button:disabled { cursor: default; opacity: .55; }
 .shell { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); min-height: 100dvh; }
 .rail { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; padding: 26px 16px 18px; overflow: auto; background: var(--nav); color: #eef0f8; }
 .rail :focus-visible { outline-color: #bdb6ff; }
+.rail-header { display: grid; }
+.rail-header .mobile-new-run { display: none; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 4px; margin-bottom: 47px; color: #fff; text-decoration: none; font-size: 23px; font-weight: 725; letter-spacing: -.045em; line-height: 1.08; }
 .brand-mark { flex: none; }
 .brand small { display: block; margin-top: 5px; color: #b2b9d0; font-size: 11px; font-weight: 460; letter-spacing: -.01em; line-height: 1.3; }
@@ -412,9 +414,11 @@ dialog::backdrop { background: #15192c70; }
 
 @media (max-width: 810px) {
   :root { --gutter: 16px; }
-  .shell { position: relative; grid-template-columns: minmax(0, 1fr); }
+  .shell { grid-template-columns: minmax(0, 1fr); }
   .rail { position: static; height: auto; padding: 11px var(--gutter); gap: 8px; }
-  .brand { align-self: start; margin: 0; max-width: calc(100% - 120px); font-size: 20px; }
+  .rail-header { grid-template-columns: minmax(0, 1fr) fit-content(48%); align-items: center; gap: 12px; }
+  .rail-header .mobile-new-run { display: inline-flex; justify-self: end; max-width: 100%; padding-inline: 9px; overflow-wrap: anywhere; }
+  .brand { margin: 0; min-width: 0; font-size: 20px; overflow-wrap: anywhere; }
   .brand-mark { width: 36px; height: 36px; }
   .rail nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .rail nav a { min-height: 39px; font-size: 11px; }
@@ -423,9 +427,7 @@ dialog::backdrop { background: #15192c70; }
   .services summary { font-size: 10px; }
   .services ul { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 6px 15px; }
   .services li small { margin-left: 0; }
-  .topbar { position: absolute; top: 12px; right: var(--gutter); padding: 0; min-height: 0; border: 0; background: transparent; }
-  #crumb { display: none; }
-  .topbar .button { min-height: 35px; padding-inline: 9px; }
+  .topbar { display: none; }
   main { padding-top: 17px; }
   .page-heading { margin-bottom: 13px; }
   .chart-scroll .chart-waterfall { min-width: 570px; }

@@ -48,11 +48,13 @@ async function noOverflow(page, viewports) {
     const span = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
     assert.ok(span[0] <= span[1] + 1, `layout overflow at ${width}: ${span}`);
     if (width <= 810) {
-      const [brand, action] = await page.evaluate(() => [
-        document.querySelector('.brand').getBoundingClientRect().right,
-        document.querySelector('.topbar .button').getBoundingClientRect().left,
+      const [brand, action] = await Promise.all([
+        page.locator('.brand').boundingBox(),
+        page.getByRole('link', { name: 'Новый расчёт', exact: true }).boundingBox(),
       ]);
-      assert.ok(brand <= action, `overlapping navigation at ${width}`);
+      assert.ok(brand && action, `missing mobile navigation at ${width}`);
+      assert.ok(brand.x + brand.width <= action.x,
+        `overlapping navigation at ${width} (brand ends at ${brand.x + brand.width}, action starts at ${action.x})`);
     }
   }
 }
@@ -69,7 +71,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
   try {
     const origin = await waitForServer(server);
     browser = await chromium.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
-    const brandPage = await browser.newPage();
+    const brandPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await brandPage.route('**/spectrum.svg', (route) => route.fulfill({ status: 404 }));
     await brandPage.goto(origin);
     const renderedMark = await brandPage.locator('.brand').evaluate((brand) => {
@@ -77,6 +79,12 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
       return svg ? svg.getBBox().width > 0 : brand.querySelector('img')?.naturalWidth > 0;
     });
     assert.ok(renderedMark, 'The sidebar logo is visible when the standalone SVG is unavailable.');
+    await brandPage.evaluate(() => document.fonts.ready);
+    const mobileAction = brandPage.getByRole('link', { name: 'Новый расчёт', exact: true });
+    await mobileAction.evaluate((control) => { control.style.fontSize = '16px'; });
+    await noOverflow(brandPage, [[390, 844], [320, 720]]);
+    await mobileAction.click();
+    await brandPage.getByRole('heading', { name: 'Размер и период', exact: true }).waitFor();
     await brandPage.close();
 
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
