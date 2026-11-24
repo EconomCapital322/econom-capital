@@ -460,12 +460,12 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
   const date = '2026-08-25';
   const upstream = await contractServer(date);
   const data = await mkdtemp(join(tmpdir(), 'spectrum-embedded-'));
-  const server = spawn(python, ['-m', 'service.server', '--port', '0'], {
-    env: { ...process.env, SPECTRUM_DATA_DIR: data, SPECTRUM_LLM_ENABLED: '0', DEEPSEEK_API_KEY: '', SPECTRUM_CURVES_URL: upstream.url },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let browser;
+  const env = { ...process.env, SPECTRUM_DATA_DIR: data, SPECTRUM_LLM_ENABLED: '0', DEEPSEEK_API_KEY: '',
+    SPECTRUM_CURVES_URL: upstream.url, SPECTRUM_CURVE_ASSETS: join(data, 'curve-ui') };
+  let browser, server;
   try {
+    execFileSync(python, ['-m', 'service.curve_ui'], { env, timeout: 40_000 });
+    server = spawn(python, ['-m', 'service.server', '--port', '0'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const origin = await waitForServer(server);
     browser = await chromium.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -477,6 +477,8 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     const graph = page.getByRole('group', { name: /^Базовая и стрессовые кривые/ });
     const workspace = async () => (await page.request.get(origin + '/api/workspace')).json();
     await page.goto(origin + '/#curves?reportDate=' + date);
+    assert.equal((await page.request.get(origin + '/curve-ui/curves.js')).status(), 200, 'native startup must provide the embedded entry');
+    assert.equal((await page.request.get(origin + '/curve-ui/curves.css')).status(), 200, 'native startup must provide the embedded stylesheet');
     await heading.waitFor();
     await use.waitFor();
     assert.equal(await page.locator('iframe').count(), 0);
@@ -584,7 +586,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     assert.deepEqual(errors, []);
   } finally {
     await browser?.close();
-    if (server.exitCode === null && server.signalCode === null) {
+    if (server?.exitCode === null && server.signalCode === null) {
       server.kill();
       await once(server, 'close');
     }

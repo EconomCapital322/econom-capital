@@ -1,14 +1,19 @@
-"""Same-origin access to the public routes used by the embedded curves UI."""
+"""Build the local curves UI and proxy its public API routes."""
 
 from http.client import HTTPException
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from .integration import CurvesClient, curves_url
+from .config import load_env
+from .integration import ROOT, CurvesClient, curves_url
 
 
 RUN = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
@@ -18,6 +23,8 @@ ROUTES = {
 }
 MAX_REPLY = 8_000_000
 MAX_CURVE_REQUEST = 16_384
+FRONTEND = ROOT.parent / "curves-module" / "frontend"
+BUILD_FILES = ("curves.css", "curves.js")
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -29,8 +36,30 @@ OPENER = build_opener(ProxyHandler({}), NoRedirect())
 
 
 def assets():
-    module = Path(__file__).resolve().parents[2] / "curves-module" / "frontend"
-    return Path(os.environ.get("SPECTRUM_CURVE_ASSETS", module / "dist-spectrum"))
+    return Path(os.environ.get("SPECTRUM_CURVE_ASSETS", FRONTEND / "dist-spectrum"))
+
+
+def build_local():
+    target = assets().resolve()
+    if all((target / name).is_file() for name in BUILD_FILES):
+        return
+    npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
+    if not npm or not (FRONTEND / "package-lock.json").is_file():
+        raise FileNotFoundError("Для сборки нужны исходники команды 2 и npm.")
+
+    print("Собираем встроенный интерфейс кривых…", flush=True)
+    build_env = {key: value for key, value in os.environ.items()
+                 if not key.startswith(("DEEPSEEK_", "SPECTRUM_"))}
+    if not (FRONTEND / "node_modules" / "vite" / "package.json").is_file():
+        subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=FRONTEND,
+                       env=build_env, check=True, timeout=150)
+    target.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=target, prefix=".build-") as staging:
+        build_env["SPECTRUM_CURVE_BUILD_DIR"] = staging
+        subprocess.run([npm, "run", "build:embedded"], cwd=FRONTEND,
+                       env=build_env, check=True, timeout=90)
+        for name in BUILD_FILES:
+            (Path(staging) / name).replace(target / name)
 
 
 def proxy(method, path, query, body=None):
@@ -64,3 +93,13 @@ def proxy(method, path, query, body=None):
             return reply.status, data
     except (HTTPException, OSError, ValueError):
         return 503, b'{"error":{"code":"CURVES_UNAVAILABLE"}}'
+
+
+if __name__ == "__main__":
+    load_env(ROOT)
+    try:
+        build_local()
+    except (OSError, subprocess.SubprocessError):
+        print("Сборка кривых недоступна. Проверьте Node.js 22.12+ и npm или запустите «Спектр» через Docker.",
+              file=sys.stderr)
+        sys.exit(1)

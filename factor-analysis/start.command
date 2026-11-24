@@ -29,6 +29,10 @@ open_browser() {
 }
 
 if present "${app}api/workspace"; then
+  if ! present "${app}curve-ui/curves.js" || ! present "${app}curve-ui/curves.css"; then
+    printf 'На %s работает экземпляр без сборки кривых. Остановите его и запустите start.command снова.\n' "$app" >&2
+    exit 1
+  fi
   printf 'Спектр уже работает: %s\n' "$app"
   open_browser
   exit 0
@@ -87,6 +91,8 @@ if [[ -z "${SPECTRUM_CFCORE:-}" ]] && ! "$python_bin" -c 'from service.integrati
   cmake -S "$repo_dir/calculator" -B "$repo_dir/calculator/build" -DCMAKE_BUILD_TYPE=Release
   cmake --build "$repo_dir/calculator/build" --config Release --target cfcore_cli -j 4
 fi
+
+"$python_bin" -m service.curve_ui || true
 
 if [[ "${SPECTRUM_SKIP_CURVES:-0}" != "1" && "$curves" == "http://127.0.0.1:8000" ]] && ! present "$curves/openapi.json"; then
   (

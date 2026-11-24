@@ -108,7 +108,7 @@ function renderCurves(active) {
       curveModule = mountCurves(curveScreen);
       renderCurves(state.route === 'curves');
     }).catch(() => {
-      curveScreen.innerHTML = '<h1>Кривые доходности</h1><p class="status error" role="alert">Модуль кривых не загрузился. Проверьте сборку интерфейса и обновите страницу.</p>';
+      curveScreen.innerHTML = '<h1>Кривые доходности</h1><p class="status error" role="alert">Не удалось загрузить интерфейс кривых. Перезапустите «Спектр» и обновите страницу.</p>';
     });
   }
 }

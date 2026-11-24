@@ -14,6 +14,13 @@ if "%SPECTRUM_CURVES_URL%"=="" set "SPECTRUM_CURVES_URL=http://127.0.0.1:8000"
 rem Проверка, работает ли уже сервер
 curl -s -f -m 2 -o nul "%APP_URL%api/workspace" >nul 2>&1
 if not errorlevel 1 (
+    for %%F in (curves.js curves.css) do (
+        curl -s -f -m 2 -o nul "%APP_URL%curve-ui/%%F" >nul 2>&1
+        if errorlevel 1 (
+            echo На %APP_URL% работает экземпляр без сборки кривых. Остановите его и запустите start.bat снова.
+            exit /b 1
+        )
+    )
     echo Спектр уже работает: %APP_URL%
     start "" "%APP_URL%"
     exit /b 0
@@ -89,6 +96,8 @@ if "%SPECTRUM_CFCORE%"=="" (
         )
     )
 )
+
+"!PYTHON_EXE!" -m service.curve_ui
 
 rem Проверка доступности API кривых
 curl -s -f -m 2 -o nul "%SPECTRUM_CURVES_URL%/openapi.json" >nul 2>&1

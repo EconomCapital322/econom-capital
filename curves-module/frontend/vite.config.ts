@@ -7,7 +7,8 @@ export default defineConfig(({ mode }) => ({
   server: { proxy: { '/api': { target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:8000', changeOrigin: true } } },
   ...(mode === 'spectrum' ? {
     build: {
-      outDir: 'dist-spectrum',
+      outDir: process.env.SPECTRUM_CURVE_BUILD_DIR || 'dist-spectrum',
+      ...(process.env.SPECTRUM_CURVE_BUILD_DIR ? { emptyOutDir: false } : {}),
       lib: { entry: 'src/embedded.tsx', formats: ['es'], fileName: () => 'curves.js', cssFileName: 'curves' },
     },
     define: { 'process.env.NODE_ENV': JSON.stringify('production') },
