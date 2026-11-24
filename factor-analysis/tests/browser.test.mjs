@@ -10,7 +10,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const { chromium } = createRequire(import.meta.url)(process.env.SPECTRUM_PLAYWRIGHT_MODULE || 'playwright');
+const engines = createRequire(import.meta.url)(process.env.SPECTRUM_PLAYWRIGHT_MODULE || 'playwright');
+const engine = process.env.SPECTRUM_BROWSER || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(engine), 'Use chromium or webkit for browser checks.');
+const browserType = engines[engine];
 const python = process.env.SPECTRUM_TEST_PYTHON || '../.venv/bin/python';
 const screenshotDirectory = process.env.SPECTRUM_SCREENSHOTS;
 
@@ -85,7 +88,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
   let browser;
   try {
     const origin = await waitForServer(server);
-    browser = await chromium.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
+    browser = await browserType.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
     const brandPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await brandPage.route('**/spectrum.svg', (route) => route.fulfill({ status: 404 }));
     await brandPage.goto(origin);
@@ -469,7 +472,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     execFileSync(python, ['-m', 'service.curve_ui'], { env, timeout: 40_000 });
     server = spawn(python, ['-m', 'service.server', '--port', '0'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const origin = await waitForServer(server);
-    browser = await chromium.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
+    browser = await browserType.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     page.setDefaultTimeout(9_000);
     const errors = [];
@@ -487,6 +490,15 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await page.getByRole('button', { name: /^Отчётная дата/ }).click();
     const dayPicker = page.getByRole('dialog').filter({ has: page.getByRole('group', { name: 'Дни месяца' }) });
     await dayPicker.waitFor();
+    const selectedDay = dayPicker.locator('[data-date="2026-08-25"]');
+    await selectedDay.focus();
+    await selectedDay.press('PageUp');
+    await dayPicker.locator('[data-date="2026-07-25"]').waitFor();
+    assert.equal(await dayPicker.isVisible(), true, 'changing the focused month keeps the calendar open');
+    await dayPicker.getByRole('button', { name: 'Предыдущий месяц', exact: true }).click();
+    await dayPicker.locator('[data-date="2026-06-01"]').waitFor();
+    await dayPicker.getByRole('button', { name: 'Следующий месяц', exact: true }).click();
+    await dayPicker.getByRole('button', { name: 'Следующий месяц', exact: true }).click();
     await dayPicker.locator('[data-date="2026-08-24"]').click();
     await page.getByText('Нет публикации MOEX за выбранную дату.', { exact: true }).waitFor();
     await page.getByRole('button', { name: /^Отчётная дата/ }).click();
