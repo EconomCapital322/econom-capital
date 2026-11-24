@@ -369,6 +369,8 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const restored = await (await page.request.get(origin + '/api/workspace')).json();
     assert.equal(restored.id, imported.workspaceId);
     assert.equal(restored.source, 'historical');
+    assert.equal(restored.report.mode, 'valuation');
+    assert.equal(restored.report.target, 'npv');
     assert.equal(restored.periods.length, 8);
     assert.deepEqual(errors, []);
   } finally {

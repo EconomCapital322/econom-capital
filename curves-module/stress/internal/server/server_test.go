@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrsskaa/curves-module/stress/internal/config"
+	"github.com/EconomCapital322/econom-capital/curves-module/stress/internal/config"
 )
 
 const testWaitTimeout = 5 * time.Second
