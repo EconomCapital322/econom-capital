@@ -11,10 +11,13 @@ export interface ParametersControlProps {
   onChange: (value: ScenarioParameters) => void
   onOpen?: () => void
   disabled?: boolean
+  active?: boolean
+  compact?: boolean
+  portalTarget?: ShadowRoot
   errors?: Partial<Record<keyof ScenarioParameters, string>>
 }
 
-export function ParametersControl({ value, onChange, disabled = false, errors, onOpen }: ParametersControlProps): ReactElement {
+export function ParametersControl({ value, onChange, disabled = false, active = true, compact = false, portalTarget, errors, onOpen }: ParametersControlProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false)
   const helpId = useId()
   const editRef = useRef<HTMLButtonElement | null>(null)
@@ -45,10 +48,10 @@ export function ParametersControl({ value, onChange, disabled = false, errors, o
           <span>D = {formatParameter(value.d)} п. п.</span>
         </span>
         <button ref={editRef} className="pencil-button" type="button" onClick={() => { onOpen?.(); setIsOpen(true) }} disabled={disabled} aria-label="Редактировать параметры" title="Редактировать параметры">
-          <img src={pencilIcon} alt="" width="25" height="25" />
+          {compact ? 'Параметры' : <img src={pencilIcon} alt="" width="25" height="25" />}
         </button>
       </div>
-      {isOpen && <ParametersDialog initialValue={value} initialErrors={errors} onClose={close} onApply={(next) => { onChange(next); close() }} />}
+      {isOpen && active && <ParametersDialog initialValue={value} initialErrors={errors} portalTarget={portalTarget} onClose={close} onApply={(next) => { onChange(next); close() }} />}
     </div>
   )
 }

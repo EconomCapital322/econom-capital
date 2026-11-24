@@ -46,7 +46,7 @@ export function ReportDatePicker({ value, onChange }: ReportDatePickerProps) {
   useEffect(() => {
     if (!open) return
     function outside(event: Event) {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false)
+      if (root.current && !event.composedPath().includes(root.current)) setOpen(false)
     }
     document.addEventListener('pointerdown', outside)
     document.addEventListener('focusin', outside)

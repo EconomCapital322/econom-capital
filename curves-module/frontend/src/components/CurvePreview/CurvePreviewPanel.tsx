@@ -14,10 +14,10 @@ const SCENARIO_DETAILS: Partial<Record<StressScenarioCode, string>> = {
 }
 
 const SCENARIO_NAMES: Record<StressScenarioCode, string> = {
-  'parallel-up': 'Параллельный сдвиг вверх',
-  'parallel-down': 'Параллельный сдвиг вниз',
-  steepener: 'Увеличение наклона', flattener: 'Уменьшение наклона',
-  'short-up': 'Краткосрочные вверх', 'short-down': 'Краткосрочные вниз',
+  'parallel-up': 'Общий рост ставок',
+  'parallel-down': 'Общее снижение ставок',
+  steepener: 'Увеличение наклона кривой', flattener: 'Уменьшение наклона кривой',
+  'short-up': 'Рост краткосрочных ставок', 'short-down': 'Снижение краткосрочных ставок',
 }
 const DISPLAY_ORDER: StressScenarioCode[] = ['parallel-down', 'parallel-up', 'steepener', 'flattener', 'short-up', 'short-down']
 
@@ -37,15 +37,17 @@ export interface CurvePreviewPanelProps {
   message?: string
   graphRevision?: number
   rawPreview?: CurvePreview | null
+  compact?: boolean
 }
 
-export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null }: CurvePreviewPanelProps): ReactElement {
+export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null, compact = false }: CurvePreviewPanelProps): ReactElement {
   const [viewState, setViewState] = useState<{ view: 'graph' | 'table'; revision: number }>({ view: 'graph', revision: graphRevision })
   const view = viewState.revision === graphRevision ? viewState.view : 'graph'
   const setView = (view: 'graph' | 'table') => setViewState({ view, revision: graphRevision })
   const [sourceScope, setSourceScope] = useState<string | null>(null)
   const scope = `${preview?.reportDate}:${graphRevision}`
-  const showSource = sourceScope === scope && rawPreview?.reportDate === preview?.reportDate && !!rawPreview
+  const sourceOnly = !!rawPreview && rawPreview === preview && !calculation
+  const showSource = !!rawPreview && rawPreview.reportDate === preview?.reportDate && (sourceOnly || sourceScope === scope)
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [focusedPoint, setFocusedPoint] = useState<number | null>(null)
@@ -57,13 +59,13 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
     const plot = plotRef.current
     if (!plot) return
     const observer = new ResizeObserver(([entry]) => {
-      const width = Math.max(1000, entry.contentRect.width)
+      const width = Math.max(compact ? 250 : 1000, entry.contentRect.width)
       const height = Math.max(180, entry.contentRect.height)
       setPlotSize(current => current.width === width && current.height === height ? current : { width, height })
     })
     observer.observe(plot)
     return () => observer.disconnect()
-  }, [view, preview, error, selectedCurves.length])
+  }, [view, preview, error, selectedCurves.length, compact])
   const tooltipId = `${panelId}-tooltip`
 
   function toggleScenario(code: string) {
@@ -99,7 +101,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
   const exportAvailable = canExportCurveCalculation(result)
   const basePoints = showSource ? rawPreview.points : result?.baseCurve ?? preview.points
   const curves = [
-    { code: 'base', name: showSource ? 'Исходная MOEX' : 'Базовая кривая', points: basePoints, color: 'var(--chart-base)', dash: undefined as string | undefined },
+    { code: 'base', name: showSource ? rawPreview.source : 'Базовая кривая', points: basePoints, color: 'var(--chart-base)', dash: undefined as string | undefined },
     ...([...((showSource ? [] : result?.stressCurves) ?? [])].sort((a, b) => DISPLAY_ORDER.indexOf(a.code) - DISPLAY_ORDER.indexOf(b.code)).map(curve => ({
       code: curve.code,
       name: SCENARIO_NAMES[curve.code],
@@ -113,7 +115,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
   const activePoint = hoveredPoint ?? focusedPoint
   const selectedPoint = activePoint !== null ? basePoints[activePoint] : null
   const dateLabel = new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', }).replace(' г.', '')
-  const heading = result ? 'Базовая и стрессовые кривые' : 'Базовая кривая'
+  const heading = showSource ? 'Исходные ставки' : result ? 'Базовая и стрессовые кривые' : 'Базовая кривая'
   const W = plotSize.width, H = plotSize.height, left = 31, right = 25, top = 9, bottom = 42
   const rates = curves.flatMap(curve => curve.points.map(point => point.rate))
   const lowest = Math.min(...rates), highest = Math.max(...rates)
@@ -138,14 +140,15 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
   const formatTick = (tick: number) => Math.abs(tick) >= 1e6
     ? tick.toExponential(1)
     : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(tick)
+  const tickStride = compact ? Math.max(1, Math.ceil(basePoints.length * 37 / (W - left - right))) : 1
 
   return (
     <section className={`results-panel results-panel--${view}`} aria-label={heading}>
       <div className="results-panel__header">
         <div>
-          <h2>Результаты</h2>
-          <p>{dateLabel} · {basePoints.length} {showSource ? 'исходных сроков MOEX' : 'расчётных срока'}{result && !showSource ? ' · 7 кривых' : ''}</p>
-          {rawPreview?.reportDate === preview.reportDate && <button className="source-curve-toggle" type="button" aria-pressed={showSource} onClick={() => {
+          <h2>{compact ? heading : 'Результаты'}</h2>
+          {!compact && <p>{dateLabel} · {basePoints.length} {showSource ? 'исходных сроков MOEX' : 'расчётных срока'}{result && !showSource ? ' · 7 кривых' : ''}</p>}
+          {!sourceOnly && rawPreview?.reportDate === preview.reportDate && <button className="source-curve-toggle" type="button" aria-pressed={showSource} onClick={() => {
             setSourceScope(showSource ? null : scope)
             setHoveredPoint(null)
             setFocusedPoint(null)
@@ -179,7 +182,8 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
             <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${heading} на ${dateLabel}. Выберите срок клавишей Tab, затем используйте стрелки.`}>
               <title>{result ? 'Базовая кривая и шесть сценариев IRRBB' : 'Доходность по расчётным срокам'}</title>
               {ticks.map((tick, i) => <g key={i}><path d={`M${left} ${y(tick)}H${W - right}`} stroke="var(--chart-grid)" /><text x={left - 12} y={y(tick) + 4} textAnchor="end">{formatTick(tick)}</text></g>)}
-              {basePoints.map((point, i) => <text key={point.label} x={x(i)} y={H - 15} textAnchor="middle">{point.label}</text>)}
+              {basePoints.map((point, i) => (i === basePoints.length - 1 || (i % tickStride === 0 && i < basePoints.length - tickStride)) &&
+                <text key={point.label} x={x(i)} y={H - 15} textAnchor="middle">{point.label}</text>)}
               {visibleCurves.map(curve => (
                 <polyline key={curve.code} data-scenario={curve.code} points={curve.points.map((point, i) => `${x(i)},${y(point.rate)}`).join(' ')} fill="none" stroke={curve.color} strokeWidth={curve.code === 'base' ? '2.8' : '2.1'} strokeDasharray={curve.dash} strokeLinejoin="round" />
               ))}
@@ -228,19 +232,20 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
         )}
       {view === 'graph' && !showSource && <>
       <button type="button" className="curve-legend-toggle" aria-label={legendExpanded ? 'Свернуть выбор кривых' : 'Развернуть выбор кривых'} aria-expanded={legendExpanded} aria-controls={`${panelId}-legend`} onClick={() => setLegendExpanded(current => !current)}>
+        {compact && 'Выбор кривых'}
         <img src={chevronIcon} width="18" height="10" alt="" />
       </button>
       <div id={`${panelId}-legend`} className="curve-legend" aria-label="Выбор кривых" hidden={!legendExpanded}>
         {legendCurves.map(curve => (
           <button key={curve.code} type="button" className={`scenario-option ${curve.code === 'base' ? 'scenario-option--base' : ''}`} aria-pressed={selectedCurves.includes(curve.code)} onClick={() => toggleScenario(curve.code)} title={SCENARIO_DETAILS[curve.code as StressScenarioCode]}>
             <svg width="23" height="10" viewBox="0 0 23 10" aria-hidden="true"><path d="M0 5H23" stroke={curve.color} strokeWidth={curve.code === 'base' ? '3' : '2.2'} strokeDasharray={curve.dash} /></svg>
-            <span>{curve.code === 'parallel-up' ? 'Параллельный вверх' : curve.code === 'parallel-down' ? 'Параллельный вниз' : curve.name}</span>
+            <span>{curve.name}</span>
           </button>
         ))}
       </div>
       </>}
       </div>
-      {showSource && <p className="result-parameters">Опубликованные точки MOEX за выбранную дату · {rawPreview.sourceTime} МСК. Без интерполяции и экстраполяции. CSV выгружает полный расчётный комплект.</p>}
+      {showSource && <p className="result-parameters">{rawPreview.source} · {rawPreview.sourceTime} МСК. Исходные точки без интерполяции и экстраполяции.</p>}
       {result && !showSource && <p className="result-parameters" aria-label="Параметры расчёта" aria-live="polite"><span className="visually-hidden">Параметры расчёта: </span>P = {formatParameter(result.parameters.p)} п. п. · K = {formatParameter(result.parameters.k)} п. п. · D = {formatParameter(result.parameters.d)} п. п. · RUB{result.dataProvenance && <> · {result.dataProvenance === 'synthetic' ? 'Синтетические данные' : 'Рыночные данные'}</>}{result.runOrigin && <> · {result.runOrigin === 'manual' ? 'Ручной запуск' : 'Автоматический запуск'}</>}</p>}
       <p className="visually-hidden" id={`${panelId}-export-note`}>CSV — формат прототипа. Окончательный формат ещё согласуется.</p>
     </section>

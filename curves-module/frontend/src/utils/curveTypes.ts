@@ -19,7 +19,7 @@ export interface DiscountedCurvePoint extends CurvePoint {
 
 export interface CurvePreview {
   reportDate: string
-  source: 'MOEX'
+  source: string
   sourceTime: string
   points: readonly CurvePoint[]
 }
