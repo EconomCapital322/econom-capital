@@ -278,7 +278,12 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('button', { name: 'Снимки ZIP', exact: true }).click();
     await page.getByLabel('Архив снимков').setInputFiles({ name: 'history.zip', mimeType: 'application/zip', buffer: await readFile(history) });
     await page.getByRole('button', { name: 'Загрузить ZIP', exact: true }).click();
-    await page.getByRole('heading', { name: 'Почему изменился NPV?', exact: true }).waitFor();
+    try {
+      await page.getByRole('heading', { name: 'Почему изменился NPV?', exact: true }).waitFor();
+    } catch (error) {
+      const message = await page.locator('#activity').innerText();
+      throw new Error(`ZIP history did not restore the NPV report: ${message}`, { cause: error });
+    }
     const restored = await (await page.request.get(origin + '/api/workspace')).json();
     assert.equal(restored.source, 'historical');
     assert.equal(restored.periods.length, 8);
