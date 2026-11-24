@@ -26,6 +26,7 @@ export function ReportDatePicker({ value, onChange }: ReportDatePickerProps) {
   const root = useRef<HTMLDivElement | null>(null)
   const trigger = useRef<HTMLButtonElement | null>(null)
   const grid = useRef<HTMLDivElement | null>(null)
+  const focusDay = useRef(false)
   const popupId = useId()
   const labelId = useId()
   const valueId = useId()
@@ -39,20 +40,24 @@ export function ReportDatePicker({ value, onChange }: ReportDatePickerProps) {
   const today = formatDate(new Date())
 
   useEffect(() => {
-    if (!open) return
-    grid.current?.querySelector<HTMLButtonElement>(`[data-date="${cursor}"]`)?.focus()
+    if (!open || !focusDay.current) return
+    focusDay.current = false
+    grid.current?.querySelector<HTMLButtonElement>(`[data-date="${cursor}"]`)?.focus({ preventScroll: true })
   }, [open, cursor])
 
   useEffect(() => {
     if (!open) return
+    const scope = root.current?.getRootNode()
     function outside(event: Event) {
+      const host = scope instanceof ShadowRoot ? scope.host : null
+      if (event.currentTarget === document && host && event.composedPath().includes(host)) return
       if (root.current && !event.composedPath().includes(root.current)) setOpen(false)
     }
-    document.addEventListener('pointerdown', outside)
-    document.addEventListener('focusin', outside)
+    scope?.addEventListener('pointerdown', outside)
+    if (scope !== document) document.addEventListener('pointerdown', outside)
     return () => {
-      document.removeEventListener('pointerdown', outside)
-      document.removeEventListener('focusin', outside)
+      scope?.removeEventListener('pointerdown', outside)
+      if (scope !== document) document.removeEventListener('pointerdown', outside)
     }
   }, [open])
 
@@ -60,13 +65,17 @@ export function ReportDatePicker({ value, onChange }: ReportDatePickerProps) {
     setCursor(next)
     onChange(next)
     setOpen(false)
-    trigger.current?.focus()
+    trigger.current?.focus({ preventScroll: true })
   }
 
-  function moveMonth(amount: number) {
-    const next = new Date(year, month + amount, 1, 12)
-    if (next.getFullYear() < 1000 || next.getFullYear() > 9999) return
-    setCursor(formatDate(next))
+  function moveMonth(amount: number, control: HTMLButtonElement) {
+    focusDay.current = false
+    control.focus({ preventScroll: true })
+    setCursor(current => {
+      const previous = parseDate(current)
+      const next = new Date(previous.getFullYear(), previous.getMonth() + amount, 1, 12)
+      return next.getFullYear() < 1000 || next.getFullYear() > 9999 ? current : formatDate(next)
+    })
   }
 
   function navigate(event: KeyboardEvent<HTMLButtonElement>) {
@@ -90,31 +99,39 @@ export function ReportDatePicker({ value, onChange }: ReportDatePickerProps) {
     }
     if (handled) {
       event.preventDefault()
+      focusDay.current = true
       if (next.getFullYear() >= 1000 && next.getFullYear() <= 9999) setCursor(formatDate(next))
     }
   }
 
   return (
     <div className="report-date" ref={root} onKeyDown={event => {
+      if (event.key === 'Tab' && open) {
+        window.setTimeout(() => {
+          const scope = root.current?.getRootNode()
+          const focused = scope instanceof ShadowRoot ? scope.activeElement : document.activeElement
+          if (focused && !root.current?.contains(focused)) setOpen(false)
+        }, 0)
+      }
       if (event.key === 'Escape' && open) {
         event.preventDefault()
         event.stopPropagation()
         setOpen(false)
-        trigger.current?.focus()
+        trigger.current?.focus({ preventScroll: true })
       }
     }}>
       <span id={labelId} className="form-label">Отчётная дата</span>
       <button ref={trigger} type="button" className="report-date__trigger" aria-labelledby={`${labelId} ${valueId}`}
         aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popupId : undefined}
-        onClick={() => { if (!open) setCursor(value); setOpen(!open) }}>
+        onClick={() => { if (!open) { focusDay.current = true; setCursor(value) } setOpen(!open) }}>
         <span id={valueId}>{isReportDate(value) ? value.split('-').reverse().join('.') : 'Выберите дату'}</span>
         <img src={calendarIcon} width="20" height="20" alt="" />
       </button>
       {open && <div className="date-calendar" id={popupId} role="dialog" aria-labelledby={titleId}>
         <div className="date-calendar__header">
-          <button type="button" className="date-calendar__nav" aria-label="Предыдущий месяц" disabled={year === 1000 && month === 0} onClick={() => moveMonth(-1)}>‹</button>
+          <button type="button" className="date-calendar__nav" aria-label="Предыдущий месяц" disabled={year === 1000 && month === 0} onClick={event => moveMonth(-1, event.currentTarget)}>‹</button>
           <span id={titleId} aria-live="polite">{MONTHS[month]} <span>{year}</span></span>
-          <button type="button" className="date-calendar__nav" aria-label="Следующий месяц" disabled={year === 9999 && month === 11} onClick={() => moveMonth(1)}>›</button>
+          <button type="button" className="date-calendar__nav" aria-label="Следующий месяц" disabled={year === 9999 && month === 11} onClick={event => moveMonth(1, event.currentTarget)}>›</button>
         </div>
         <div className="date-calendar__weekdays" aria-hidden="true">{WEEKDAYS.map(day => <span key={day}>{day}</span>)}</div>
         <div className="date-calendar__days" ref={grid} role="group" aria-label="Дни месяца">
@@ -128,7 +145,7 @@ export function ReportDatePicker({ value, onChange }: ReportDatePickerProps) {
               tabIndex={iso === cursor ? 0 : -1} onKeyDown={navigate} onClick={() => select(iso)}>{day}</button>
           })}
         </div>
-        <div className="date-calendar__footer"><button type="button" onClick={() => select(formatDate(new Date()))}>Сегодня</button><button type="button" onClick={() => { setOpen(false); trigger.current?.focus() }}>Закрыть</button></div>
+        <div className="date-calendar__footer"><button type="button" onClick={() => select(formatDate(new Date()))}>Сегодня</button><button type="button" onClick={() => { setOpen(false); trigger.current?.focus({ preventScroll: true }) }}>Закрыть</button></div>
       </div>}
     </div>
   )
