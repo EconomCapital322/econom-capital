@@ -1,4 +1,4 @@
-"""Bounded outbound provider calls. The provider returns a plan, never report data."""
+"""Bounded calls to allowlisted public and loopback model endpoints."""
 
 from dataclasses import dataclass
 import json
@@ -50,7 +50,7 @@ class LLMProvider:
     model: str = ''
     status: str = 'disabled'
 
-    def complete(self, messages):
+    def complete(self, messages, *, deadline=None):
         raise ProviderError(self.status)
 
 
@@ -63,8 +63,8 @@ class LocalProvider(LLMProvider):
     name: str = 'local'
     status: str = 'available'
 
-    def complete(self, messages):
-        return chat(model_endpoint(), self.model, messages)
+    def complete(self, messages, *, deadline=None):
+        return chat(model_endpoint(), self.model, messages, deadline=deadline)
 
 
 @dataclass(frozen=True)
@@ -72,8 +72,11 @@ class DeepSeekProvider(LLMProvider):
     name: str = 'deepseek'
     status: str = 'available'
 
-    def complete(self, messages):
-        return chat(deepseek_endpoint(), self.model, messages, auth=os.environ['DEEPSEEK_API_KEY'].strip())
+    def complete(self, messages, *, deadline=None):
+        key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
+        if not key:
+            raise ProviderError('unconfigured')
+        return chat(deepseek_endpoint(), self.model, messages, auth=key, deadline=deadline)
 
 
 class DisabledProvider(LLMProvider):
@@ -101,8 +104,8 @@ def provider():
     return DisabledProvider(selected if selected in ('deepseek', 'local') else 'facts', status='unconfigured')
 
 
-def chat(endpoint, model, messages, auth=None):
-    data = {'model': model, 'messages': messages, 'temperature': 0, 'max_tokens': 300 if auth else 120, 'stream': False}
+def chat(endpoint, model, messages, auth=None, *, deadline=None):
+    data = {'model': model, 'messages': messages, 'temperature': 0, 'max_tokens': 1250 if auth else 160, 'stream': False}
     headers = {'Content-Type': 'application/json'}
     if auth:
         data.update(response_format={'type': 'json_object'}, thinking={'type': 'disabled'})
@@ -112,7 +115,7 @@ def chat(endpoint, model, messages, auth=None):
         raise ProviderError('context_limit')
     request = Request(endpoint + '/chat/completions', body, headers)
     opener = build_opener(ProxyHandler({}), NoRedirect)
-    deadline = time.monotonic() + timeout()
+    deadline = min(deadline if deadline is not None else math.inf, time.monotonic() + timeout())
     for attempt in range(2 if auth else 1):
         try:
             remaining = deadline - time.monotonic()

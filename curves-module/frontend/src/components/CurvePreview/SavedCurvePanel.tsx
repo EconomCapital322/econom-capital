@@ -8,10 +8,11 @@ interface SavedCurveProps {
   workspaceId: string
   reportDate: string
   runId?: string
+  onExplain?: (selection: { reportDate: string; runId: string; workspaceId?: string; scenario: string }) => void
   onBack: () => void
 }
 
-export function SavedCurvePanel({ active, workspaceId, reportDate, runId, onBack }: SavedCurveProps) {
+export function SavedCurvePanel({ active, workspaceId, reportDate, runId, onBack, onExplain }: SavedCurveProps) {
   const address = `/api/export/${encodeURIComponent(workspaceId)}/${encodeURIComponent(reportDate)}/standard-result.json`
   const query = useQuery({
     queryKey: ['valuation-curve', workspaceId, reportDate, runId],
@@ -19,7 +20,8 @@ export function SavedCurvePanel({ active, workspaceId, reportDate, runId, onBack
     queryFn: async ({ signal }) => {
       const response = await fetch(address, { signal })
       if (!response.ok) throw new Error('Сохранённый снимок для этой оценки недоступен.')
-      return parseSavedResult(await response.json(), reportDate, runId)
+      const payload = await response.json()
+      return { ...parseSavedResult(payload, reportDate, runId), runId: payload.runId as string }
     },
   })
   const result = query.data
@@ -33,6 +35,7 @@ export function SavedCurvePanel({ active, workspaceId, reportDate, runId, onBack
       <Button className="curve-archive-back" variant="outline" onClick={onBack}>К кривым за эту дату</Button>
       <CurvePreviewPanel compact calculation={result ?? null}
         preview={result ? { reportDate, source, sourceTime: '', points: result.baseCurve } : null}
+        onExplain={result && onExplain ? scenario => onExplain({ reportDate, runId: result.runId, workspaceId, scenario }) : undefined}
         message={query.isPending ? 'Открываем снимок из сохранённого отчёта…' : undefined}
         error={query.error?.message} />
       {result && <div className="curve-integration"><details><summary>Источник и методика</summary>

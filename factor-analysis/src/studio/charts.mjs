@@ -65,7 +65,7 @@ export function waterfall({ start, end, bars, active, unit }) {
     return `${tail}<g tabindex="0" role="button" aria-pressed="${active === entry.key}" data-key="${esc(entry.key)}" data-action="factor" aria-label="${esc(entry.label)} ${esc(exact(entry.value, unit))}">
       <title>${esc(entry.label)} · ${esc(entry.total ? exact(entry.value, unit) : signed(entry.value, unit))}</title>
       <rect class="bar-hit" x="${x - band / 2 + 2}" y="${t - 18}" width="${band - 4}" height="${b - t + 52}" rx="4"/>
-      <rect class="bar-${state}" x="${x - barWidth / 2}" y="${top}" width="${barWidth}" height="${Math.max(1.5, bottom - top)}" rx="2"/>
+      <rect class="bar-${state} waterfall-bar ${tone(entry.value)}" x="${x - barWidth / 2}" y="${top}" width="${barWidth}" height="${Math.max(1.5, bottom - top)}" rx="3" style="--entry-delay:${i * 22}ms"/>
       <text class="value" x="${x}" y="${Math.max(17, top - 8)}" text-anchor="middle">${esc(figure)}</text>
       <text class="group-label" x="${x}" y="${b + 20}" text-anchor="middle">${esc(label[0])}${label[1] ? `<tspan x="${x}" dy="13">${esc(label[1])}</tspan>` : ''}</text></g>`;
   }).join('');
@@ -99,7 +99,7 @@ export function divergingBars(items, { active, unit = '' } = {}) {
   const max = Math.max(...rows.map((item) => Math.abs(item.value))) || 1;
   return `<div class="contribution-chart" role="group" aria-label="Вклады факторов относительно нуля">
     <div class="contribution-axis" aria-hidden="true"><span>Компонент</span><span><b>−</b><b>0</b><b>+</b></span><span>Вклад</span></div>
-    ${rows.map((item) => {
+    ${rows.map((item, index) => {
       const amount = signed(item.value, unit);
       const start = item.value < 0 ? 50 - 50 * Math.abs(item.value) / max : 50;
       const width = 50 * Math.abs(item.value) / max;
@@ -107,7 +107,7 @@ export function divergingBars(items, { active, unit = '' } = {}) {
       return `<button type="button" class="contribution-row ${color}" data-action="factor" data-key="${esc(item.key)}"
         aria-pressed="${active === item.key}" title="${esc(item.label)} · ${esc(amount)}">
         <span class="contribution-name">${esc(item.chartLabel ?? item.label)}</span>
-        <span class="contribution-track" aria-hidden="true"><i style="--start:${start}%;--width:${width}%"></i></span>
+        <span class="contribution-track" aria-hidden="true"><i style="--start:${start}%;--width:${width}%;--entry-delay:${index * 28}ms"></i></span>
         <strong class="contribution-value">${esc(amount)}</strong>
       </button>`;
     }).join('')}

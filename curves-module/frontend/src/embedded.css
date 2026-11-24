@@ -13,9 +13,9 @@
   --curve-controls-bg: var(--surface-subtle);
   --curve-chart-grid: var(--rule);
   --curve-table-head-bg: var(--accent-soft);
-  --curve-panel-radius: 8px;
+  --curve-panel-radius: var(--radius);
   --curve-parameter-size: 13px;
-  --curve-heading-size: clamp(27px, 3.3vw, 43px);
+  --curve-heading-size: clamp(30px, 3.5vw, 46px);
   --curve-subtitle-size: 14px;
   --curve-section-gap: 24px;
   --bs-body-color: var(--ink);
@@ -42,9 +42,9 @@
 
 .curve-app::before { content: none; }
 .curve-app .curve-page { display: block; padding: 0; }
-.curve-page__heading h1 { font-size: var(--curve-heading-size); font-weight: 680; letter-spacing: -.045em; line-height: 1.14; }
+.curve-page__heading h1 { font-size: var(--curve-heading-size); font-weight: 720; letter-spacing: -.052em; line-height: 1.12; }
 .curve-page__heading p { margin-top: 5px; font-size: var(--curve-subtitle-size); font-weight: 400; }
-.calculation-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }
+.calculation-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin-bottom: 15px; }
 .calculation-controls {
   display: flex;
   align-items: end;
@@ -58,13 +58,13 @@
 }
 .parameters-control__value { gap: 10px; }
 .curve-app .form-label, .parameters-control__label { color: var(--ink); font-size: 12px; }
-.report-date__trigger, .run-history__trigger { min-height: 40px; padding: 6px 11px; border: 1px solid var(--rule); border-radius: var(--control); font-size: 13px; }
+.report-date__trigger, .run-history__trigger { min-height: 44px; padding: 7px 12px; border: 1px solid var(--control-line); border-radius: var(--control); font-size: 13px; }
 .date-calendar { width: min(300px, calc(100vw - 42px)); border-radius: 12px; }
 .run-history__label { font-size: 13px; }
 .run-history__icon { width: 15px; height: 15px; flex-basis: 15px; }
 .report-date__trigger img, .result-export img { filter: grayscale(1); }
 .parameter-values { gap: 0 6px; }
-.pencil-button { width: auto; height: 39px; padding: 0 10px; border: 1px solid var(--rule); border-radius: var(--control); color: var(--ink); background: var(--surface); font-weight: 600; }
+.pencil-button { width: auto; height: 44px; padding: 0 11px; border: 1px solid var(--rule); border-radius: var(--control); color: var(--ink); background: var(--surface); font-weight: 600; }
 .pencil-button:hover:not(:disabled) { background: var(--accent-soft); }
 .app-button {
   --bs-btn-bg: var(--accent);
@@ -91,14 +91,16 @@
   --bs-btn-border-color: var(--rule);
   --bs-btn-hover-border-color: var(--accent-line);
 }
-.calculation-toolbar .run-calculation { align-self: end; width: auto; min-height: 40px; padding-inline: 12px; font-size: 13px; white-space: normal; }
+.curve-app .run-calculation { align-self: end; width: auto; min-height: 44px; padding-inline: 13px; font-size: 13px; white-space: normal; }
+.curve-app .curve-preparation-error { padding: 10px 13px; border-radius: var(--control); background: #fff0f1; }
+.curve-app .curve-preparation-error .run-calculation { margin-inline-start: auto; }
 .calculation-hint, .calculation-status { margin: 0 0 12px; }
 .curve-status, .data-availability { margin: 0; padding: 0; color: var(--muted); font-size: 12px; }
 .curve-status { padding: 13px 0; border-top: 1px solid var(--rule); }
 .curve-result-message { margin: 0 0 10px; color: var(--muted-strong); overflow-wrap: anywhere; font-size: 13px; }
 .curve-result-message[role="alert"] { color: var(--negative); }
 .results-region { min-width: 0; margin: 0 0 12px; }
-.results-panel { border: 1px solid var(--rule); border-radius: var(--curve-panel-radius); }
+.results-panel { border: 1px solid var(--rule); border-radius: var(--curve-panel-radius); background: var(--surface); box-shadow: var(--sheet-shadow); }
 .curve-app .results-panel--graph { height: auto; }
 .curve-app .results-panel--graph > [role="tabpanel"] { display: block; overflow: visible; }
 .curve-app .results-panel--table { height: 460px; }
@@ -110,34 +112,43 @@
   flex-wrap: wrap;
   gap: 10px;
   min-height: 0;
-  padding: 14px 18px;
+  padding: 17px 20px 13px;
+  margin-bottom: 7px;
+  border-bottom: 1px solid var(--rule);
 }
 .results-panel h2 { font-size: 18px; font-weight: 640; line-height: 1.3; }
 .results-view-tabs::before { border-radius: var(--control); }
 .results-view-tabs .nav-link { width: auto; min-width: 67px; height: 32px; padding: 4px 10px; border-radius: var(--control); font-size: 12px; line-height: 1.5; }
 .results-view-tabs .nav-link.active { color: #fff; }
-.result-export { margin: 0; }
-.result-export .app-button { gap: 6px; min-height: 36px; width: auto; border-radius: var(--control); font-size: 12px; }
+.result-export { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.result-export .app-button { gap: 6px; min-height: 40px; width: auto; border-radius: var(--control); font-size: 12px; }
 .result-export img { width: 14px; }
-.curve-chart { padding: 0 12px; overflow: visible; }
+.curve-chart { padding: 3px 16px 0; overflow: visible; }
 .curve-chart__plot, .curve-chart svg { min-width: 0; }
-.curve-chart__plot { height: 275px; }
-.curve-chart svg { height: 100%; }
+.curve-chart__plot { flex: none; height: clamp(228px, 34vh, 348px); min-height: 0; }
+.curve-chart__plot > svg { height: 100%; }
+.curve-chart polyline { animation: trace-in 320ms var(--ease-ui) both; }
+.curve-chart text { font-size: 12px; }
 .curve-chart__tooltip { max-width: min(85%, 290px); }
 .curve-legend { display: flex; flex-wrap: wrap; gap: 7px 12px; margin: 9px 15px 0; }
-.curve-legend-toggle { display: inline-flex; align-items: center; gap: 8px; width: auto; margin: 4px 15px 0; color: var(--accent-dark); font-size: 12px; }
+.curve-legend-toggle { display: inline-flex; align-items: center; gap: 8px; width: auto; min-height: 36px; margin: 4px 15px 0; color: var(--accent-dark); font-size: 13px; }
 .curve-legend[hidden] { display: none; }
 .scenario-option { font-size: 12px; gap: 4px; }
-.scenario-option span { justify-content: start; min-height: 26px; padding: 2px 6px; border-radius: 5px; }
+.scenario-option span { justify-content: start; min-height: 31px; padding: 3px 8px; border-radius: 7px; }
 .result-parameters, .results-panel--table .result-parameters { margin: 13px 16px; color: var(--muted-strong); }
 .curve-integration { display: grid; justify-items: start; gap: 12px; margin-top: 16px; }
 .curve-integration p { margin: 6px 0; font-size: 13px; color: var(--muted-strong); }
 .curve-integration summary { color: var(--accent-dark); cursor: pointer; font-size: 13px; }
 .curve-integration code { overflow-wrap: anywhere; }
 .curve-archive-back { margin-bottom: 14px; }
-.parameters-modal .modal-content { border-radius: 12px; }
+.parameters-modal .modal-content { border-radius: var(--radius); }
 .parameters-modal .modal-title { font-size: 23px; }
 .parameters-modal .app-button { min-height: 40px; border-radius: var(--control); font-size: 13px; }
+
+@keyframes trace-in {
+  from { opacity: .25; }
+  to { opacity: 1; }
+}
 
 @media (max-width: 550px) {
   .calculation-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
@@ -147,9 +158,16 @@
   .parameters-control, .calculation-toolbar .run-calculation { grid-column: 1 / -1; justify-self: start; }
   .parameters-control__value { justify-content: flex-start; }
   .curve-chart__plot { height: 218px; }
+  .curve-chart { padding-inline: 8px; }
+  .curve-chart text { font-size: 11px; }
   .curve-chart__tooltip { top: 4px; inset-inline: 0; margin: 0 auto; transform: none; }
   .results-panel__header { padding: 12px; }
   .results-panel__header > div:first-child { flex-basis: 100%; }
   .parameter-help__content { left: auto; right: -60px; }
   .scenario-option, .scenario-option span { min-height: 29px; }
+  .result-export .app-button { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .curve-chart polyline { animation: none; }
 }

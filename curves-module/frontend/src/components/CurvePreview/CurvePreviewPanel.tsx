@@ -38,9 +38,10 @@ export interface CurvePreviewPanelProps {
   graphRevision?: number
   rawPreview?: CurvePreview | null
   compact?: boolean
+  onExplain?: (scenario: string) => void
 }
 
-export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null, compact = false }: CurvePreviewPanelProps): ReactElement {
+export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null, compact = false, onExplain }: CurvePreviewPanelProps): ReactElement {
   const [viewState, setViewState] = useState<{ view: 'graph' | 'table'; revision: number }>({ view: 'graph', revision: graphRevision })
   const view = viewState.revision === graphRevision ? viewState.view : 'graph'
   const setView = (view: 'graph' | 'table') => setViewState({ view, revision: graphRevision })
@@ -110,6 +111,8 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
     }))),
   ]
   const visibleCurves = showSource ? curves : curves.filter(curve => selectedCurves.includes(curve.code))
+  const activeScenario = selectedCurves.filter(code => code !== 'base' && visibleCurves.some(curve => curve.code === code)).at(-1) ?? 'base'
+  const scenarioCode = activeScenario.startsWith('short-') ? activeScenario.replace('short-', 'short_rate_') : activeScenario.replace('-', '_')
   const legendOrder = ['base', 'parallel-up', 'parallel-down', 'short-up', 'short-down', 'steepener', 'flattener']
   const legendCurves = [...curves].sort((a, b) => legendOrder.indexOf(a.code) - legendOrder.indexOf(b.code))
   const activePoint = hoveredPoint ?? focusedPoint
@@ -169,6 +172,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
           ))}
         </div>
         <div className="result-export">
+          {onExplain && result && !showSource && <Button variant="outline" onClick={() => onExplain(scenarioCode)}>Спросить AI</Button>}
           <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveCsv(result) }} aria-describedby={`${panelId}-export-note`} title="CSV — формат прототипа. Окончательный формат ещё согласуется.">
             <img src={exportIcon} alt="" width="18" height="20" />Скачать CSV
           </Button>

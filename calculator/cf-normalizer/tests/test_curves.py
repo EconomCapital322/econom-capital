@@ -109,6 +109,34 @@ def test_lost_post_recovers_without_second_post(result, monkeypatch):
     assert sum(body is not None for _, body in calls) == 1
 
 
+def test_portfolio_curve_request_recovers_stored_moex_failure(result, monkeypatch):
+    client = CurvesClient("http://localhost:8000", poll_seconds=0)
+    submissions = []
+    statuses = iter(("queued", "ready"))
+
+    def request(path, body=None):
+        if "standard-result" in path:
+            return None, b""
+        if body is not None:
+            submissions.append(body["retry"])
+            return None, b""
+        if path.startswith("/curve-preparations?"):
+            status = next(statuses) if True in submissions else "failed"
+            return {
+                "reportDate": str(DAY),
+                "status": status,
+                "errorCode": "SOURCE_UNAVAILABLE" if status == "failed" else None,
+                "runId": RUN if status == "ready" else None,
+            }, b""
+        if path.endswith("/result"):
+            return result, b"{}"
+        return {"reportDate": str(DAY), "status": "ready", "runId": RUN}, b""
+
+    monkeypatch.setattr(client, "request", request)
+    assert client.result(DAY)[0]["runId"] == RUN
+    assert submissions == [False, True]
+
+
 @pytest.mark.parametrize(
     "status,code,text",
     [
@@ -121,8 +149,11 @@ def test_lost_post_recovers_without_second_post(result, monkeypatch):
 )
 def test_preparation_causes_are_separate(monkeypatch, status, code, text):
     client = CurvesClient("http://localhost:8000", poll_seconds=0)
+    submissions = []
 
     def request(path, body=None):
+        if body is not None:
+            submissions.append(body["retry"])
         if "standard-result" in path:
             return None, b""
         return {
@@ -136,6 +167,7 @@ def test_preparation_causes_are_separate(monkeypatch, status, code, text):
     with pytest.raises(CurvesError, match=text) as exc:
         client.result(DAY)
     assert "secret" not in str(exc.value)
+    assert submissions == ([False, True] if code == "SOURCE_UNAVAILABLE" else [False])
 
 
 def test_every_calendar_boundary_is_inclusive():

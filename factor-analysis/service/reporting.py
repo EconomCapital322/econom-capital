@@ -122,10 +122,17 @@ def html_report(report, ai):
           curve_source.get(row.get('curveSource') or row.get('curveProvenance')), row.get('sha256'))
          for row in report.get('sources', [])])])
     if ai and ai.get('analysisId') == report.get('analysisId') and ai.get('sections'):
-        blocks.append('<h2>Пояснение по проверенным фактам</h2>')
+        summary = ai.get('kind') == 'summary'
+        blocks.append('<h2>Аналитическое резюме</h2>' if summary else '<h2>Пояснение по проверенным фактам</h2>')
         for section in ai['sections']:
-            blocks.append(f'<h3>{escape(section["title"])}</h3><ul>' + ''.join(
-                f'<li>{escape(fact["text"])}</li>' for fact in section['facts']) + '</ul>')
+            if not summary or section['title'] != 'Аналитическое резюме':
+                blocks.append(f'<h3>{escape(section["title"])}</h3>')
+            lines = []
+            for fact in section['facts']:
+                references = list(dict.fromkeys(ref['title'] for ref in fact.get('sources', [])))
+                sources = f'<br><small>Источники · {escape(" / ".join(references))}</small>' if references else ''
+                lines.append(f'<li>{escape(fact["text"])}{sources}</li>')
+            blocks.append('<ul>' + ''.join(lines) + '</ul>')
     return ('''<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">

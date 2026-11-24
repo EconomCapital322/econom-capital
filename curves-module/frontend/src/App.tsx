@@ -28,6 +28,7 @@ export interface CurveEmbedding {
   onLocation: (next: CurveLocation) => void
   onRunSelect: (reportDate: string, runId: string) => void
   onUse: (selection: { reportDate: string; runId: string }) => void
+  onExplain?: (selection: { reportDate: string; runId: string; workspaceId?: string; scenario: string }) => void
   valuationRunId?: string
   portalTarget: ShadowRoot
 }
@@ -110,9 +111,18 @@ function App({ embedding }: { embedding?: CurveEmbedding } = {}): ReactElement {
   }
 
   if (embedding && archived) return <SavedCurvePanel active={active} workspaceId={archived} reportDate={reportDate}
-    runId={embedding.location.runId} onBack={() => embedding.onLocation({ reportDate })} />
+    runId={embedding.location.runId} onExplain={embedding.onExplain} onBack={() => embedding.onLocation({ reportDate })} />
 
   const Page = embedding ? 'section' : 'main'
+  const explainRunId = displayedCalculation && run?.status === 'ready' ? run.runId : previous?.id
+  const explain = embedding?.onExplain
+  const preparationFailure = server.enabled && server.preparationFailed && state.status === 'error'
+  const calculateButton = (
+    <Button className="run-calculation" onClick={runCalculation} disabled={!canStart || isRunning}>
+      {isRunning ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Выполняется…</>
+        : preparationFailure ? 'Повторить загрузку' : state.status === 'error' ? 'Повторить расчёт' : 'Пересчитать кривые'}
+    </Button>
+  )
   return (
     <div className="curve-app">
       {!embedding && <Header />}
@@ -126,7 +136,7 @@ function App({ embedding }: { embedding?: CurveEmbedding } = {}): ReactElement {
             portalTarget={embedding?.portalTarget} active={active} compact={!!embedding} errors={server.validation &&
             ['p', 'k', 'd'].every(key => parameters[key as keyof ScenarioParameters] === server.validation?.parameters[key as keyof ScenarioParameters])
             ? server.validation.fields : undefined} />
-          <Button className="run-calculation" onClick={runCalculation} disabled={!canStart || isRunning}>{isRunning ? <><span className="spinner-border spinner-border-sm" aria-hidden="true" />Выполняется…</> : server.enabled && server.preparationFailed ? 'Повторить загрузку' : state.status === 'error' ? 'Повторить расчёт' : 'Пересчитать кривые'}</Button>
+          {!preparationFailure && calculateButton}
         </section>
         {server.enabled && <RunHistory reportDate={reportDate} selectedRunId={server.selectedRunId} onSelect={id => { setDraft(undefined); server.selectRun(id) }} open={active && historyOpen} onOpenChange={setHistoryOpen} />}
         </div>
@@ -141,25 +151,30 @@ function App({ embedding }: { embedding?: CurveEmbedding } = {}): ReactElement {
             {displayedCalculation ? `Расчёт готов · ${run?.dataProvenance === 'market' ? 'MOEX' : 'учебные ставки'}`
               : server.isPreparing ? 'Загружаем исходные ставки' : isRunning ? 'Сервер рассчитывает кривые' : 'Источник ставок · MOEX'}
           </div>}
-          {embedding && !displayedCalculation && (isRunning || state.status === 'error') && <p className="curve-result-message"
+          {preparationFailure && <div className="curve-preparation-error">
+            <p className="curve-result-message" role="alert">{state.message}</p>
+            {calculateButton}
+          </div>}
+          {embedding && !preparationFailure && !displayedCalculation && (isRunning || state.status === 'error') && <p className="curve-result-message"
             role={state.status === 'error' ? 'alert' : 'status'}>{state.status === 'error' ? state.message
               : server.isPreparing ? 'Подготовка данных MOEX продолжается.' : 'Запуск находится в очереди или рассчитывается.'}</p>}
           {embedding && previous && <p className="curve-result-message">Последний готовый результат · <code>{previous.id}</code></p>}
-          <CurvePreviewPanel rawPreview={rawPreview} graphRevision={graphRevision}
+          {(!preparationFailure || previous || (embedding && rawPreview)) && <CurvePreviewPanel rawPreview={rawPreview} graphRevision={graphRevision}
             preview={displayedCalculation ? preview : previous ? { reportDate, source: 'MOEX', sourceTime: '', points: previous.result.baseCurve }
               : embedding ? rawPreview : null}
             calculation={displayedCalculation ?? previous?.result ?? null}
             compact={!!embedding}
-            error={embedding ? undefined : sourceQuery.isError ? sourceQuery.error.message : state.status === 'error' ? state.message : undefined}
+            onExplain={explain && explainRunId ? scenario => explain({ reportDate, runId: explainRunId, scenario }) : undefined}
+            error={embedding || preparationFailure ? undefined : state.status === 'error' ? state.message : undefined}
             message={previous || (embedding && rawPreview) ? undefined : !validDate ? 'Выберите отчётную дату.'
               : sourceQuery.isPending ? 'Получаем данные за выбранную дату…'
                 : server.isPreparing || isRunning ? 'Результат появится после завершения.'
                   : !displayedCalculation && server.query.data?.preparation.status === 'no_data' ? 'Нет публикации MOEX за выбранную дату.'
-                    : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Готового расчёта пока нет. Нажмите «Пересчитать кривые».' : undefined} />
+                    : !displayedCalculation && preview && state.status !== 'error' && !sourceQuery.isError ? 'Исходные ставки доступны. Готового расчёта пока нет. Нажмите «Пересчитать кривые».' : undefined} />}
         </div> : !validDate ? <div className="source-state" role="status">Выберите отчётную дату.</div> : sourceQuery.isFetching && !preview ? <div className="source-state" role="status"><span className="spinner-border spinner-border-sm" aria-hidden="true" />Получаем данные за выбранную дату…</div>
           : sourceQuery.isError ? <div className="source-state" role="alert"><p>Не удалось получить данные за выбранную дату.</p><Button variant="outline" onClick={checkSource} disabled={sourceQuery.isFetching}>Повторить получение данных</Button></div>
           : <div className="results-region" aria-busy={isRunning}><CurvePreviewPanel graphRevision={graphRevision} preview={preview} calculation={displayedCalculation} error={state.status === 'error' ? state.message : undefined} /></div>}
-        <div className="data-availability" role="status">{preview && (!server.enabled || server.query.data?.input.available) ? <><span>Ставки за дату доступны</span><span>{server.enabled && server.query.data?.input.dataProvenance === 'synthetic' ? 'Синтетические данные' : preview.source} · {server.enabled && server.query.data?.input.sourceAsOf ? `${new Date(server.query.data.input.sourceAsOf).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : `${new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU')}, ${preview.sourceTime}`}</span></> : <span>{!validDate ? 'Отчётная дата не выбрана' : server.enabled && server.isPreparing ? 'Загружаем ставки из MOEX' : sourceQuery.isFetching ? 'Получаем исходные ставки' : sourceQuery.isError ? 'Исходные ставки недоступны' : 'Нет ставок за выбранную дату'}</span>}</div>
+        {(!preparationFailure || preview) && <div className="data-availability" role="status">{preview && (!server.enabled || server.query.data?.input.available) ? <><span>Ставки за дату доступны</span><span>{server.enabled && server.query.data?.input.dataProvenance === 'synthetic' ? 'Синтетические данные' : preview.source} · {server.enabled && server.query.data?.input.sourceAsOf ? `${new Date(server.query.data.input.sourceAsOf).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : `${new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU')}, ${preview.sourceTime}`}</span></> : <span>{!validDate ? 'Отчётная дата не выбрана' : server.enabled && server.isPreparing ? 'Загружаем ставки из MOEX' : sourceQuery.isFetching ? 'Получаем исходные ставки' : sourceQuery.isError ? 'Исходные ставки недоступны' : 'Нет ставок за выбранную дату'}</span>}</div>}
         {embedding && displayedCalculation && run && <div className="curve-integration">
           {embedding.valuationRunId && embedding.valuationRunId !== run.runId && <p>В текущем отчёте использован другой снимок кривых. Отчёт сохраняет кривые своей ревизии.</p>}
           {canUse ? <Button variant="outline" onClick={() => embedding.onUse({ reportDate, runId: run.runId })}>Использовать для оценки портфеля</Button>

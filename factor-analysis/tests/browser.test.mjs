@@ -65,7 +65,7 @@ async function noOverflow(page, viewports) {
   }
 }
 
-const cases = [[1920, 1080], [1440, 900], [1280, 720], [768, 900], [390, 844]];
+const cases = [[1920, 1080], [1440, 900], [1280, 720], [768, 900], [390, 844], [320, 720]];
 
 async function waitForJob(page, origin, id) {
   const deadline = Date.now() + 40_000;
@@ -134,12 +134,24 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('button', { name: 'Создать тестовый портфель' }).click();
     await page.getByRole('heading', { name: 'Расчёт завершён', exact: true }).waitFor({ timeout: 40_000 });
     await page.getByRole('heading', { name: 'Состав портфеля', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Спросить AI', exact: true }).click();
+    await page.getByRole('button', { name: 'Как распределяются сроки?' }).click();
+    await page.locator('#answer').getByText(/Оставшиеся сроки на/).waitFor();
+    await page.keyboard.press('Escape');
     await record(page, '03-portfolio-holdings');
     await page.getByRole('link', { name: 'Открыть факторный анализ' }).click();
     await page.getByRole('heading', { name: 'NPV базы', exact: true }).waitFor();
     await page.getByText('Сверено с калькулятором', { exact: true }).waitFor({ timeout: 40_000 });
     await page.getByRole('group', { name: 'Вклады факторов относительно нуля' }).waitFor();
     await noOverflow(page, cases);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const animationDuration = await page.locator('.contribution-track i').first().evaluate(bar => getComputedStyle(bar).animationDuration);
+    assert.equal(animationDuration, '0s', 'chart respects reduced motion');
+    await record(page, '01-valuation-mobile');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await record(page, '01-valuation');
     const edit = page.getByRole('button', { name: 'Изменить параметры', exact: true });
     const settings = page.locator('#settings-dialog');
     const openResearch = page.getByRole('button', { name: 'Подробный анализ', exact: true });
@@ -157,8 +169,6 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.keyboard.press('Escape');
     assert.equal(await settings.isVisible(), false);
     assert.equal(await applied.textContent(), actualPeriod);
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '01-valuation');
     const cash = page.locator('#bridge-chart [data-key="factor:cash_effect"]');
     await cash.focus();
     await page.keyboard.press('Enter');
@@ -174,7 +184,14 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await drawer.getByRole('button', { name: 'Объяснить с помощью AI' }).click();
     assert.equal((await factorAnswer).postDataJSON().focusFactor, 'factor:cash_effect');
     await page.locator('#answer').getByText('Показаны проверенные факты расчёта.', { exact: true }).waitFor();
-    await page.locator('#answer').getByRole('button', { name: 'Открыть источник' }).first().click();
+    await record(page, 'ai-valuation', undefined, false);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const composer = assistant.locator('.assistant-composer');
+    assert.ok(await composer.evaluate(footer => footer.getBoundingClientRect().bottom <= innerHeight + 1),
+      'composer stays in the mobile drawer viewport');
+    await record(page, 'ai-valuation-mobile', undefined, false);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator('#answer').getByRole('button', { name: /^Открыть источник/ }).first().click();
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Водопад', exact: true }).click();
@@ -215,6 +232,10 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     assert.equal((await downloadedHtml).suggestedFilename(), 'analysis.html');
     await method.getByRole('link', { name: 'Источники расчёта', exact: true }).click();
     await page.locator('#data-sources').getByRole('table', { name: 'Источники расчёта' }).waitFor();
+    await openAI.click();
+    await assistant.getByRole('button', { name: 'Есть ли пропуски и выбросы?' }).click();
+    await assistant.locator('#answer').getByText(/Пропуски:/).waitFor();
+    await page.keyboard.press('Escape');
     await page.getByRole('link', { name: 'Сценарии', exact: true }).click();
     const curve = page.getByRole('img', { name: 'Базовая и выбранная стрессовая кривые' });
     await curve.waitFor();
@@ -239,6 +260,11 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
     await record(page, '02-scenarios');
+    await openAI.click();
+    await assistant.getByRole('button', { name: 'Какие сроки дали главный вклад?' }).click();
+    await assistant.locator('#answer').getByText(/Бакет .* даёт/).first().waitFor();
+    await assistant.getByRole('button', { name: /^Открыть источник · Срок/ }).first().click();
+    assert.equal(await bucketDetail.evaluate((element) => element.open), true);
     await page.getByRole('button', { name: 'Разобрать изменение сценария' }).click();
     await settings.waitFor();
     assert.equal(await page.locator('#metric').inputValue(), 'stress_delta');
@@ -314,6 +340,12 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await effectChart.selectOption('pdp');
     await page.getByRole('img', { name: 'Среднее предсказание по выбранному признаку' }).waitFor();
     await page.getByRole('columnheader', { name: 'Средний прогноз' }).waitFor();
+    await openAI.click();
+    const selectedEffect = page.waitForRequest(request => request.url().endsWith('/api/explain'));
+    await assistant.getByRole('button', { name: 'Какая форма зависимости у выбранного признака?' }).click();
+    assert.deepEqual((await selectedEffect).postDataJSON().analysisFocus, { kind: 'effect', item: untrusted });
+    await assistant.locator('button[data-key="#effects"]').first().click();
+    assert.equal(await effectChart.inputValue(), 'ale');
     if (screenshotDirectory) {
       await page.locator('#effect-select').selectOption('темп');
       await record(page, '09-pdp', '#tab-body');
@@ -337,22 +369,43 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     assert.equal(await assistant.locator('#answer').textContent(), '');
     await assistant.getByRole('button', { name: 'Какие факторы главные?' }).click();
     await assistant.getByText('Показаны проверенные факты расчёта.', { exact: true }).waitFor();
+    await assistant.locator('#question').fill('А без них?');
+    await assistant.getByRole('button', { name: 'Объяснить', exact: true }).click();
+    await assistant.locator('#answer').getByText(/арифметика существующего разложения/).waitFor();
+    await assistant.getByText('Предыдущие вопросы (1)', { exact: true }).waitFor();
+    await assistant.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+    assert.equal(await assistant.locator('#answer').textContent(), '');
+    await assistant.getByRole('button', { name: 'Сформировать аналитическое резюме', exact: true }).click();
+    await assistant.getByRole('heading', { name: 'Аналитическое резюме', exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await record(page, 'ai-summary-mobile', undefined, false);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await record(page, 'ai-summary', undefined, false);
     const current = await (await page.request.get(origin + '/api/workspace')).json();
-    const report = await (await page.request.get(origin + `/api/export/${current.id}/reports/${current.report.analysisId}/analysis.json`)).json();
+    const reportUrl = origin + `/api/export/${current.id}/reports/${current.report.analysisId}/analysis.json`;
+    const report = await (await page.request.get(reportUrl)).json();
     assert.equal(report.unit, 'ед.');
     assert.equal(report.aiSummary.analysisId, report.analysisId);
+    assert.equal(report.aiSummary.kind, 'summary');
+    assert.equal((await (await page.request.get(reportUrl + '?includeSummary=0')).json()).aiSummary, null);
     await page.route('**/api/explain', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 1600));
       await route.fulfill({ json: { analysisId: report.analysisId, facts: [{ text: 'Устаревший ответ' }], mode: 'facts' } }).catch(() => {});
     });
     await assistant.getByRole('button', { name: 'Какие факторы главные?' }).click();
     await assistant.getByText('Подбираем факты по текущему расчёту…', { exact: true }).waitFor();
+    await assistant.getByRole('button', { name: 'Отменить ожидание', exact: true }).click();
+    await assistant.getByText('Ожидание отменено.', { exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'К обзору', exact: true }).click();
     await edit.click();
     await settings.locator('#from').selectOption('2026-05-25');
     await settings.getByRole('button', { name: 'Рассчитать вклады' }).click();
     await applied.getByText('25.05.2026 — 25.08.2026', { exact: true }).waitFor();
+    const stale = await page.request.post(origin + '/api/explain', { data: {
+      workspaceId: current.id, analysisId: report.analysisId, question: 'Почему изменился показатель?',
+    } });
+    assert.equal(stale.status(), 409);
     await openAI.click();
     assert.equal(await assistant.getByText('Показаны проверенные факты расчёта.', { exact: true }).count(), 0);
     assert.equal(await assistant.getByText('Устаревший ответ', { exact: true }).count(), 0);
@@ -402,11 +455,13 @@ async function contractServer(reportDate) {
   }]));
   const runs = new Map([...ready.values()].map(value => [value.runId, value]));
   const checks = new Map();
+  const preparationFailures = new Map();
+  const preparationRetries = new Map();
   let unavailable = false;
   const service = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     const day = url.searchParams.get('reportDate');
-    const base = ready.get(day);
+    const base = preparationFailures.has(day) ? undefined : ready.get(day);
     const route = url.pathname.replace('/api/v1', '');
     const reply = (status, body) => {
       response.writeHead(status, { 'Content-Type': 'application/json' });
@@ -423,7 +478,17 @@ async function contractServer(reportDate) {
     if (route === '/curve-preparations') {
       const data = [];
       for await (const chunk of request) data.push(chunk);
-      const selected = day ?? JSON.parse(Buffer.concat(data).toString()).reportDate;
+      const body = request.method === 'POST' ? JSON.parse(Buffer.concat(data).toString()) : null;
+      const selected = day ?? body.reportDate;
+      if (body?.retry) {
+        preparationRetries.set(selected, (preparationRetries.get(selected) ?? 0) + 1);
+        const failures = preparationFailures.get(selected);
+        if (failures === 0) preparationFailures.delete(selected);
+        else if (failures > 0) preparationFailures.set(selected, failures - 1);
+      }
+      if (preparationFailures.has(selected)) return reply(200, {
+        reportDate: selected, status: 'failed', runId: null, errorCode: 'SOURCE_UNAVAILABLE',
+      });
       const match = ready.get(selected);
       return reply(200, { reportDate: selected, status: match ? 'ready' : 'no_data',
         runId: match?.runId ?? null, errorCode: null });
@@ -435,7 +500,7 @@ async function contractServer(reportDate) {
     });
     if (route === '/curve-runs/standard-result' && base) return reply(200, base);
     if (route === '/curve-runs') return reply(200, { reportDate: day,
-      runs: [...runs.values()].filter(run => run.reportDate === day).map(run => state(run)) });
+      runs: preparationFailures.has(day) ? [] : [...runs.values()].filter(run => run.reportDate === day).map(run => state(run)) });
     const [, pathId, subroute] = route.match(/^\/curve-runs\/([\da-f-]+)(?:\/(\w+))?$/) ?? [];
     const run = runs.get(pathId);
     if (!run) return reply(404, { error: { code: 'NOT_FOUND' } });
@@ -458,7 +523,9 @@ async function contractServer(reportDate) {
   service.listen(0, '127.0.0.1');
   await once(service, 'listening');
   return { service, url: `http://127.0.0.1:${service.address().port}`,
-    original: ready.get(reportDate).runId, fail: () => { unavailable = true; } };
+    original: ready.get(reportDate).runId, fail: () => { unavailable = true; },
+    failPreparation: (day, count) => preparationFailures.set(day, count),
+    retries: day => preparationRetries.get(day) ?? 0 };
 }
 
 test('embedded curves share the shell and pin a validated run to portfolio valuation', { timeout: 110_000 }, async () => {
@@ -481,11 +548,16 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     const use = page.getByRole('button', { name: 'Использовать для оценки портфеля' });
     const graph = page.getByRole('group', { name: /^Базовая и стрессовые кривые/ });
     const workspace = async () => (await page.request.get(origin + '/api/workspace')).json();
+    upstream.failPreparation(date, 0);
     await page.goto(origin + '/#curves?reportDate=' + date);
     assert.equal((await page.request.get(origin + '/curve-ui/curves.js')).status(), 200, 'native startup must provide the embedded entry');
     assert.equal((await page.request.get(origin + '/curve-ui/curves.css')).status(), 200, 'native startup must provide the embedded stylesheet');
     await heading.waitFor();
+    const curveFailure = page.locator('.curve-preparation-error');
+    await curveFailure.getByRole('alert').filter({ hasText: 'Источник MOEX временно недоступен' }).waitFor();
+    await curveFailure.getByRole('button', { name: 'Повторить загрузку', exact: true }).click();
     await use.waitFor();
+    assert.equal(upstream.retries(date), 1);
     assert.equal(await page.locator('iframe').count(), 0);
     await page.getByRole('button', { name: /^Отчётная дата/ }).click();
     const dayPicker = page.getByRole('dialog').filter({ has: page.getByRole('group', { name: 'Дни месяца' }) });
@@ -506,6 +578,12 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await use.waitFor();
     await page.getByRole('button', { name: 'Общий рост ставок', exact: true }).click();
     assert.equal(await graph.locator('polyline').count(), 2);
+    const curveAssistant = page.locator('#assistant-drawer');
+    await page.getByRole('button', { name: 'Спросить AI', exact: true }).click();
+    await curveAssistant.getByText('Общий рост ставок', { exact: true }).waitFor();
+    await curveAssistant.getByRole('button', { name: 'Что означают P, K и D?' }).click();
+    await curveAssistant.locator('#answer').getByText(/P = 4,00, K = 5,00, D = 3,00/).waitFor();
+    await page.keyboard.press('Escape');
     await graph.locator('.curve-chart__hit').first().focus();
     await page.getByRole('tooltip').filter({ hasText: 'Общий рост ставок' }).waitFor();
     await page.getByRole('button', { name: 'Показать исходную MOEX' }).click();
@@ -517,6 +595,8 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     assert.match((await curveDownload).suggestedFilename(), /\.csv$/);
     await page.getByRole('tab', { name: 'График', exact: true }).click();
     await noOverflow(page, [[1440, 900], [390, 844], [320, 720]]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await record(page, '09-curves-mobile');
     await page.setViewportSize({ width: 1440, height: 900 });
     await record(page, '09-curves-contract');
     await page.locator('#curve-screen').evaluate(host => { host.shadowRoot.querySelector('.curve-app').dataset.mountCheck = 'retained'; });
@@ -529,8 +609,22 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await page.getByLabel('Сделок на старте', { exact: true }).fill('30');
     await page.getByLabel('Число отчётных дат').fill('4');
     await page.getByLabel('Новых сделок в месяц').fill('2');
+    const stalledDay = '2026-06-30';
+    const recoveringDay = '2026-07-31';
+    upstream.failPreparation(stalledDay, 1);
+    upstream.failPreparation(recoveringDay, 0);
+    const submitted = () => page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/run'));
+    const initialRequest = submitted();
     await page.getByRole('button', { name: 'Создать тестовый портфель', exact: true }).click();
+    const portfolioFailure = page.locator('#portfolio-progress');
+    await portfolioFailure.getByRole('alert').filter({ hasText: /30\.06\.2026.*MOEX временно недоступен/ }).waitFor();
+    assert.equal(upstream.retries(stalledDay), 1);
+    const retryRequest = submitted();
+    await portfolioFailure.getByRole('button', { name: 'Повторить расчёт', exact: true }).click();
+    assert.deepEqual((await retryRequest).postDataJSON(), (await initialRequest).postDataJSON());
     await page.getByRole('heading', { name: 'Состав портфеля', exact: true }).waitFor({ timeout: 40_000 });
+    assert.equal(upstream.retries(stalledDay), 2);
+    assert.equal(upstream.retries(recoveringDay), 1);
     const old = await workspace();
     assert.equal(old.periods.at(-1).runId, upstream.original);
     assert.equal(old.periods.at(-1).curveSource, 'pinned');
@@ -545,6 +639,10 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await page.getByRole('link', { name: 'Открыть использованные кривые' }).click();
     await page.getByRole('heading', { name: 'Кривые из оценки портфеля' }).waitFor();
     await graph.waitFor();
+    await page.getByRole('button', { name: 'Спросить AI', exact: true }).click();
+    await curveAssistant.getByRole('button', { name: 'Откуда взяты кривые?' }).click();
+    await curveAssistant.locator('#answer').getByText(/Архивный снимок портфеля/).waitFor();
+    await page.keyboard.press('Escape');
     assert.ok(page.url().includes(old.id) && page.url().includes(upstream.original));
     await page.reload();
     await graph.waitFor();
