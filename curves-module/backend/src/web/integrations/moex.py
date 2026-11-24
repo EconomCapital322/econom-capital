@@ -1,11 +1,14 @@
 """Published MOEX ISS zero-coupon yields, without local curve approximation."""
 
 import re
+import ssl
 from datetime import date, datetime, time
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import certifi
 import httpx
 import simplejson
 
@@ -80,8 +83,10 @@ def parse_yields(payload: Any, report_date: date) -> MarketRates:
 
 async def fetch_rates(report_date: date) -> MarketRates:
     """Loader owns retry/backoff. Rates remain in percent; date fallback is forbidden."""
+    tls = ssl.create_default_context(cafile=certifi.where())
+    tls.load_verify_locations(cafile=Path(__file__).with_name("russian-root.pem"))
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+        async with httpx.AsyncClient(verify=tls, timeout=15, follow_redirects=False) as client:
             async with client.stream(
                 "GET",
                 MOEX_URL,
