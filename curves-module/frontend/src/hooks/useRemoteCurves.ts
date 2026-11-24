@@ -16,7 +16,13 @@ interface StartVariables {
   previousRunId?: string
 }
 
-export function useRemoteCurves(reportDate: string) {
+interface RunNavigation {
+  active: boolean
+  runId?: string
+  onSelect: (reportDate: string, runId: string) => void
+}
+
+export function useRemoteCurves(reportDate: string, navigation?: RunNavigation) {
   const { remote } = useCurvesApi()
   const client = useQueryClient()
   const [selection, setSelection] = useState<{ date: string; id?: string; readOnly?: boolean }>(() => ({
@@ -24,15 +30,15 @@ export function useRemoteCurves(reportDate: string) {
   }))
   const [refreshVersion, setRefreshVersion] = useState(0)
   const submitting = useRef(false)
-  const preferredId = selection.date === reportDate ? selection.id : undefined
-  const readOnly = selection.date === reportDate && (selection.readOnly || !!preferredId)
+  const preferredId = navigation ? navigation.runId : selection.date === reportDate ? selection.id : undefined
+  const readOnly = !!preferredId || (selection.date === reportDate && !!selection.readOnly)
   const queryKey = ['server-curves', remote?.cacheKey, reportDate, preferredId, readOnly, refreshVersion] as const
   const query = useQuery<RemoteSnapshot, Error>({
     queryKey,
-    enabled: !!remote && isReportDate(reportDate),
+    enabled: !!remote && (navigation?.active ?? true) && isReportDate(reportDate),
     queryFn: ({ signal }) => {
       if (!remote) throw new Error('Серверный адаптер не подключён.')
-      return remote.snapshot(reportDate, signal, preferredId, readOnly)
+      return remote.snapshot(reportDate, signal, preferredId, readOnly, !!navigation)
     },
     placeholderData: undefined,
     retry: (count, error) => count < 2 && !(error instanceof ApiRequestError && error.status < 500),
@@ -60,7 +66,8 @@ export function useRemoteCurves(reportDate: string) {
       return remote.start(variables.date, variables.parameters, variables.parent)
     },
     onSuccess: (id, variables) => {
-      setSelection(current => current.date === variables.date ? { date: variables.date, id } : current)
+      if (navigation) navigation.onSelect(variables.date, id)
+      else setSelection(current => current.date === variables.date ? { date: variables.date, id } : current)
       void client.invalidateQueries({ queryKey: ['run-history', remote?.cacheKey, variables.date] })
     },
     onError: (_error, variables) => {
@@ -96,16 +103,18 @@ export function useRemoteCurves(reportDate: string) {
 
   const resolvedRunId = snapshot?.run?.runId
   useEffect(() => {
+    if (navigation) return
     const url = new URL(window.location.href)
     const selectedId = preferredId ? resolvedRunId ?? preferredId : undefined
     if (selectedId) url.searchParams.set('runId', selectedId)
     else url.searchParams.delete('runId')
     window.history.replaceState(window.history.state, '', url)
-  }, [preferredId, resolvedRunId])
+  }, [navigation, preferredId, resolvedRunId])
 
   function selectRun(id: string) {
     if (!mutation.isPending) mutation.reset()
-    setSelection({ date: reportDate, id })
+    if (navigation) navigation.onSelect(reportDate, id)
+    else setSelection({ date: reportDate, id })
   }
 
   function clearSelection(date: string) {

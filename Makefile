@@ -1,5 +1,11 @@
-.PHONY: configure up down logs calculate check check-factor-analysis
+.PHONY: configure up down logs calculate spectrum-up spectrum-down build-spectrum-ui check check-factor-analysis
 SPECTRUM_TEST_PYTHON ?= $(if $(wildcard .venv/bin/python),$(abspath .venv/bin/python),python3)
+SPECTRUM_COMPOSE = docker compose -f docker-compose.yaml -f factor-analysis/compose.yaml
+SPECTRUM_MOEX_CA ?= $(wildcard factor-analysis/.local/certs/moex-ca.pem)
+ifneq ($(strip $(SPECTRUM_MOEX_CA)),)
+export SPECTRUM_MOEX_CA
+SPECTRUM_COMPOSE += -f factor-analysis/compose.moex-ca.yaml
+endif
 configure:
 	@test -f curves-module/.env || cp curves-module/.env.example curves-module/.env
 up: configure
@@ -7,6 +13,13 @@ up: configure
 	docker compose up -d --build --wait
 calculate: configure
 	docker compose --profile calculator run --rm calculator $(ARGS)
+spectrum-up: configure
+	$(SPECTRUM_COMPOSE) up -d --build --wait spectrum
+spectrum-down:
+	$(SPECTRUM_COMPOSE) down
+build-spectrum-ui:
+	npm --prefix curves-module/frontend ci --no-audit --no-fund
+	npm --prefix curves-module/frontend run build:embedded
 down:
 	docker compose --profile calculator down
 logs:

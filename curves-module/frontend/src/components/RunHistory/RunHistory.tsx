@@ -87,7 +87,7 @@ export function RunHistory({ reportDate, selectedRunId, onSelect, open, onOpenCh
     if (!open) return
     panelRef.current?.focus()
     function dismiss(event: PointerEvent) {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+      if (rootRef.current && !event.composedPath().includes(rootRef.current)) {
         onOpenChange(false)
         triggerRef.current?.focus({ preventScroll: true })
       }

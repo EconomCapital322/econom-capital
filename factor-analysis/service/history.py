@@ -6,9 +6,10 @@ from io import BytesIO
 import json
 from pathlib import PurePosixPath
 import re
+import shutil
 from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
-from .integration import discount_flows, read_rows, summarize, write_rows
+from .integration import (curve_metadata, discount_flows, read_rows, save_curves, summarize, write_rows)
 from .valuation import FILES, METHOD, load_snapshot, report_date
 
 MAX_ARCHIVE = 16_000_000
@@ -111,8 +112,34 @@ def unpack(raw, folder, update):
         if len(dataset) > 20_000:
             raise ValueError('Суммарно во всех снимках допускается до 20 000 сделок × дат.')
         ids.update(contracts)
-        periods.append({**metrics, **snapshot.source, 'deals': len(contracts), 'flowRows': len(flows),
+        periods.append({**metrics, **snapshot.source, **curve_metadata(curves), 'deals': len(contracts), 'flowRows': len(flows),
                         'curveSource': 'fixture' if curves.get('source') == 'synthetic_fixture' else 'imported'})
     write_rows(folder / 'dataset.csv', dataset, dataset[0].keys())
     return {'source': 'historical', 'portfolioSource': classify(manifest.get('portfolioSource')), 'periods': periods,
             'scenario': 'parallel_up', 'uniqueDeals': len(ids), 'snapshotCount': len(dataset), 'method': METHOD}
+
+
+def revalue(source, destination, workspace, day, curves, raw, update):
+    """Use the existing contracts and CF, and discount one dated snapshot again."""
+    periods = workspace["periods"]
+    scenario = workspace.get("scenario", "parallel_up")
+    for index, period in enumerate(periods):
+        selected = period["date"]
+        update(index, len(periods), f"{selected} · сохраняем исходные договоры и платежи")
+        shutil.copytree(source / selected, destination / selected)
+    root = destination / day.isoformat()
+    inputs, core = root / FILES[0], root / "core"
+    update(len(periods) - 1, len(periods), f"{day:%d.%m.%Y} · дисконтирование по выбранному запуску")
+    link = save_curves(root / "curves", curves, raw, "all")
+    discount_flows(core, inputs, curves, "all")
+    contracts = {row["deal_id"]: row for row in read_rows(inputs, ";")}
+    flows = read_rows(root / FILES[1])
+    rows, metrics = summarize(day, contracts, curves, core, flows, scenario)
+    updated = {**metrics, **curve_metadata(curves), "runId": curves["runId"], "sha256": link["sha256"], "curveSource": "pinned"}
+    dataset = [row for row in read_rows(source / "dataset.csv") if row["date"] != day.isoformat()]
+    dataset.extend(rows)
+    dataset.sort(key=lambda row: row["date"])
+    write_rows(destination / "dataset.csv", dataset, rows[0].keys())
+    return {**workspace, "id": destination.name, "periods": [
+        {**p, **updated} if p["date"] == day.isoformat() else p for p in periods
+    ]}

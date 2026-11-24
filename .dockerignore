@@ -3,11 +3,14 @@
 .venv
 .integration-check
 **/node_modules
+**/dist
+**/dist-spectrum
 **/build
 **/build-*
 **/out
 **/__pycache__
-curves-module
+curves-module/*
+!curves-module/frontend
 **/.local
 **/.env
 **/.env.*

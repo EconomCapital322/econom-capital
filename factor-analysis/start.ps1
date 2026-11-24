@@ -8,15 +8,23 @@ $AppUrl = "http://127.0.0.1:$Port/"
 $CurvesUrl = if ($env:SPECTRUM_CURVES_URL) { $env:SPECTRUM_CURVES_URL } else { "http://127.0.0.1:8000" }
 $env:SPECTRUM_CURVES_URL = $CurvesUrl
 
-# Проверка, работает ли уже сервер
+$running = $false
 try {
     $res = Invoke-WebRequest -Uri "${AppUrl}api/workspace" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
-    if ($res.StatusCode -eq 200) {
-        Write-Host "Спектр уже работает: $AppUrl"
-        Start-Process $AppUrl
-        exit 0
-    }
+    $running = $res.StatusCode -eq 200
 } catch {}
+if ($running) {
+    try {
+        Invoke-WebRequest -Uri "${AppUrl}curve-ui/curves.js" -UseBasicParsing -TimeoutSec 2 | Out-Null
+        Invoke-WebRequest -Uri "${AppUrl}curve-ui/curves.css" -UseBasicParsing -TimeoutSec 2 | Out-Null
+    } catch {
+        Write-Warning "На $AppUrl работает экземпляр без сборки кривых. Остановите его и запустите start.ps1 снова."
+        exit 1
+    }
+    Write-Host "Спектр уже работает: $AppUrl"
+    Start-Process $AppUrl
+    exit 0
+}
 
 if (-not (Test-Path ".local")) {
     New-Item -ItemType Directory -Path ".local" | Out-Null
@@ -82,6 +90,12 @@ if (-not $env:SPECTRUM_CFCORE) {
         cmake -S (Join-Path $RepoDir "calculator") -B (Join-Path $RepoDir "calculator\build") -DCMAKE_BUILD_TYPE=Release
         cmake --build (Join-Path $RepoDir "calculator\build") --config Release --target cfcore_cli -j 4
     }
+}
+
+try {
+    & $PythonBin -m service.curve_ui
+} catch {
+    Write-Warning "Продолжаем запуск. Для встроенных кривых нужна успешная сборка."
 }
 
 # Проверка доступности API кривых
