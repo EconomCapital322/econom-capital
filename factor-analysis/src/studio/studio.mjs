@@ -1,7 +1,9 @@
 import { day, esc } from './charts.mjs';
+import { animateCharts, captureCharts, installChartInteraction } from './chart-interaction.mjs';
+import { animateContent, captureIndicators, installLighting, installPanels, motionAllowed, openPanel, syncIndicators, transitionChart } from './motion.mjs';
 import { analysisChart, analysisPage, analysisTab, assistantConversation, assistantPanel, assistantStatus, comparisonPanel,
-  codes, dataPage, dealTable, factorDetails, flowDialog, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
-  portfolioPreview, portfolioProgress, reportTabs, scenarioPage, servicesList, titleOf } from './views.mjs';
+  codes, dataPage, dateCountLabel, dealTable, factorDetails, flowDialog, holdingsOverview, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
+  portfolioPreview, portfolioProgress, portfolioSources, reportTabs, scenarioPage, servicesList, titleOf } from './views.mjs';
 
 const main = document.querySelector('#content');
 const studioScreen = document.querySelector('#studio-screen');
@@ -11,11 +13,19 @@ const inspector = document.querySelector('#inspector');
 const drawer = document.querySelector('#factor-drawer');
 const assistant = document.querySelector('#assistant-drawer');
 const settings = document.querySelector('#settings-dialog');
+const appearance = document.querySelector('#appearance-dialog');
+const locationLabel = document.querySelector('#page-location');
+const workspaceContext = document.querySelector('#workspace-context');
+const serviceLink = document.querySelector('.service-link');
+const hideChartTooltip = installChartInteraction(document);
+installPanels();
+installLighting();
+
 const state = {
   workspace: null, route: 'analysis', tab: 'timeline', factor: null, effect: null, effectPlot: 'ale', scenarioCode: null,
   scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
-  chart: 'contributions', research: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
+  chart: 'waterfall', research: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
   question: '', focusFactor: null, allowExternal: false, asking: false, assistantMessage: '',
   assistantContext: null, dialogId: null, turns: [], summary: null,
   curveSelection: null,
@@ -52,6 +62,15 @@ function routeName() {
   const route = location.hash.slice(1).split('?')[0];
   return Object.hasOwn(pages, route) ? route : 'analysis';
 }
+
+function readAnalysisLocation() {
+  const query = new URLSearchParams(location.hash.split('?')[1]);
+  state.research = query.get('view') === 'details';
+  const tab = query.get('tab');
+  if (state.research && Object.hasOwn(reportTabs(state.workspace), tab)) state.tab = tab;
+}
+
+const analysisLocation = () => state.research ? 'analysis?view=details&tab=' + state.tab : 'analysis';
 
 function curveRoute() {
   const params = new URLSearchParams(location.hash.split('?')[1]);
@@ -103,7 +122,7 @@ function renderCurves(active) {
     curveModule.update({ active, location,
       valuationRunId: state.workspace?.periods?.find((p) => p.date === location.reportDate)?.runId,
       onLocation: showCurveLocation, onRunSelect: selectCurveRun, onUse: useCurve,
-      onExplain: (curve) => openAssistant(null, curve) });
+      onExplain: (curve) => openAssistant(null, curve, curveScreen.shadowRoot?.activeElement) });
   } else if (active && !curveLoading) {
     curveLoading = import('/curve-ui/curves.js').then(({ mountCurves }) => {
       curveScreen.replaceChildren();
@@ -129,7 +148,6 @@ function swapWorkspace(workspace) {
   state.pairDeal = null;
   state.comparison = null;
   state.research = false;
-  state.chart = 'contributions';
   state.preview = null;
   state.factor = null;
   state.effect = null;
@@ -148,42 +166,62 @@ function swapWorkspace(workspace) {
   state.sourceFormat = workspace?.periods ? 'zip' : 'csv';
 }
 
-function render() {
+function render(disclosureState = null) {
   for (const anchor of document.querySelectorAll('[data-route]')) {
     if (anchor.dataset.route === state.route) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
   }
+  locationLabel.textContent = state.route === 'analysis' ? 'Анализ' : '';
+  locationLabel.hidden = state.route !== 'analysis';
+  const portfolioType = state.workspace?.periods ? portfolioSources[state.workspace.portfolioSource] ?? 'Загруженный портфель'
+    : state.workspace?.filename;
+  const dateCount = state.workspace?.periods?.length;
+  workspaceContext.textContent = portfolioType ? portfolioType + (dateCount ? ` · ${dateCountLabel(dateCount)}` : '') : '';
+  workspaceContext.hidden = !portfolioType;
+  hideChartTooltip();
   const curvesActive = state.route === 'curves';
   curveScreen.hidden = !curvesActive;
   studioScreen.hidden = curvesActive;
   renderCurves(curvesActive);
+  syncIndicators(document.querySelector('.navigation-shell'));
   if (curvesActive) return;
+  const previousIndicators = captureIndicators(studioScreen);
+  const previousCharts = motionAllowed() ? captureCharts(studioScreen) : null;
   studioScreen.innerHTML = { analysis: analysisPage, scenarios: scenarioPage, portfolio: portfolioPage, data: dataPage }[state.route](state);
+  if (disclosureState) for (const disclosure of studioScreen.querySelectorAll('details[data-scenario-detail]')) {
+    disclosure.open = disclosureState.has(disclosure.dataset.scenarioDetail);
+  }
+  syncIndicators(studioScreen, previousIndicators);
+  if (previousCharts) animateCharts(studioScreen, previousCharts);
   if (state.route === 'portfolio') void loadDeals();
 }
 
 function closeDialogs() {
-  for (const dialog of [inspector, drawer, assistant, settings]) {
+  for (const dialog of [inspector, drawer, assistant, settings, appearance]) {
     if (dialog.open) dialog.close();
   }
 }
 
 function navigate(route, enter) {
+  const hash = '#' + (route === 'analysis' ? analysisLocation() : route);
   if (state.route === route) {
+    if (location.hash !== hash) history.pushState(history.state, '', hash);
     render();
     window.scrollTo(0, 0);
     main.focus({ preventScroll: true });
     enter?.();
   } else {
     afterNavigation = enter ? { route, enter } : null;
-    location.hash = route;
+    location.hash = hash;
   }
 }
 
-function openSettings() {
+function openSettings(source) {
   if (!state.workspace?.report) return;
+  const previous = captureIndicators(settings);
   settings.innerHTML = comparisonPanel(state);
-  if (!settings.open) settings.showModal();
+  openPanel(settings, source);
+  syncIndicators(settings, previous);
 }
 
 function assistantScope(factor, curve) {
@@ -233,7 +271,7 @@ function assistantScope(factor, curve) {
   return { ...scope, key: JSON.stringify(scope), title, subtitle };
 }
 
-function openAssistant(factor = null, curve = null) {
+function openAssistant(factor = null, curve = null, source) {
   const context = assistantScope(factor, curve);
   if (!context) return;
   if (state.assistantContext?.key !== context.key) {
@@ -247,7 +285,11 @@ function openAssistant(factor = null, curve = null) {
   state.assistantContext = context;
   state.focusFactor = factor;
   assistant.innerHTML = assistantPanel(state);
-  if (!assistant.open) assistant.showModal();
+  openPanel(assistant, source);
+  assistant.querySelectorAll('.question-list button').forEach((button, index) => {
+    if (motionAllowed() && button.animate) button.animate([{ opacity: .45, transform: 'translateX(6px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 180, delay: 30 + index * 23, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' });
+  });
   if (context.page === 'analysis' && state.summary?.analysisId !== context.analysisId) {
     void api('/api/summary/' + context.workspaceId + '/' + context.analysisId).then((saved) => {
       if (saved && state.assistantContext?.key === context.key && !state.summary) {
@@ -273,10 +315,12 @@ async function updateHealth() {
   }
   const host = document.querySelector('#services');
   if (host) host.innerHTML = servicesList(state.health);
+  serviceLink.dataset.online = String(Boolean(state.health.calculator && state.health.curves));
+  serviceLink.title = state.health.calculator && state.health.curves ? 'Калькулятор и кривые доступны' : 'Проверить подключения';
   refreshAssistant();
 }
 
-function selectFactor(key) {
+function selectFactor(key, source) {
   if (!state.workspace?.report) return;
   const wasOpen = drawer.open;
   const selectedInDrawer = drawer.contains(document.activeElement);
@@ -286,16 +330,21 @@ function selectFactor(key) {
   for (const control of document.querySelectorAll('#bridge-chart [data-action="factor"]')) {
     control.setAttribute('aria-pressed', String(control.dataset.key === key));
   }
-  if (!wasOpen) drawer.showModal();
+  if (!wasOpen) openPanel(drawer, source);
   else if (selectedInDrawer) drawer.querySelector(controlId === 'factor-select' ? '#factor-select' : '.drawer-head button')?.focus({ preventScroll: true });
 }
 
 function selectChart(chart, control) {
   if (!['contributions', 'waterfall'].includes(chart)) return;
   state.chart = chart;
-  document.querySelector('#bridge-chart').innerHTML = analysisChart(state);
   control.dataset.key = chart === 'waterfall' ? 'contributions' : 'waterfall';
   control.textContent = chart === 'waterfall' ? 'К вкладам' : 'Водопад';
+  const host = document.querySelector('#bridge-chart');
+  transitionChart(host, () => {
+    if (!host.isConnected) return;
+    hideChartTooltip();
+    host.innerHTML = analysisChart(state);
+  });
 }
 
 function applyComparison(form, rerender) {
@@ -308,11 +357,15 @@ function selectTab(tab, focus = false) {
   const target = document.querySelector('#tab-body');
   if (!target || !state.workspace?.report) return;
   state.tab = tab;
+  if (state.research) history.replaceState(history.state, '', '#' + analysisLocation());
+  hideChartTooltip();
   target.innerHTML = analysisTab(state);
   for (const control of document.querySelectorAll('[data-action="tab"]')) {
     control.setAttribute('aria-pressed', String(control.dataset.key === tab));
     if (focus && control.dataset.key === tab) control.focus({ preventScroll: true });
   }
+  syncIndicators(target.parentElement);
+  if (focus) animateContent(target);
 }
 
 const pause = (millis) => new Promise((resolve) => setTimeout(resolve, millis));
@@ -403,11 +456,13 @@ async function launch(path, body, message, kind = 'report') {
     explanationRequest?.abort();
     mappingRequest?.abort();
   }
-  const locked = [...main.querySelectorAll('button[type="submit"], [data-action="diagnostics"]'),
+  const initiating = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+  const locked = [...main.querySelectorAll('button[type="submit"], [data-action="diagnostics"], [data-action="change-mode"]'),
     ...settings.querySelectorAll('button[type="submit"]'),
     ...drawer.querySelectorAll('[data-action="diagnostics"]')]
     .map((control) => [control, control.disabled]);
   for (const [control] of locked) control.disabled = true;
+  initiating?.setAttribute('aria-busy', 'true');
   notice(message);
   try {
     const { job } = await api(path, { body });
@@ -417,6 +472,7 @@ async function launch(path, body, message, kind = 'report') {
     return false;
   } finally {
     state.generating = false;
+    initiating?.removeAttribute('aria-busy');
     for (const [control, previous] of locked) {
       if (control.isConnected) control.disabled = previous;
     }
@@ -471,6 +527,19 @@ async function analyze(form, config = false) {
     settings.close();
   }
   await launch('/api/analyze', body, body.mode === 'valuation' ? 'Проверяем выгрузки и рассчитываем вклады.' : 'Подбираем модель и проверяем её на датах сравнения.');
+}
+
+async function changeReportMode(mode) {
+  const work = state.workspace, report = work?.report;
+  if (state.generating || !work?.periods || !report || report.mode === mode || !['valuation', 'ml'].includes(mode)) return;
+  const targets = mode === 'valuation' ? ['npv', 'stress_delta'] : work.options.targets;
+  const target = targets.includes(report.target) ? report.target : targets[0];
+  const scenario = target === 'stress_delta' ? report.scenario ?? work.scenario ?? 'parallel_up' : 'base';
+  const { before, after } = report;
+  const accepted = await launch('/api/analyze', { workspaceId: work.id, analysisId: report.analysisId,
+    mode, target, before, after, scenario, background: true },
+  mode === 'valuation' ? 'Проверяем выгрузки и рассчитываем вклады.' : 'Подбираем модель для открытого периода.');
+  if (!accepted && state.workspace === work) document.querySelector('[data-action="change-mode"][aria-pressed="true"]')?.focus({ preventScroll: true });
 }
 
 async function checkMapping(form) {
@@ -560,7 +629,13 @@ function newDialogue() {
 
 function refreshAnswer() {
   const host = assistant.querySelector('#answer');
-  if (host) host.innerHTML = assistantConversation(state);
+  if (host) {
+    const details = [...host.querySelectorAll('details')].map((item) => [item.querySelector('summary').textContent, item.open]);
+    host.innerHTML = assistantConversation(state);
+    for (const item of host.querySelectorAll('details')) {
+      item.open = details.some(([label, open]) => open && label === item.querySelector('summary').textContent);
+    }
+  }
   refreshAssistant();
 }
 
@@ -608,40 +683,50 @@ async function ask(form, summary = false) {
 
 async function loadDeals() {
   const panel = document.querySelector('#deal-table');
+  const summary = document.querySelector('#holding-overview');
   const work = state.workspace;
   if (!panel || !work?.periods?.length) return;
   const serial = ++dealsRequest;
   const selected = document.querySelector('#portfolio-date').value;
   const params = new URLSearchParams({ date: selected, q: state.dealQuery, page: state.dealPage });
+  if (summary && !summary.children.length) params.set('overview', '1');
   try {
     const data = await api('/api/deals/' + work.id + '?' + params);
-    if (panel.isConnected && serial === dealsRequest) panel.innerHTML = dealTable(data);
+    if (panel.isConnected && serial === dealsRequest) {
+      panel.innerHTML = dealTable(data);
+      if (data.overview && summary) summary.innerHTML = holdingsOverview(data.overview, work.periods);
+    }
   } catch (error) {
     if (panel.isConnected && serial === dealsRequest) panel.innerHTML = `<p class="status error">${esc(error.message)}</p>`;
   }
 }
 
-async function showFlows(id) {
+async function showFlows(id, source) {
   const work = state.workspace;
   const serial = ++flowRequest;
   const date = document.querySelector('#portfolio-date').value;
+  inspector.dataset.kind = 'deal';
+  inspector.innerHTML = `<header class="drawer-head"><h2 id="inspector-title">Платежи по сделке № ${esc(id)}</h2>
+    <form method="dialog"><button class="button small">Закрыть</button></form></header>
+    <div class="drawer-body"><p class="note" role="status">Загружаем договорные платежи…</p></div>`;
+  openPanel(inspector, source);
   try {
     const data = await api('/api/flows/' + work.id + '?' + new URLSearchParams({ id, date }));
-    if (serial !== flowRequest || state.route !== 'portfolio' || work !== state.workspace) return;
+    if (serial !== flowRequest || !inspector.open || state.route !== 'portfolio' || work !== state.workspace) return;
+    const wasFocused = inspector.contains(document.activeElement);
     inspector.innerHTML = flowDialog(data, work);
-    if (!inspector.open) inspector.showModal();
+    if (wasFocused) inspector.querySelector('button')?.focus({ preventScroll: true });
   } catch (error) {
-    if (serial === flowRequest && state.route === 'portfolio') notice(error.message, 'error');
+    if (serial === flowRequest && inspector.open && state.route === 'portfolio') {
+      inspector.querySelector('.drawer-body').innerHTML = `<p class="status error" role="alert">${esc(error.message)}</p>`;
+    }
   }
 }
 
 function refreshScenarios(focus) {
   const open = new Set([...main.querySelectorAll('details[data-scenario-detail][open]')]
     .map((element) => element.dataset.scenarioDetail));
-  render();
-  for (const disclosure of main.querySelectorAll('details[data-scenario-detail]')) {
-    disclosure.open = open.has(disclosure.dataset.scenarioDetail);
-  }
+  render(open);
   main.querySelector(focus)?.focus({ preventScroll: true });
 }
 
@@ -700,16 +785,21 @@ function openFactSource(key, detail) {
 
 function action(element) {
   const { action: kind, key } = element.dataset;
-  if (kind === 'factor') selectFactor(key);
+  if (kind === 'factor') selectFactor(key, element);
   if (kind === 'analysis-chart') selectChart(key, element);
-  if (kind === 'edit-parameters') openSettings();
-  if (kind === 'open-assistant') openAssistant();
+  if (kind === 'edit-parameters') openSettings(element);
+  if (kind === 'open-assistant') openAssistant(null, null, element);
+  if (kind === 'appearance') openPanel(appearance, element);
+  if (kind === 'service-status') navigate('data', () => reveal(main.querySelector('#data-services')));
+  if (kind === 'change-mode') void changeReportMode(key);
   if (kind === 'new-dialogue') newDialogue();
   if (kind === 'cancel-explanation') stopWaiting('Ожидание отменено.');
   if (kind === 'prepare-summary') void ask(assistant.querySelector('#explain-form'), true);
   if (kind === 'overview' || kind === 'research') {
     state.research = kind === 'research';
     navigate('analysis');
+    const target = main.querySelector(state.research ? '.research-sheet' : '.report-sheet');
+    if (target) animateContent(target);
   }
   if (kind === 'analysis-mode') {
     const form = element.closest('form');
@@ -718,6 +808,7 @@ function action(element) {
     settings.querySelector('[data-action="analysis-mode"][aria-pressed="true"]')?.focus({ preventScroll: true });
   }
   if (kind === 'source-format' || kind === 'portfolio-tab') {
+    if (element.getAttribute('aria-pressed') === 'true') return;
     if (kind === 'source-format') state.sourceFormat = key;
     else state.portfolioTab = key;
     render();
@@ -738,12 +829,12 @@ function action(element) {
   if (kind === 'calculation-sources') {
     navigate('data', () => reveal(main.querySelector('#data-sources') ?? main.querySelector('#data-quality')));
   }
-  if (kind === 'tab') selectTab(key, true);
-  if (kind === 'scenario') {
+  if (kind === 'tab' && key !== state.tab) selectTab(key, true);
+  if (kind === 'scenario' && element.getAttribute('aria-pressed') !== 'true') {
     state.scenarioCode = key;
     refreshScenarios('[data-action="scenario"][aria-pressed="true"]');
   }
-  if (kind === 'flow') void showFlows(key);
+  if (kind === 'flow') void showFlows(key, element);
   if (kind === 'diagnostics') void diagnostics();
   if (kind === 'check-mapping') void checkMapping(element.form);
   if (kind === 'pair') {
@@ -757,20 +848,22 @@ function action(element) {
     form.requestSubmit();
   }
   if (kind === 'explain-factor') {
+    const source = element.getBoundingClientRect();
     drawer.close();
-    openAssistant({ key, label: element.dataset.label });
+    openAssistant({ key, label: element.dataset.label }, null, source);
     const form = assistant.querySelector('#explain-form');
     form.elements.question.value = 'Каков вклад выбранного компонента?';
     form.elements.question.focus({ preventScroll: true });
     form.requestSubmit();
   }
   if (kind === 'compare-scenario') {
+    const source = element.getBoundingClientRect();
     const dates = state.workspace.periods.map((item) => item.date);
     const at = dates.indexOf(element.dataset.date);
     state.comparison = { mode: 'valuation', target: 'stress_delta', scenario: key,
       before: dates[Math.max(0, at - 1)], after: dates[Math.max(1, at)] };
     state.research = false;
-    navigate('analysis', openSettings);
+    navigate('analysis', () => openSettings(source));
   }
   if (kind === 'deal-page') {
     state.dealPage = Math.max(0, Number(key));
@@ -794,6 +887,16 @@ document.addEventListener('click', (event) => {
   action(element);
 });
 document.addEventListener('keydown', (event) => {
+  const tab = event.target.closest('button[data-action="tab"]');
+  if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    const tabs = [...tab.parentElement.querySelectorAll('button[data-action="tab"]')];
+    const index = tabs.indexOf(tab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+    event.preventDefault();
+    selectTab(tabs[next].dataset.key, true);
+    return;
+  }
   if (!['Enter', ' '].includes(event.key)) return;
   const control = event.target.closest('g[data-action]');
   if (!control) return;
@@ -829,6 +932,8 @@ document.addEventListener('change', (event) => {
     }
   }
   if (element.type === 'file' && element.classList.contains('sr-only')) {
+    const warning = element.closest('.file-field').querySelector('[data-file-warning]');
+    warning.hidden = true;
     const file = element.files[0];
     const name = element.closest('.file-picker').querySelector('.file-name');
     name.textContent = file?.name || 'Файл не выбран';
@@ -890,6 +995,35 @@ document.addEventListener('change', (event) => {
   }
 });
 
+studioScreen.addEventListener('dragover', (event) => {
+  const picker = event.target.closest('.file-picker');
+  if (!picker || !event.dataTransfer.types.includes('Files')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  picker.classList.add('is-dragging');
+});
+studioScreen.addEventListener('dragleave', (event) => {
+  const picker = event.target.closest('.file-picker');
+  if (picker && !picker.contains(event.relatedTarget)) picker.classList.remove('is-dragging');
+});
+studioScreen.addEventListener('drop', (event) => {
+  const picker = event.target.closest('.file-picker');
+  if (!picker || !event.dataTransfer.files.length) return;
+  event.preventDefault();
+  picker.classList.remove('is-dragging');
+  const control = picker.querySelector('input[type="file"]');
+  const extensions = control.accept.split(',').filter((value) => value.startsWith('.'));
+  const files = event.dataTransfer.files;
+  if (files.length !== 1 || !extensions.some((extension) => files[0].name.toLowerCase().endsWith(extension))) {
+    const warning = picker.closest('.file-field').querySelector('[data-file-warning]');
+    warning.textContent = 'Перетащите один файл. Допустимые форматы: ' + extensions.join(', ') + '.';
+    warning.hidden = false;
+    return;
+  }
+  control.files = files;
+  control.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
 document.addEventListener('input', (event) => {
   const element = event.target;
   if (element.form?.id === 'generate-form') {
@@ -913,10 +1047,23 @@ assistant.addEventListener('close', () => {
   if (!assistant.open && state.asking) stopWaiting();
 });
 
+inspector.addEventListener('close', () => {
+  if (inspector.open) return;
+  flowRequest++;
+  delete inspector.dataset.kind;
+});
+
+function fitIndicators() { syncIndicators(document, new Map(), false); }
+new ResizeObserver(() => syncIndicators(document.querySelector('.navigation-shell'), new Map(), false))
+  .observe(document.querySelector('.workspace-nav'));
+window.addEventListener('resize', fitIndicators, { passive: true });
+document.fonts.ready.then(fitIndicators);
+
 window.addEventListener('hashchange', () => {
   if (location.hash === '#content') return;
   closeDialogs();
   state.route = routeName();
+  if (state.route === 'analysis') readAnalysisLocation();
   const next = afterNavigation;
   afterNavigation = null;
   render();
@@ -929,6 +1076,7 @@ async function start() {
   state.route = routeName();
   try {
     swapWorkspace(await api('/api/workspace'));
+    if (state.route === 'analysis') readAnalysisLocation();
     const job = rememberedJob();
     if (job) {
       state.generating = true;

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { lineChart, numberMarkup, waterfall } from '../src/studio/charts.mjs';
+import { dateCountLabel } from '../src/studio/views.mjs';
 
 const read = (file) => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const source = ['portfolio', 'csv', 'calculator', 'cashflows', 'scenarios'].map((name) => read('src/' + name + '.js'));
@@ -75,4 +77,25 @@ test('JSON uses supplied discount factors and rejects incomplete tenor grids', (
   assert.equal(result.results[1].delta, -5);
   payload.curves[1].points.pop();
   assert.throws(() => Scenarios.fromFile(JSON.stringify(payload), 'curves.json'), /Сетка сценария/);
+});
+
+test('waterfall points and compact scale stay finite for zero, negative and small amounts', () => {
+  for (const [start, end] of [[0, 0], [-1e15, -2e14], [-100, 100], [1e-11, 2e-11]]) {
+    const chart = waterfall({ start, end, unit: ' ₽', bars: [{ key: 'change', label: 'Изменение', value: end - start }] });
+    assert.doesNotMatch(chart, /NaN|Infinity/);
+    const compactAxis = [...chart.matchAll(/class="waterfall-axis-label" x="([\d.]+)"[^>]*>([^<]*)/g)];
+    assert.ok(compactAxis.length >= 2);
+    assert.equal(new Set(compactAxis.map((tick) => tick[1])).size, compactAxis.length);
+    assert.equal((chart.match(/class="zero"/g) ?? []).length, 2);
+  }
+});
+
+test('chart gaps and absent amounts are rendered without invented points or amounts', () => {
+  const plot = lineChart([{ name: 'Ставки', color: 'var(--accent)', points: [
+    { x: 0, value: 1 }, { x: 1, value: 2 }, { x: 2, value: null }, { x: 3, value: 4 }, { x: 4, value: 3 },
+  ] }], { unit: '%' });
+  assert.equal((plot.match(/<polyline /g) ?? []).length, 2);
+  assert.doesNotMatch(plot, /data-point="2"/);
+  assert.match(numberMarkup('empty', undefined, ' ₽'), /data-number-value=""[^>]*>[\s\S]*>—</);
+  assert.deepEqual([1, 4, 8].map(dateCountLabel), ['1 дата', '4 даты', '8 дат']);
 });

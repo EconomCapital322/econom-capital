@@ -1,4 +1,4 @@
-import { bars, divergingBars, lineChart, waterfall, day, esc, exact, n, short, signed, tone } from './charts.mjs';
+import { bars, divergingBars, lineChart, numberMarkup, waterfall, day, esc, exact, n, short, signed, tone } from './charts.mjs';
 
 const icon = (name) => `<svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-${name}"/></svg>`;
 
@@ -7,6 +7,8 @@ const commonTabs = { timeline: 'Динамика', contributions: 'Вклады'
 export const codes = { parallel_up: 'Общий рост ставок', parallel_down: 'Общее снижение ставок', steepener: 'Увеличение наклона кривой',
   flattener: 'Уменьшение наклона кривой', short_rate_up: 'Рост краткосрочных ставок', short_rate_down: 'Снижение краткосрочных ставок' };
 export const portfolioSources = { synthetic: 'Синтетические сделки', bank: 'Банковская выгрузка', external: 'Загруженные сделки' };
+const datePlural = new Intl.PluralRules('ru');
+export const dateCountLabel = (count) => `${n(count)} ${({ one: 'дата', few: 'даты' })[datePlural.select(count)] ?? 'дат'}`;
 const curveSources = { api: 'MOEX через API', pinned: 'Выбранный запуск MOEX', saved: 'Сохранённые кривые MOEX',
   imported: 'Импортированные кривые MOEX', fixture: 'Учебные кривые' };
 const help = {
@@ -43,8 +45,6 @@ const fmt = (value, unit) => esc(exact(value, unit));
 const delta = (value, unit) => esc(signed(value, unit));
 const compact = (value, unit) => esc(short(value, unit));
 const endSentence = (text) => text.endsWith('.') ? text : text + '.';
-const compactTotal = (value, unit) => compact(value, '')
-  + (unit ? `<span class="metric-unit">${esc(unit)}</span>` : '');
 const statuses = { verified: 'Сверено с калькулятором', stable: 'Модельное объяснение устойчиво',
   caution: 'Требуется осторожность', insufficient: 'Недостаточно данных', unavailable: 'Анализ недоступен' };
 const statusBadge = (status) => `<span class="result-status ${esc(status ?? 'caution')}">${statuses[status] ?? statuses.caution}</span>`;
@@ -58,7 +58,7 @@ export const option = (key, label, selected) => `<option value="${esc(key)}"${ke
 const heading = (title, note, action = '') => `<header class="page-heading"><div><h1>${title}</h1>${note ? `<p class="sub">${note}</p>` : ''}</div>${action}</header>`;
 const h2 = (title, note) => `<div class="panel-head"><div><h2>${title}</h2>${note ? `<p class="note">${note}</p>` : ''}</div></div>`;
 const link = (url, text) => `<a class="button small" href="${esc(url)}">${esc(text)}</a>`;
-const assistantButton = `<button class="button small assistant-button" type="button" data-action="open-assistant">${icon('spark')}Спросить AI</button>`;
+const assistantButton = `<button class="button small assistant-button" type="button" data-glass="clear" data-light data-action="open-assistant">${icon('spark')}Спросить AI</button>`;
 const uploadHistoryLink = (label, style = 'button small') => `<a class="${style}" href="#data" data-action="upload-history">${icon('upload')}${label}</a>`;
 const empty = (title, body, actions = '') => `<section class="panel empty"><h2>${title}</h2><p class="sub">${body}</p>${actions ? `<div class="form-actions">${actions}</div>` : ''}</section>`;
 const table = (heads, rows, label) => `${heads.length >= 3 ? `<p class="table-hint note" data-columns="${heads.length}">Таблицу можно листать вправо.</p>` : ''}
@@ -66,9 +66,10 @@ const table = (heads, rows, label) => `${heads.length >= 3 ? `<p class="table-hi
   <thead><tr>${heads.map((head) => `<th scope="col" class="${head[1] ?? ''}">${head[0]}</th>`).join('')}</tr></thead>
   <tbody>${rows.join('')}</tbody></table></div>`;
 
-function segments(action, selected, options, label) {
-  return `<div class="segmented" role="group" aria-label="${esc(label)}">${options.map(([key, title]) =>
-    `<button type="button" data-action="${action}" data-key="${key}" aria-pressed="${selected === key}">${title}</button>`).join('')}</div>`;
+function segments(action, selected, options, label, disabled = false) {
+  return `<div class="segmented motion-track" role="group" aria-label="${esc(label)}" data-motion-track="${esc(action)}">
+    <span class="selection-pill" aria-hidden="true"></span>${options.map(([key, title]) =>
+    `<button type="button" data-action="${action}" data-key="${key}" aria-pressed="${selected === key}" ${disabled ? 'disabled' : ''}>${title}</button>`).join('')}</div>`;
 }
 
 export const metricName = (work) => titleOf(work, work.report.target);
@@ -184,8 +185,7 @@ export function analysisChart(state) {
   const r = work.report;
   const rows = bridge(work);
   if (chart === 'waterfall') return waterfall({ start: r.start, end: r.end, bars: rows, active: factor, unit: unitOf(work) });
-  const visible = rows.filter((item) => !['reconciliation', 'residual'].includes(item.key)
-    && (!(item.key === 'removed' || item.key === 'added') || item.value !== 0));
+  const visible = rows.filter((item) => item.value !== 0 || !['removed', 'added', 'reconciliation', 'residual'].includes(item.key));
   return divergingBars(visible, { active: factor, unit: unitOf(work) });
 }
 
@@ -228,7 +228,7 @@ function contributionTable(work) {
     ...contributionRows(work), tail, { key: 'end', label: 'На конец периода', value: r.end }];
   return h2('Полное разложение', `${n(r.matched)} общих, ${n(r.added)} новых, ${n(r.removed)} выбывших.${relative}`)
     + table([['Компонент'], ['Значение', 'num']], rows.map(({ key, label, value }) =>
-      `<tr><th scope="row"><button type="button" class="ghost" data-action="factor" data-key="${esc(key)}">${esc(label)}</button></th>
+      `<tr data-link-key="${esc(key)}"><th scope="row"><button type="button" class="ghost" data-action="factor" data-key="${esc(key)}">${esc(label)}</button></th>
         <td class="num">${fmt(value, unit)}</td></tr>`), 'Полное разложение');
 }
 
@@ -345,7 +345,7 @@ export function analysisPage(state) {
       <header class="report-header"><div><h1>Подробный анализ</h1><p class="research-metric">${esc(metricName(work))}</p>
         ${scope}</div><div class="data-actions">${ask}</div></header>
       <section class="research-sheet" id="analysis-tabs" aria-label="Детали факторного анализа">
-        <div class="tabs" role="group" aria-label="Разделы аналитики">${menu}</div>
+        <div class="tabs motion-track" role="group" aria-label="Разделы аналитики" data-motion-track="report-tabs"><span class="selection-pill" aria-hidden="true"></span>${menu}</div>
         <div class="tab-body" id="tab-body">${analysisTab(state)}</div>
       </section>
       <details class="details technical" id="analysis-methodology"><summary>Методология и выгрузки</summary>
@@ -353,14 +353,19 @@ export function analysisPage(state) {
       </details>
     </div>`;
   }
+  const numberKey = `${r.mode}:${r.target}:${r.scenario ?? 'base'}:${unit}`;
+  const relative = r.start > Math.max(.01, Math.abs(r.end) * 1e-9) && r.end >= 0 ? 100 * r.change / r.start : null;
+  const modes = work.periods ? segments('change-mode', r.mode, [['valuation', 'Расчётный'], ['ml', 'ML-анализ']], 'Сменить режим отчёта', state.generating) : '';
   return `<div class="report-layout">
-    <header class="report-header overview-header"><h1>${esc(metricName(work))}</h1>${settings}${scope}</header>
+    <header class="report-header overview-header"><h1>${esc(metricName(work))}</h1>
+      <div class="data-actions overview-tools">${modes}${settings}</div>${scope}</header>
     <div class="report-sheet">
       <section class="report-totals" aria-label="Итог сравнения">
-        <div class="report-hero"><span>Изменение за период</span><strong class="hero-value" title="${delta(r.change, unit)}">${r.change > 0 ? '+' : ''}${compactTotal(r.change, unit)}</strong></div>
+        <div class="report-hero"><span>Изменение за период</span><strong class="hero-value" title="${delta(r.change, unit)}">${numberMarkup(numberKey + ':change', r.change, unit, 'change')}</strong>
+          ${relative === null ? '' : `<span class="relative-change">${delta(relative, '%')} к началу периода</span>`}</div>
         <dl class="period-figures">
-          <div><dt>На начало периода</dt><dd title="${fmt(r.start, unit)}">${compactTotal(r.start, unit)}</dd></div>
-          <div class="period-end"><dt>На конец периода</dt><dd title="${fmt(r.end, unit)}">${icon('arrow')}${compactTotal(r.end, unit)}</dd></div>
+          <div><dt>На начало периода</dt><dd title="${fmt(r.start, unit)}">${numberMarkup(numberKey + ':start', r.start, unit)}</dd></div>
+          <div class="period-end"><dt>На конец периода</dt><dd title="${fmt(r.end, unit)}">${icon('arrow')}${numberMarkup(numberKey + ':end', r.end, unit)}</dd></div>
         </dl>
       </section>
       <div class="result-check" aria-label="Проверка результата">${statusBadge(r.status)}
@@ -369,7 +374,7 @@ export function analysisPage(state) {
         <header class="chart-head"><h2>Вклады факторов</h2>
           <button class="button small chart-toggle" id="chart-toggle" type="button" data-action="analysis-chart"
             aria-controls="bridge-chart" data-key="${chart === 'waterfall' ? 'contributions' : 'waterfall'}">${chart === 'waterfall' ? 'К вкладам' : 'Водопад'}</button></header>
-        <div id="bridge-chart">${analysisChart(state)}</div>
+        <div id="bridge-chart" data-chart-scope="${esc(numberKey)}">${analysisChart(state)}</div>
         <p class="business-conclusion">${conclusion(work)}</p>
       </section>
       <div class="report-actions"><button type="button" class="button primary" data-action="research">Подробный анализ${icon('arrow')}</button>${ask}</div>
@@ -426,15 +431,16 @@ function interactionPanel(state, work, unit) {
   const label = (key) => esc(titleOf(work, key));
   const pairIndex = Number.isInteger(state.pair) && r.interactions[state.pair] ? state.pair : 0;
   const selected = r.interactions[pairIndex];
+  const axesSelected = new Set([selected.a, selected.b]);
   const max = r.interactions[0].strength || 1;
   const pairName = (item) => `${titleOf(work, item.a)} × ${titleOf(work, item.b)}`;
   const cells = (a, b) => {
     const index = r.interactions.findIndex((item) => (item.a === a && item.b === b) || (item.a === b && item.b === a));
     if (index < 0) return '<td aria-label="Один признак">·</td>';
     const item = r.interactions[index];
-    return `<td style="background:rgba(92,78,153,${(.07 + .45 * Math.sqrt(item.strength / max)).toFixed(3)})"><button class="heat-cell"
+    return `<td class="${axesSelected.has(a) || axesSelected.has(b) ? 'heat-axis-selected' : ''}" style="--heat-level:${(7 + 43 * Math.sqrt(item.strength / max)).toFixed(1)}%"><button class="heat-cell"
       type="button" data-action="pair" data-key="${index}" aria-pressed="${index === pairIndex}"
-      title="${esc(pairName(item))} · ${fmt(item.strength, unit)}">${short(item.strength)}</button></td>`;
+      aria-label="${esc(pairName(item))} · ${fmt(item.strength, unit)}" title="${esc(pairName(item))} · ${fmt(item.strength, unit)}">${short(item.strength)}</button></td>`;
   };
   const rangeLabel = (range) => Array.isArray(range) ? range.map(n).join(' – ') : String(range);
   const profile = selected.profile ?? [];
@@ -442,14 +448,15 @@ function interactionPanel(state, work, unit) {
   const ranks = new Map(profile.flatMap((series) => series.points).map((point) => [rangeLabel(point.range), point.range]));
   const bands = [...ranks.entries()].sort(([a, first], [b, second]) =>
     Array.isArray(first) && Array.isArray(second) ? first[0] - second[0] : a.localeCompare(b, 'ru')).map(([label]) => label);
-  const series = profile.map((item, i) => ({ name: rangeLabel(item.group), color: ['var(--accent)', '#8c6b54', '#666b78'][i],
+  const series = profile.map((item, i) => ({ name: rangeLabel(item.group), color: ['var(--accent)', 'var(--warning)', 'var(--chart-neutral)'][i % 3],
     points: item.points.map((p) => ({ ...p, x: bands.indexOf(rangeLabel(p.range)), label: rangeLabel(p.range) })) }));
   const matrix = `<div class="table-wrap" tabindex="0"><table class="heatmap" aria-label="Тепловая карта попарных взаимодействий">
-      <thead><tr><th scope="col">Фактор</th>${keys.map((key) => `<th scope="col">${label(key)}</th>`).join('')}</tr></thead>
-      <tbody>${keys.map((a) => `<tr><th scope="row">${label(a)}</th>${keys.map((b) => cells(a, b)).join('')}</tr>`).join('')}</tbody></table></div>`;
-  return `<div id="interactions">${h2('Совместное влияние факторов', 'Вклад одного признака зависит от значения другого. Чем темнее ячейка, тем больше совместный вклад по модулю.')}
+      <thead><tr><th scope="col">Фактор</th>${keys.map((key) => `<th scope="col" class="${axesSelected.has(key) ? 'heat-axis-selected' : ''}">${label(key)}</th>`).join('')}</tr></thead>
+      <tbody>${keys.map((a) => `<tr><th scope="row" class="${axesSelected.has(a) ? 'heat-axis-selected' : ''}">${label(a)}</th>${keys.map((b) => cells(a, b)).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<div id="interactions">${h2('Совместное влияние факторов', 'Вклад одного признака в прогноз модели зависит от значения другого.')}
     <label class="field">Пара факторов<select id="pair-select" aria-label="Пара факторов">${r.interactions.map((item, i) => option(i, pairName(item), pairIndex)).join('')}</select></label>
-    <details class="details interaction-matrix" open><summary>Матрица факторов</summary>${matrix}</details>
+    <details class="details interaction-matrix" open><summary>Матрица факторов</summary>
+      <div class="heat-legend note"><span>Сила взаимодействия</span><i aria-hidden="true"></i><span>0 — ${fmt(max, unit)}</span></div>${matrix}</details>
     <div class="score-strip">${[['Сила в начале', selected.strengthBefore], ['Сила в конце', selected.strength], ['Изменение среднего вклада', selected.change]]
       .map(([name, amount]) => `<div class="score">${name}<strong>${fmt(amount, unit)}</strong></div>`).join('')}</div>
     <p class="note">${selected.rows} из ${selected.population} общих наблюдений. ${selected.estimated ? 'Оценка по выборке.' : 'Использованы все общие наблюдения.'}
@@ -541,7 +548,7 @@ export function analysisTab(state) {
   const r = work.report;
   const unit = unitOf(work);
   if (tab === 'cash') return cashFlowDetail(work, unit, state.generating);
-  if (tab === 'contributions') return contributionTable(work);
+  if (tab === 'contributions') return `<div class="research-contributions">${divergingBars(bridge(work), { unit })}</div>` + contributionTable(work);
   if (r.mode === 'ml' && ['importance', 'interactions', 'effects'].includes(tab) && r.diagnosticsReady === false) {
     return h2('Углублённая аналитика', 'Дополнительный расчёт запускается по запросу.')
       + `<button type="button" data-action="diagnostics" class="button primary" ${state.generating ? 'disabled' : ''}>Рассчитать детализацию</button>`;
@@ -611,7 +618,7 @@ export function assistantPanel(state) {
     : ['Какие факторы главные?', context.analysisFocus?.kind === 'effect'
         ? 'Какая форма зависимости у выбранного признака?' : 'Какие факторы взаимодействуют?', 'Насколько надёжен результат?'];
   const questions = context.page === 'analysis' ? analysisQuestions : pageQuestions[context.page];
-  return `<header class="drawer-head"><div><h2 id="assistant-title">Спектр AI</h2><div id="assistant-status">${assistantStatus(state)}</div></div>
+  return `<header class="drawer-head"><div><h2 id="assistant-title">${icon('spark')}Спектр AI</h2><div id="assistant-status">${assistantStatus(state)}</div></div>
       <form method="dialog"><button class="icon-button" aria-label="Закрыть помощника">${icon('close')}</button></form></header>
     <div class="drawer-body assistant" id="assistant">
     <div class="assistant-context"><p>${esc(context.title)}</p><span>${esc(context.subtitle)}</span></div>
@@ -644,7 +651,7 @@ export function assistantConversation(state) {
     ${older.map(({ question, answer }) => `<section class="assistant-turn"><p class="user-question">${esc(question)}</p>${explanation(answer)}</section>`).join('')}</details>` : '';
   const summary = state.assistantContext?.page === 'analysis' && state.summary && state.answer !== state.summary
     ? `<details class="assistant-history"><summary>Сохранённое резюме</summary>${explanation(state.summary)}</details>` : '';
-  const waiting = state.asking ? `<p class="note checks-note">Подбираем факты по текущему расчёту…</p>
+  const waiting = state.asking ? `<p class="note assistant-pending">Ожидаем ответ по текущему расчёту…</p>
     <button type="button" class="text-button" data-action="cancel-explanation">Отменить ожидание</button>` : '';
   const active = !state.asking && state.answer ? `<section class="assistant-response">${showingTurn ? `<p class="user-question">${esc(latest.question)}</p>` : ''}
     ${explanation(state.answer)}</section>` : '';
@@ -692,6 +699,8 @@ export function scenarioPage(state) {
   const active = stresses.find((entry) => entry.code === state.scenarioCode) ?? worst;
   const base = item.scenarios.find((entry) => entry.code === 'base');
   const plotted = (code) => item.curves[code].map((p) => ({ x: Math.log1p(p.years), value: p.rate, label: termLabel(p.label) }));
+  const curveDomain = Object.values(item.curves).flatMap((curve) => curve.map((point) => point.rate)).filter(Number.isFinite);
+  const scenarioNumber = (name, value, format) => numberMarkup(`${work.id}:${item.date}:${name}`, value, ' ₽', format);
   const buckets = (item.bucketDeltas?.[active.code] ?? []).filter((entry) => Math.abs(entry.value) >= 0.01)
     .map((entry) => ({ ...entry, label: termLabel(entry.label) }));
   return heading(title, '', assistantButton) + `
@@ -700,17 +709,18 @@ export function scenarioPage(state) {
       <button class="button small" type="button" data-action="compare-scenario" data-key="${esc(active.code)}"
         data-date="${esc(item.date)}">Разобрать изменение сценария</button></div>
     <dl class="scenario-values" aria-label="Оценка сценария">
-      <div><dt>PV базы</dt><dd title="${fmt(base.pv, ' ₽')}">${compact(base.pv, ' ₽')}</dd></div>
-      <div><dt>PV при выбранном стрессе</dt><dd title="${fmt(active.pv, ' ₽')}">${compact(active.pv, ' ₽')}</dd></div>
-      <div><dt>ΔPV к базе</dt><dd class="${tone(active.delta)}" title="${delta(active.delta, ' ₽')}">${delta(active.delta, ' ₽')}</dd></div>
+      <div><dt>PV базы</dt><dd title="${fmt(base.pv, ' ₽')}">${scenarioNumber('base', base.pv)}</dd></div>
+      <div><dt>PV при выбранном стрессе</dt><dd title="${fmt(active.pv, ' ₽')}">${scenarioNumber('stress', active.pv)}</dd></div>
+      <div><dt>ΔPV к базе</dt><dd class="${tone(active.delta)}" title="${delta(active.delta, ' ₽')}">${scenarioNumber('delta', active.delta, 'signed')}</dd></div>
     </dl>
     <div class="scenario-layout">
       <section class="rate-panel">
         <h2>Кривые ставок</h2>
         <ul class="legend"><li><i class="swatch"></i>Базовая</li><li><i class="swatch selected"></i>${esc(codes[active.code])}</li></ul>
         ${lineChart([{ name: 'Базовая', color: 'var(--accent)', points: plotted('base') },
-          { name: codes[active.code], color: 'var(--muted-strong)', points: plotted(active.code), dash: '6 4' }],
-          { title: 'Базовая и выбранная стрессовая кривые', unit: '%', xLabel: 'Срок (логарифмическая шкала)', yLabel: 'Доходность, % годовых', tall: true })}
+          { name: codes[active.code], color: 'var(--muted-strong)', points: plotted(active.code), dash: '6 4', morph: true }],
+          { title: 'Базовая и выбранная стрессовая кривые', unit: '%', xLabel: 'Срок (логарифмическая шкала)', yLabel: 'Доходность, % годовых', tall: true,
+            domain: curveDomain, motionKey: `${work.id}:${item.date}:curves` })}
         <a class="text-button" href="${esc(snapshotUrl(work, item))}">Открыть использованные кривые${icon('arrow')}</a>
       </section>
       <section class="stress-picker" aria-label="Стресс для сравнения">
@@ -729,9 +739,9 @@ export function scenarioPage(state) {
       <div class="data-actions">${link(exportUrl(work, item.date + '/discounted_deal_summary.csv'), 'PV по сделкам')}
         ${link(exportUrl(work, item.date + '/standard-result.json'), 'Снимок кривых')}</div>
     </details>
-    <details class="details technical" id="scenario-buckets" data-scenario-detail="buckets"><summary>Вклад сроков платежей</summary>
+    <details class="details scenario-buckets" id="scenario-buckets" data-scenario-detail="buckets" open><summary>Вклад сроков платежей</summary>
       <p class="note">В каждом интервале сравниваются оценки платежей по двум кривым.</p>
-      ${buckets.length ? bars(buckets, { unit: ' ₽', label: 'Вклад сроков платежей' })
+      ${buckets.length ? bars(buckets, { unit: ' ₽', label: 'Вклад сроков платежей', motionKey: `${work.id}:${item.date}:buckets` })
         : '<p class="note">Вклады по срокам меньше копейки или отсутствуют.</p>'}
       <p class="note">Общий эффект ${delta(active.delta, ' ₽')}. Договорные проценты за год ${fmt(item.interest12, ' ₽')}.</p>
     </details>`;
@@ -838,6 +848,7 @@ export function portfolioPage(state) {
       <p class="note">${n(date.deals)} действующих сделок на ${day(date.date)}. Откройте ID, чтобы посмотреть платежи.</p></div>
       <div class="data-actions">${link(exportUrl(work, date.date + '/calculator_input.csv'), 'CSV для калькулятора')}
         <a class="button small" href="#analysis" data-action="overview">Открыть факторный анализ</a></div></header>
+      <div id="holding-overview"></div>
       <details class="details"><summary>Результаты калькулятора</summary><div class="data-actions">
         ${link(exportUrl(work, date.date + '/deal_summary.csv'), 'Сводка по сделкам')}
         ${link(exportUrl(work, date.date + '/cashflows.csv'), 'Платежи CSV')}
@@ -873,14 +884,20 @@ export function portfolioPage(state) {
           <button class="text-button" type="button" data-action="curve-clear">Снять выбор</button></div>` : ''}
       </section>
       <details class="details builder-advanced"><summary>Дополнительные параметры сделок</summary>
-        <div class="form-grid">${input('seed', 'Код генерации', settings.seed, 'type="text" maxlength="64"')}
-          ${input('liabilityShare', 'Доля обязательств, %', settings.liabilityShare, 'type="number" min="0" max="100" step="0.01"')}
-          ${ranges.map(([name, label, rule]) => input(name, label, settings[name], `type="${rule}"`)).join('')}
+        <fieldset><legend>Суммы и сроки</legend><div class="form-grid">
+          ${ranges.slice(0, 4).map(([name, label, rule]) => input(name, label, settings[name], `type="${rule}"`)).join('')}
           <label class="field">Распределение сроков<select name="termProfile">
-            ${Object.entries(termProfiles).map(([key, label]) => option(key, label, settings.termProfile)).join('')}</select></label>
-          ${[['annuity', 'Аннуитетных, %'], ['linear', 'Дифференцированных, %'], ['bullet', 'С телом в конце, %'],
-            ['fixed', 'Фиксированная ставка, %'], ['floating', 'Плавающая ставка, %'], ['benchmark', 'Тестовый плавающий индекс, %']]
-            .map(([key, label]) => input(key, label, settings[key], 'type="number" min="0" max="100" step="0.01"')).join('')}</div>
+            ${Object.entries(termProfiles).map(([key, label]) => option(key, label, settings.termProfile)).join('')}</select></label></div></fieldset>
+        <fieldset><legend>Процентные ставки</legend><div class="form-grid">
+          ${ranges.slice(4).map(([name, label, rule]) => input(name, label, settings[name], `type="${rule}"`)).join('')}
+          ${[['fixed', 'Фиксированная ставка, %'], ['floating', 'Плавающая ставка, %'], ['benchmark', 'Тестовый плавающий индекс, %']]
+            .map(([key, label]) => input(key, label, settings[key], 'type="number" min="0" max="100" step="0.01"')).join('')}</div></fieldset>
+        <fieldset><legend>Графики выплат</legend><div class="form-grid">
+          ${[['annuity', 'Аннуитетных, %'], ['linear', 'Дифференцированных, %'], ['bullet', 'С телом в конце, %']]
+            .map(([key, label]) => input(key, label, settings[key], 'type="number" min="0" max="100" step="0.01"')).join('')}</div></fieldset>
+        <fieldset><legend>Состав и воспроизводимость</legend><div class="form-grid">
+          ${input('liabilityShare', 'Доля обязательств, %', settings.liabilityShare, 'type="number" min="0" max="100" step="0.01"')}
+          ${input('seed', 'Код генерации', settings.seed, 'type="text" maxlength="64"')}</div></fieldset>
         <p class="note">Доли схем платежей и типов ставки в каждой группе должны давать 100%.</p>
       </details>
       <div class="form-actions"><button class="button primary" type="submit" ${state.generating ? 'disabled' : ''}>Создать тестовый портфель${icon('arrow')}</button>
@@ -894,10 +911,24 @@ export function portfolioCurveNote(source) {
   return sourceNotes[source] ?? sourceNotes.api;
 }
 
+export function holdingsOverview(overview, periods) {
+  const { principal, distributions } = overview;
+  const sides = distributions.side;
+  const names = [['Активы', 'ASSET'], ['Обязательства', 'LIABILITY']];
+  const groups = [['Тип ставок', 'rate_type'], ['Схема платежей', 'payment_type'], ['Срок до погашения', 'terms']];
+  return `<dl class="holdings-metrics">${names.map(([name, type]) => `<div><dt>${name} · ${n(sides[name] ?? 0)} сделок</dt>
+    <dd title="${fmt(Number(principal[type]), ' ₽')}">${compact(Number(principal[type]), ' ₽')}</dd></div>`).join('')}
+    <div><dt>История</dt><dd>${dateCountLabel(periods.length)}</dd></div></dl>
+    <p class="note">Остаток основного долга по действующим сделкам на выбранную дату.</p>
+    <details class="details"><summary>Структура по ставкам, платежам и срокам</summary><div class="holding-distributions">
+      ${groups.map(([title, code]) => `<div><h3>${title}</h3><dl>${Object.entries(distributions[code]).map(([label, count]) =>
+        `<div><dt>${esc(label)}</dt><dd>${n(count)}</dd></div>`).join('')}</dl></div>`).join('')}</div></details>`;
+}
+
 export function dealTable(data) {
   if (!data.rows.length) return '<p class="note">Совпадений нет.</p>';
   const cols = [['ID'], ['Остаток', 'num'], ['Ставка, %', 'num'], ['Срок, лет', 'num'], ['График'], ['Сторона'], ['PV базы', 'num']];
-  const lines = data.rows.map((row) => `<tr><th scope="row"><button class="ghost" data-action="flow" data-key="${esc(row.deal_id)}">${esc(row.deal_id)}</button></th>
+  const lines = data.rows.map((row) => `<tr><th scope="row"><button class="ghost" type="button" aria-haspopup="dialog" data-action="flow" data-key="${esc(row.deal_id)}">${esc(row.deal_id)}</button></th>
     <td class="num">${exact(+row.principal, ' ₽')}</td><td class="num">${n(+row.contract_rate)}</td><td class="num">${n(+row.term_years)}</td>
     <td>${esc(row.payment_type)}</td><td>${row.side === 'LIABILITY' ? 'Обязательство' : 'Актив'}</td><td class="num">${exact(+row.npv, ' ₽')}</td></tr>`);
   const count = Math.ceil(data.size / data.pageSize);
@@ -930,14 +961,25 @@ export function flowDialog(data, workspace) {
   const interest = data.totals?.total_interest;
   const total = principal != null && interest != null ? `<p class="note">Основной долг ${fmt(+principal, unit)} · Проценты ${fmt(+interest, unit)}
     · Всего ${fmt(+principal + +interest, unit)}</p>` : '';
-  return `<div class="panel-head"><div><h2 id="inspector-title">Платежи по сделке № ${esc(data.id)}</h2><p class="note">${day(data.date)} · ${data.rows.length} строк калькулятора</p></div>
-    <form method="dialog"><button class="button small">Закрыть</button></form></div>
-    <dl class="contract-details">${contract.map(([title, value]) => `<div><dt>${title}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>
+  const cashByType = new Map(Object.keys(labels).map((type) => [type, new Map()]));
+  for (const row of data.rows) {
+    const days = cashByType.get(row.cash_flow_type);
+    const date = Date.parse(row.payment_date), amount = Number(row.amount);
+    if (days && Number.isFinite(date) && Number.isFinite(amount)) days.set(date, (days.get(date) ?? 0) + amount);
+  }
+  const payments = [...cashByType].map(([type, days]) => ({ name: labels[type], color: type === 'PRINCIPAL' ? 'var(--accent)' : 'var(--chart-positive)',
+    points: [...days].map(([x, value]) => ({ x, value, label: day(new Date(x).toISOString().slice(0, 10)) })) }));
+  const paymentChart = payments.some(({ points }) => points.length) ? `<h3>График договорных платежей</h3>
+    <ul class="legend"><li><i class="swatch"></i>Основной долг</li><li><i class="swatch interest"></i>Проценты</li></ul>
+    ${lineChart(payments, { title: 'Договорные платежи по датам', unit, connect: false, xLabel: 'Дата платежа' })}` : '';
+  return `<header class="drawer-head"><div><h2 id="inspector-title">Платежи по сделке № ${esc(data.id)}</h2><p class="note">${day(data.date)} · ${data.rows.length} строк калькулятора</p></div>
+    <form method="dialog"><button class="button small">Закрыть</button></form></header>
+    <div class="drawer-body"><dl class="contract-details">${contract.map(([title, value]) => `<div><dt>${title}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>
     ${stress.length ? `<details class="details"><summary>PV по стрессовым сценариям</summary>${table([['Сценарий'], ['PV', 'num']],
       stress.map(([key, value]) => `<tr><th scope="row">${codes[key]}</th><td class="num">${fmt(+value, unit)}</td></tr>`), 'PV по стрессовым сценариям')}</details>` : ''}
-    ${total}
+    ${total}${paymentChart}
     ${table([['Дата'], ['Вид платежа'], ['Сумма','num'], ['Ставка','num']], rows, 'Платежи по сделке')}
-    <p class="note">${link(exportUrl(workspace, data.date + '/cashflows.csv'), 'Денежные потоки всего портфеля')}</p>`;
+    <p class="note">${link(exportUrl(workspace, data.date + '/cashflows.csv'), 'Денежные потоки всего портфеля')}</p></div>`;
 }
 
 
@@ -945,7 +987,7 @@ function filePicker(name, title, accepts) {
   return `<div class="file-field"><label class="field" for="${name}">${title}</label>
     <label class="file-picker"><input class="sr-only" id="${name}" type="file" name="${name}" accept="${accepts}" aria-label="${title}" aria-describedby="${name}-selected" required>
       <span class="file-pick-label" aria-hidden="true">Выбрать файл</span><span class="file-name" id="${name}-selected">Файл не выбран</span>
-    </label></div>`;
+    </label><p class="note negative" data-file-warning role="alert" hidden></p></div>`;
 }
 
 export function servicesList(health) {
@@ -980,7 +1022,7 @@ export function dataPage(state) {
       <label class="check"><input type="checkbox" name="bank"> Банковская выгрузка</label></form></div>`}
   </section>`;
   const title = heading('Данные', '', work?.profile ? assistantButton : '');
-  const connections = `<details class="details technical"><summary>Подключения</summary>
+  const connections = `<details class="details technical" id="data-services"><summary>Подключения</summary>
     <ul id="services" class="service-list" aria-live="polite">${servicesList(state.health)}</ul></details>`;
   if (!work?.profile) return title + importer + connections;
 
@@ -1057,5 +1099,5 @@ export function dataPage(state) {
         <div class="form-actions"><button class="button" type="button" data-action="check-mapping" ${!ready || state.generating ? 'disabled' : ''}>Проверить структуру</button>
           <button class="button primary" type="submit" ${!ready || state.generating ? 'disabled' : ''}>Рассчитать вклады</button></div>
       </form></details>`;
-  return title + importer + mapping + quality + evidence + connections;
+  return title + importer + quality + mapping + evidence + connections;
 }
