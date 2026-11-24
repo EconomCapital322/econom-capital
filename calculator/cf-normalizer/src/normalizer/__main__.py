@@ -1,7 +1,9 @@
 """CLI: банковский CSV или ручная сделка -> нормализованные файлы -> cfcore."""
 
 import argparse
+from datetime import date
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +14,8 @@ from normalizer.manual import read_manual_deal_with_policy
 from normalizer.processor import normalize_deals
 from normalizer.reader import read_csv
 from normalizer.writer import write_csv, write_parquet, write_quarantine
+from normalizer.curves import CurvesClient, CODES, save_curves
+from normalizer.discounting import discount_flows
 
 
 POLICIES = ("base", "legacy-excel", "contractual-v2")
@@ -31,7 +35,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-flows", action="store_true", help="не записывать cashflows.csv")
     parser.add_argument("--excel-etalon", action="store_true", help="использовать правила ядра для Excel-эталона")
     parser.add_argument("--policy", choices=POLICIES, help="расчётная политика, по умолчанию base")
+    parser.add_argument('--curves-url', default=os.getenv('CURVES_API_URL'), help='адрес публичного API кривых')
+    parser.add_argument('--curve-scenario', choices=(*CODES,'all'), default='base')
+    parser.add_argument('--curves-wait', type=float, default=120, help='ожидание подготовки даты, секунд')
     args = parser.parse_args(argv)
+    if args.curves_url and (args.cfcore is None or args.no_flows):
+        parser.error('--curves-url требует --cfcore и запись денежных потоков')
 
     if args.excel_etalon and args.policy not in (None, "legacy-excel"):
         parser.error("--excel-etalon несовместим с выбранной политикой")
@@ -49,6 +58,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"файл истории ставки не найден: {args.fixings}")
     if args.cfcore is not None and not args.cfcore.is_file():
         parser.error(f"исполняемый файл cfcore не найден: {args.cfcore}")
+
+    integration_status = None
+
+    def set_integration_status(status, **fields):
+        if integration_status is not None:
+            temporary = integration_status.with_suffix('.tmp')
+            temporary.write_text(json.dumps({'status': status, **fields}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            temporary.replace(integration_status)
 
     try:
         source, manual_policy = read_manual_deal_with_policy(args.input) if args.manual else (read_csv(args.input), None)
@@ -73,6 +90,19 @@ def main(argv: list[str] | None = None) -> int:
         quarantine_path = write_quarantine(result.quarantine, output_dir / "quarantine.csv")
         print(f"Карантин: {quarantine_path}")
         print(f"Обработано: {source.height}; принято: {result.deals.height}; отклонено: {result.quarantine.height}")
+
+        curve_result = None
+        curve_reference = None
+        if args.curves_url:
+            integration_status = output_dir / 'integration-status.json'
+            set_integration_status('preparing')
+            dates = result.deals['report_dttm'].unique().to_list()
+            if len(dates) != 1:
+                raise ValueError('Для получения кривых нужен непустой набор сделок с одной отчётной датой.')
+            report_date = date.fromisoformat(str(dates[0]))
+            curve_result, raw = CurvesClient(args.curves_url, wait_seconds=args.curves_wait).result(report_date)
+            curve_reference = save_curves(output_dir / 'curves', curve_result, raw, args.curve_scenario)
+            set_integration_status('calculating', **curve_reference)
 
         trace_deal = args.trace_deal
         if args.manual:
@@ -105,6 +135,21 @@ def main(argv: list[str] | None = None) -> int:
                 command.extend(["--policy", policy])
             print(f"Запуск cfcore; результаты: {core_dir}", flush=True)
             completed = subprocess.run(command, check=False)
+            if completed.returncode == 0 and curve_result is not None:
+                manifest_path = core_dir / 'run_manifest.json'
+                manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+                if manifest['deals_ok'] == 0 or (args.manual and manifest['deals_ok'] != 1):
+                    set_integration_status('failed', reason='CFCORE_NO_VALID_DEALS')
+                    print(f"Нет рассчитанных сделок для дисконтирования. См. {core_dir / 'errors.csv'}", file=sys.stderr)
+                    return 2
+                discount_flows(core_dir, output_dir / 'normalized_deals.csv', curve_result, args.curve_scenario)
+                manifest['curves'] = curve_reference
+                manifest['discounting_applied'] = True
+                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+                set_integration_status('ready', **curve_reference)
+                print(f'Дисконтирование: {core_dir / "discounted_cashflows.csv"}', flush=True)
+            elif completed.returncode != 0 and args.curves_url:
+                set_integration_status('failed', reason='CFCORE_FAILED')
             if completed.returncode or not args.manual:
                 return completed.returncode
             manifest = json.loads((core_dir / "run_manifest.json").read_text(encoding="utf-8"))
@@ -112,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Ручная сделка не рассчитана. См. {core_dir / 'errors.csv'}", file=sys.stderr)
                 return 2
     except (OSError, ValueError, subprocess.SubprocessError, pl.exceptions.PolarsError) as exc:
+        set_integration_status('failed', reason='INTEGRATION_FAILED')
         parser.exit(2, f"Ошибка: {exc}\n")
 
     return 0

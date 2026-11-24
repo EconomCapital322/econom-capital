@@ -1,0 +1,9 @@
+services:
+  worker:
+    environment:
+      SSL_CERT_FILE: /run/spectrum/moex-ca.pem
+    volumes:
+      - type: bind
+        source: ${SPECTRUM_MOEX_CA:?Set SPECTRUM_MOEX_CA to the official MOEX trust certificate}
+        target: /run/spectrum/moex-ca.pem
+        read_only: true

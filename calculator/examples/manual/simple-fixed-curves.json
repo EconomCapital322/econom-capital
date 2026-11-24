@@ -1,0 +1,13 @@
+{
+  "instrument_id": 101,
+  "reporting_date": "2026-07-31",
+  "start_date": "2026-07-31",
+  "maturity_date": "2026-10-31",
+  "outstanding_principal": 100000,
+  "currency": "RUB",
+  "amortization": "SIMPLE",
+  "rate_type": "FIXED",
+  "interest_rate": 0.1,
+  "day_count": "ACT/365",
+  "interest_rule": {"period": "1M", "day": 31}
+}
