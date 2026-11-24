@@ -69,6 +69,16 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
   try {
     const origin = await waitForServer(server);
     browser = await chromium.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
+    const brandPage = await browser.newPage();
+    await brandPage.route('**/spectrum.svg', (route) => route.fulfill({ status: 404 }));
+    await brandPage.goto(origin);
+    const renderedMark = await brandPage.locator('.brand').evaluate((brand) => {
+      const svg = brand.querySelector('svg');
+      return svg ? svg.getBBox().width > 0 : brand.querySelector('img')?.naturalWidth > 0;
+    });
+    assert.ok(renderedMark, 'The sidebar logo is visible when the standalone SVG is unavailable.');
+    await brandPage.close();
+
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     page.setDefaultTimeout(9_000);
     const errors = [];
