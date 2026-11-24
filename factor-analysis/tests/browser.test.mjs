@@ -12,7 +12,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const engines = createRequire(import.meta.url)(process.env.SPECTRUM_PLAYWRIGHT_MODULE || 'playwright');
 const engine = process.env.SPECTRUM_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(engine), 'Use chromium or webkit for browser checks.');
+assert.ok(['chromium', 'webkit', 'firefox'].includes(engine), 'Use chromium, webkit, or firefox for browser checks.');
 const browserType = engines[engine];
 const python = process.env.SPECTRUM_TEST_PYTHON || '../.venv/bin/python';
 const screenshotDirectory = process.env.SPECTRUM_SCREENSHOTS;
@@ -48,11 +48,27 @@ async function record(page, name, selector, fullPage = true) {
   }
 }
 
+async function recordThemes(page, name, selector, fullPage = true) {
+  if (!screenshotDirectory) return;
+  await record(page, name, selector, fullPage);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await record(page, name + '-dark', selector, fullPage);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+}
+
 async function noOverflow(page, viewports) {
   for (const [width, height] of viewports) {
     await page.setViewportSize({ width, height });
     const span = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
-    assert.ok(span[0] <= span[1] + 1, `layout overflow at ${width}: ${span}`);
+    if (span[0] > span[1] + 1) {
+      const overhang = await page.evaluate(() => [...document.body.querySelectorAll('*')]
+        .filter((element) => !element.closest('.table-wrap, .chart-scroll, .icon-library') &&
+          element.getBoundingClientRect().left + Math.max(element.getBoundingClientRect().width, element.scrollWidth) > innerWidth + 1)
+        .slice(0, 14).map((element) => `${element.tagName}${element.id ? '#' + element.id : ''}.${element.getAttribute('class') ?? ''}(${element.clientWidth}/${element.scrollWidth})`));
+      assert.fail(`layout overflow at ${width}: ${span}. ${overhang.join(', ')}`);
+    }
     if (width <= 810) {
       const [brand, navigation] = await Promise.all([
         page.locator('.brand').boundingBox(),
@@ -65,7 +81,7 @@ async function noOverflow(page, viewports) {
   }
 }
 
-const cases = [[1920, 1080], [1440, 900], [1280, 720], [768, 900], [390, 844], [320, 720]];
+const cases = [[1920, 1080], [1440, 900], [1280, 800], [1024, 768], [768, 1024], [390, 844], [320, 720]];
 
 async function waitForJob(page, origin, id) {
   const deadline = Date.now() + 40_000;
@@ -112,6 +128,30 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(origin);
     await page.getByRole('heading', { name: 'Подготовьте историю портфеля' }).waitFor();
+    const appearance = page.locator('#appearance-dialog');
+    const appearanceButton = page.getByRole('button', { name: 'Внешний вид', exact: true });
+    await appearanceButton.click();
+    await appearance.getByLabel('Тема').selectOption('dark');
+    await appearance.getByLabel('Прозрачность').selectOption('reduced');
+    await appearance.getByLabel('Анимация').selectOption('reduced');
+    await page.reload();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    assert.equal(await page.locator('html').getAttribute('data-transparency'), 'reduced');
+    assert.equal(await page.locator('html').getAttribute('data-motion'), 'reduced');
+    const navigationMaterial = await page.locator('.navigation-shell').evaluate((nav) => getComputedStyle(nav).backdropFilter);
+    assert.equal(navigationMaterial, 'none');
+    await appearanceButton.click();
+    await appearance.getByLabel('Тема').selectOption('system');
+    await appearance.getByLabel('Прозрачность').selectOption('full');
+    await appearance.getByLabel('Анимация').selectOption('full');
+    await page.keyboard.press('Escape');
+    await appearance.waitFor({ state: 'hidden' });
+    const navMark = page.getByRole('link', { name: 'Анализ', exact: true }).locator('.icon');
+    const beforeCollapse = await navMark.boundingBox();
+    await page.getByRole('button', { name: 'Свернуть меню', exact: true }).click();
+    await page.waitForFunction(() => Math.abs(document.querySelector('.navigation-shell').getBoundingClientRect().width - 68) < 1);
+    assert.equal(Math.round((await navMark.boundingBox()).x), Math.round(beforeCollapse.x));
+    await page.getByRole('button', { name: 'Развернуть меню', exact: true }).click();
     await page.getByRole('link', { name: 'Создать тестовый портфель' }).click();
     await page.getByRole('link', { name: 'Загрузить снимки ZIP' }).click();
     await page.getByLabel('Архив снимков').waitFor({ state: 'attached' });
@@ -130,28 +170,31 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByText('Дополнительные параметры сделок', { exact: true }).click();
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '03-portfolio');
+    await recordThemes(page, '03-portfolio');
     await page.getByRole('button', { name: 'Создать тестовый портфель' }).click();
     await page.getByRole('heading', { name: 'Расчёт завершён', exact: true }).waitFor({ timeout: 40_000 });
     await page.getByRole('heading', { name: 'Состав портфеля', exact: true }).waitFor();
+    await page.locator('#holding-overview').getByText(/^Активы ·/).waitFor();
     await page.getByRole('button', { name: 'Спросить AI', exact: true }).click();
     await page.getByRole('button', { name: 'Как распределяются сроки?' }).click();
     await page.locator('#answer').getByText(/Оставшиеся сроки на/).waitFor();
     await page.keyboard.press('Escape');
-    await record(page, '03-portfolio-holdings');
+    await page.locator('#assistant-drawer').waitFor({ state: 'hidden' });
+    await recordThemes(page, '03-portfolio-holdings');
     await page.getByRole('link', { name: 'Открыть факторный анализ' }).click();
     await page.getByRole('heading', { name: 'NPV базы', exact: true }).waitFor();
     await page.getByText('Сверено с калькулятором', { exact: true }).waitFor({ timeout: 40_000 });
-    await page.getByRole('group', { name: 'Вклады факторов относительно нуля' }).waitFor();
+    await page.getByRole('group', { name: /^Водопад изменения показателя/ }).waitFor();
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    const animationDuration = await page.locator('.contribution-track i').first().evaluate(bar => getComputedStyle(bar).animationDuration);
+    await page.waitForFunction(() => document.documentElement.dataset.motion === 'reduced');
+    const animationDuration = await page.locator('.chart-waterfall-compact .waterfall-bar').first().evaluate(bar => getComputedStyle(bar).animationDuration);
     assert.equal(animationDuration, '0s', 'chart respects reduced motion');
-    await record(page, '01-valuation-mobile');
+    await recordThemes(page, '01-valuation-mobile');
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '01-valuation');
+    await recordThemes(page, '01-valuation');
     const edit = page.getByRole('button', { name: 'Изменить параметры', exact: true });
     const settings = page.locator('#settings-dialog');
     const openResearch = page.getByRole('button', { name: 'Подробный анализ', exact: true });
@@ -167,47 +210,66 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await settings.getByRole('button', { name: 'Расчётный анализ', exact: true }).waitFor();
     await settings.locator('#from').selectOption({ index: 0 });
     await page.keyboard.press('Escape');
+    await settings.waitFor({ state: 'hidden' });
     assert.equal(await settings.isVisible(), false);
     assert.equal(await applied.textContent(), actualPeriod);
-    const cash = page.locator('#bridge-chart [data-key="factor:cash_effect"]');
+    const cash = page.locator('#bridge-chart [data-key="factor:cash_effect"]:visible');
     await cash.focus();
     await page.keyboard.press('Enter');
     const drawer = page.locator('#factor-drawer');
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
     await drawer.getByText('Метод и источник', { exact: true }).click();
     await drawer.getByRole('button', { name: 'Детализация потоков и источник' }).waitFor();
-    await record(page, '01-factor-drawer', undefined, false);
+    await recordThemes(page, '01-factor-drawer', undefined, false);
     await page.keyboard.press('Escape');
+    await drawer.waitFor({ state: 'hidden' });
     assert.equal(await cash.evaluate((element) => element === document.activeElement), true);
     await cash.click();
     const factorAnswer = page.waitForRequest((request) => request.url().endsWith('/api/explain'));
     await drawer.getByRole('button', { name: 'Объяснить с помощью AI' }).click();
     assert.equal((await factorAnswer).postDataJSON().focusFactor, 'factor:cash_effect');
     await page.locator('#answer').getByText('Показаны проверенные факты расчёта.', { exact: true }).waitFor();
-    await record(page, 'ai-valuation', undefined, false);
+    await recordThemes(page, 'ai-valuation', undefined, false);
     await page.setViewportSize({ width: 390, height: 844 });
-    const composer = assistant.locator('.assistant-composer');
-    assert.ok(await composer.evaluate(footer => footer.getBoundingClientRect().bottom <= innerHeight + 1),
-      'composer stays in the mobile drawer viewport');
+    await page.waitForFunction(() => document.querySelector('.assistant-composer').getBoundingClientRect().bottom <= innerHeight + 1);
     await record(page, 'ai-valuation-mobile', undefined, false);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.locator('#answer').getByRole('button', { name: /^Открыть источник/ }).first().click();
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
     await page.keyboard.press('Escape');
+    await drawer.waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'К вкладам', exact: true }).click();
+    await page.getByRole('group', { name: 'Вклады факторов относительно нуля' }).waitFor();
     await page.getByRole('button', { name: 'Водопад', exact: true }).click();
     await page.getByRole('group', { name: /^Водопад изменения показателя/ }).waitFor();
     await record(page, '01-waterfall', '#waterfall');
     await page.getByRole('button', { name: 'К вкладам', exact: true }).click();
     await openResearch.click();
     await page.getByRole('img', { name: 'История выбранного показателя' }).waitFor();
+    assert.match(page.url(), /#analysis\?view=details&tab=timeline$/);
+    await page.goBack();
+    await openResearch.waitFor();
+    await page.goForward();
+    await page.getByRole('img', { name: 'История выбранного показателя' }).waitFor();
+    await page.locator('.tab-body .chart-scroll').focus();
+    await page.keyboard.press('ArrowRight');
+    assert.match(await page.locator('[data-chart-announcement]').textContent(), /₽/);
+    if (screenshotDirectory) await page.keyboard.press('Escape');
+    await recordThemes(page, '05-research');
     await page.getByRole('button', { name: 'Вклады', exact: true }).click();
     const ledger = page.getByRole('table', { name: 'Полное разложение' });
     await ledger.waitFor();
     await ledger.getByRole('button', { name: 'Денежные потоки', exact: true }).click();
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
     await page.keyboard.press('Escape');
-    await page.getByRole('group', { name: 'Разделы аналитики' }).getByRole('button', { name: 'Денежные потоки', exact: true }).click();
-    await page.getByRole('button', { name: 'Разложить денежные потоки' }).click();
+    const researchTabs = page.getByRole('group', { name: 'Разделы аналитики' });
+    const cashTab = researchTabs.getByRole('button', { name: 'Денежные потоки', exact: true });
+    const decompose = page.getByRole('button', { name: 'Разложить денежные потоки' });
+    await cashTab.click();
+    await decompose.click({ trial: true });
+    await researchTabs.getByRole('button', { name: 'Динамика', exact: true }).click();
+    await cashTab.click();
+    await decompose.click();
     await page.getByRole('group', { name: 'Вклады в изменение денежных потоков' }).waitFor();
     await page.getByText('Все вклады и их суммы', { exact: true }).click();
     await page.getByRole('table', { name: 'Вклады в изменение денежных потоков' }).waitFor();
@@ -243,13 +305,22 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const initialCurve = await curve.locator('polyline').last().getAttribute('points');
     const bucketDetail = page.locator('details[data-scenario-detail="buckets"]');
     const buckets = bucketDetail.getByRole('group', { name: 'Вклад сроков платежей', exact: true });
+    assert.equal(await buckets.isVisible(), true);
+    await bucketDetail.locator('summary').click();
     assert.equal(await buckets.isVisible(), false);
     await bucketDetail.locator('summary').click();
     const initialBuckets = await buckets.textContent();
     const steepener = page.getByRole('button', { name: /^Увеличение наклона кривой/ });
+    const baseLine = await curve.locator('polyline').first().getAttribute('points');
+    if (screenshotDirectory && engine === 'chromium') await page.context().tracing.start({ screenshots: true, snapshots: true });
     await steepener.click();
     assert.equal(await steepener.getAttribute('aria-pressed'), 'true');
-    assert.notEqual(await curve.locator('polyline').last().getAttribute('points'), initialCurve);
+    await page.waitForFunction((points) => document.querySelector('[data-morph-line] polyline').getAttribute('points') !== points, initialCurve);
+    assert.equal(await curve.locator('polyline').first().getAttribute('points'), baseLine);
+    if (screenshotDirectory && engine === 'chromium') {
+      await page.locator('.tween-number').first().waitFor({ state: 'hidden' });
+      await page.context().tracing.stop({ path: join(screenshotDirectory, 'scenario-transition.zip') });
+    }
     assert.notEqual(await buckets.textContent(), initialBuckets);
     await bucketDetail.locator('summary').click();
     const scenarioFiles = page.locator('details[data-scenario-detail="results"]');
@@ -259,7 +330,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await scenarioFiles.locator('summary').click();
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '02-scenarios');
+    await recordThemes(page, '02-scenarios');
     await openAI.click();
     await assistant.getByRole('button', { name: 'Какие сроки дали главный вклад?' }).click();
     await assistant.locator('#answer').getByText(/Бакет .* даёт/).first().waitFor();
@@ -271,6 +342,12 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     assert.equal(await page.locator('#analysis-scenario').inputValue(), 'steepener');
     await page.getByRole('button', { name: 'Рассчитать вклады' }).click();
     await page.getByRole('heading', { name: 'ΔPV · Увеличение наклона кривой' }).waitFor();
+    const periodBeforeModeSwitch = await applied.locator('li').first().textContent();
+    await page.getByRole('button', { name: 'ML-анализ', exact: true }).click();
+    await applied.getByText('Анализ зависимостей (ML)', { exact: true }).waitFor();
+    assert.equal(await applied.locator('li').first().textContent(), periodBeforeModeSwitch);
+    await page.getByRole('button', { name: 'Расчётный', exact: true }).click();
+    await applied.getByText('Расчётный анализ', { exact: true }).waitFor();
     await edit.click();
     await settings.getByRole('button', { name: 'Анализ зависимостей (ML)', exact: true }).click();
     await settings.getByLabel('Показатель').selectOption('npv');
@@ -293,7 +370,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     await page.getByRole('link', { name: 'Данные', exact: true }).click();
-    await record(page, '04-data');
+    await recordThemes(page, '04-data');
     await page.locator('#data-sources > summary').click();
     await page.getByText('Идентификаторы расчётов и контрольные суммы', { exact: true }).click();
     await page.getByRole('table', { name: 'Идентификаторы исходных снимков' }).waitFor();
@@ -309,7 +386,12 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const untrusted = '<b data-column-name="test">Длинное пользовательское название укладывается на мобильном экране</b>';
     const quote = (value) => '"' + value.replaceAll('"', '""') + '"';
     const renamed = example.replace('размер', quote(untrusted));
-    await page.locator('#import-form input').setInputFiles({ name: 'данные.csv', mimeType: 'text/csv', buffer: Buffer.from(renamed) });
+    const picker = page.locator('#import-form .file-picker');
+    await picker.evaluate((target, csv) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([csv], 'данные.csv', { type: 'text/csv' }));
+      target.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    }, renamed);
     await page.getByText('данные.csv', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Загрузить CSV' }).click();
     await page.getByText('CSV загружен.', { exact: false }).waitFor();
@@ -393,7 +475,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
       await route.fulfill({ json: { analysisId: report.analysisId, facts: [{ text: 'Устаревший ответ' }], mode: 'facts' } }).catch(() => {});
     });
     await assistant.getByRole('button', { name: 'Какие факторы главные?' }).click();
-    await assistant.getByText('Подбираем факты по текущему расчёту…', { exact: true }).waitFor();
+    await assistant.getByText('Ожидаем ответ по текущему расчёту…', { exact: true }).waitFor();
     await assistant.getByRole('button', { name: 'Отменить ожидание', exact: true }).click();
     await assistant.getByText('Ожидание отменено.', { exact: true }).waitFor();
     await page.keyboard.press('Escape');
@@ -584,6 +666,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await curveAssistant.getByRole('button', { name: 'Что означают P, K и D?' }).click();
     await curveAssistant.locator('#answer').getByText(/P = 4,00, K = 5,00, D = 3,00/).waitFor();
     await page.keyboard.press('Escape');
+    await curveAssistant.waitFor({ state: 'hidden' });
     await graph.locator('.curve-chart__hit').first().focus();
     await page.getByRole('tooltip').filter({ hasText: 'Общий рост ставок' }).waitFor();
     await page.getByRole('button', { name: 'Показать исходную MOEX' }).click();
@@ -598,7 +681,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await page.setViewportSize({ width: 390, height: 844 });
     await record(page, '09-curves-mobile');
     await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '09-curves-contract');
+    await recordThemes(page, '09-curves-contract');
     await page.locator('#curve-screen').evaluate(host => { host.shadowRoot.querySelector('.curve-app').dataset.mountCheck = 'retained'; });
     await page.getByRole('link', { name: 'Данные', exact: true }).click();
     await page.goBack();
@@ -632,6 +715,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await page.getByRole('table', { name: 'Найденные сделки' }).getByRole('button').first().click();
     const deal = page.locator('#inspector');
     await deal.getByText('Валюта', { exact: true }).waitFor();
+    await deal.getByRole('img', { name: 'Договорные платежи по датам' }).waitFor();
     await deal.getByText('PV по стрессовым сценариям', { exact: true }).click();
     assert.equal(await deal.getByRole('table', { name: 'PV по стрессовым сценариям' }).getByRole('row').count(), 7);
     await page.keyboard.press('Escape');

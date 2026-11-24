@@ -339,9 +339,18 @@ def curve_evidence(result, selected, archived):
     return facts, focus['curveCode']
 
 
+def portfolio_distributions(report_date, contracts):
+    stamp = date.fromisoformat(report_date)
+    return {
+        'payment_type': Counter(DIRECTIONS.get(row['discriminator'], 'Другой тип') for row in contracts),
+        'rate_type': Counter(RATE_TYPES.get(row['rate_type_cd'], 'Другой тип') for row in contracts),
+        'side': Counter('Активы' if row['side'] == 'ASSET' else 'Обязательства' for row in contracts),
+        'terms': Counter(term_band(stamp, row['maturity_dttm']) for row in contracts),
+    }
+
+
 def portfolio_evidence(workspace, period, contracts):
     result = {}
-    stamp = date.fromisoformat(period['date'])
     for key, title, val, units in (
         ('deals', 'Сделки в снимке', period['deals'], 'сделок'),
         ('flows', 'Строки договорных потоков', period['flowRows'], 'строк'),
@@ -351,12 +360,10 @@ def portfolio_evidence(workspace, period, contracts):
         result[f'portfolio.{key}'] = evidence(title, f'{title} на {day(period["date"])}: {amount(val, units)}.',
             '#portfolio-holdings', value=val, unit=units, group=key,
             meaning='Платежи из договорного графика калькулятора с учётом стороны сделки.')
-    for key, title, counts in (
-        ('payment_type', 'Типы платежей', Counter(DIRECTIONS.get(row['discriminator'], 'Другой тип') for row in contracts)),
-        ('rate_type', 'Типы ставок', Counter(RATE_TYPES.get(row['rate_type_cd'], 'Другой тип') for row in contracts)),
-        ('side', 'Стороны сделок', Counter('Активы' if row['side'] == 'ASSET' else 'Обязательства' for row in contracts)),
-        ('terms', 'Оставшиеся сроки', Counter(term_band(stamp, row['maturity_dttm']) for row in contracts)),
-    ):
+    titles = {'payment_type': 'Типы платежей', 'rate_type': 'Типы ставок',
+              'side': 'Стороны сделок', 'terms': 'Оставшиеся сроки'}
+    for key, counts in portfolio_distributions(period['date'], contracts).items():
+        title = titles[key]
         result[f'portfolio.{key}'] = evidence(title,
             f'{title} на {day(period["date"])}: ' + ', '.join(f'{name} — {n}' for name, n in counts.most_common()) + '.',
             '#portfolio-holdings', meta={'counts': dict(counts)})

@@ -22,7 +22,8 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 from uuid import uuid4
 
-from .assistant_context import curve_evidence, data_evidence, pair_key, portfolio_evidence, scenario_evidence, stable_key
+from .assistant_context import (curve_evidence, data_evidence, pair_key, portfolio_distributions, portfolio_evidence,
+                                scenario_evidence, stable_key)
 from .assistant_privacy import policy
 from .attribution import analyze, feature_strings, pick_features
 from .config import load_env
@@ -521,8 +522,9 @@ class Handler(BaseHTTPRequestHandler):
             path = url.path
             if path in ("/", "/index.html"):
                 return self.static("index.html", "text/html")
-            mime = {"/studio.css": "text/css", "/studio.mjs": "text/javascript",
-                    "/charts.mjs": "text/javascript", "/views.mjs": "text/javascript",
+            mime = {"/studio.css": "text/css", "/glass.css": "text/css", "/studio.mjs": "text/javascript",
+                    "/appearance.js": "text/javascript", "/motion.mjs": "text/javascript",
+                    "/charts.mjs": "text/javascript", "/chart-interaction.mjs": "text/javascript", "/views.mjs": "text/javascript",
                     "/spectrum.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
             if path in mime:
                 return self.static(path[1:], mime[path])
@@ -696,8 +698,16 @@ class Handler(BaseHTTPRequestHandler):
             row for row in dataset.rows if iso_date(row[date_col]) == selected and query in row[id_col].casefold()
         ]
         selected_rows.sort(key=lambda row: (row[id_col].casefold() != query, -(number(row.get("principal", "")) or 0)))
-        return {"date": selected, "size": len(selected_rows), "page": index, "pageSize": 25,
-                "rows": selected_rows[index * 25:(index + 1) * 25]}
+        result = {"date": selected, "size": len(selected_rows), "page": index, "pageSize": 25,
+                  "rows": selected_rows[index * 25:(index + 1) * 25]}
+        if args.get('overview') == ['1'] and any(period['date'] == selected for period in workspace.get('periods', [])):
+            contracts = read_rows(folder / selected / 'calculator_input.csv', ';')
+            principal = {'ASSET': Decimal(0), 'LIABILITY': Decimal(0)}
+            for contract in contracts:
+                principal[contract['side']] += Decimal(contract['current_principal_amt'])
+            result['overview'] = {'distributions': portfolio_distributions(selected, contracts),
+                                  'principal': {side: str(value) for side, value in principal.items()}}
+        return result
 
     def log_message(self, template, *args):
         LOG.debug(template, *args)

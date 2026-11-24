@@ -4,6 +4,7 @@
   --color-primary: var(--accent);
   --color-accent: var(--accent-dark);
   --color-white: var(--surface);
+  --color-surface: var(--surface);
   --color-dark-gray: var(--rule);
   --color-text-primary: var(--ink);
   --color-text-secondary: var(--muted);
@@ -11,11 +12,16 @@
   --color-text-error: var(--negative);
   --font-family: Inter;
   --curve-controls-bg: var(--surface-subtle);
+  --curve-results-bg: var(--surface);
   --curve-chart-grid: var(--rule);
   --curve-table-head-bg: var(--accent-soft);
+  --curve-dialog-text: var(--ink);
+  --curve-dialog-muted: var(--muted-strong);
+  --curve-dialog-input-bg: var(--surface-subtle);
+  --curve-dialog-input-border: var(--control-line);
   --curve-panel-radius: var(--radius);
   --curve-parameter-size: 13px;
-  --curve-heading-size: clamp(30px, 3.5vw, 46px);
+  --curve-heading-size: clamp(28px, 2.7vw, 34px);
   --curve-subtitle-size: 14px;
   --curve-section-gap: 24px;
   --bs-body-color: var(--ink);
@@ -23,15 +29,16 @@
 
 .curve-app {
   --page-border: var(--rule);
+  --page-line: var(--rule);
   --page-focus: var(--accent);
   --page-focus-shadow: 0 0 0 3px var(--accent-soft);
   --chart-base: var(--ink);
   --chart-parallel-up: var(--accent);
   --chart-parallel-down: var(--accent);
-  --chart-steepener: #2e7b79;
-  --chart-flattener: #2e7b79;
-  --chart-short-up: #987436;
-  --chart-short-down: #987436;
+  --chart-steepener: var(--chart-positive);
+  --chart-flattener: var(--chart-positive);
+  --chart-short-up: var(--warning);
+  --chart-short-down: var(--warning);
   min-height: 0;
   height: auto;
   display: block;
@@ -42,7 +49,7 @@
 
 .curve-app::before { content: none; }
 .curve-app .curve-page { display: block; padding: 0; }
-.curve-page__heading h1 { font-size: var(--curve-heading-size); font-weight: 720; letter-spacing: -.052em; line-height: 1.12; }
+.curve-page__heading h1 { font-size: var(--curve-heading-size); font-weight: 690; letter-spacing: -.045em; line-height: 1.15; }
 .curve-page__heading p { margin-top: 5px; font-size: var(--curve-subtitle-size); font-weight: 400; }
 .calculation-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin-bottom: 15px; }
 .calculation-controls {
@@ -59,23 +66,25 @@
 .parameters-control__value { gap: 10px; }
 .curve-app .form-label, .parameters-control__label { color: var(--ink); font-size: 12px; }
 .report-date__trigger, .run-history__trigger { min-height: 44px; padding: 7px 12px; border: 1px solid var(--control-line); border-radius: var(--control); font-size: 13px; }
-.date-calendar { width: min(300px, calc(100vw - 42px)); border-radius: 12px; }
+.date-calendar { width: min(300px, calc(100vw - 42px)); border-radius: var(--glass-inner-radius); }
+.date-calendar__day[aria-pressed="true"] { color: #fff; background: var(--accent-solid); }
 .run-history__label { font-size: 13px; }
 .run-history__icon { width: 15px; height: 15px; flex-basis: 15px; }
+.run-history__trigger svg { transition-duration: var(--fast); }
 .report-date__trigger img, .result-export img { filter: grayscale(1); }
 .parameter-values { gap: 0 6px; }
 .pencil-button { width: auto; height: 44px; padding: 0 11px; border: 1px solid var(--rule); border-radius: var(--control); color: var(--ink); background: var(--surface); font-weight: 600; }
 .pencil-button:hover:not(:disabled) { background: var(--accent-soft); }
 .app-button {
-  --bs-btn-bg: var(--accent);
+  --bs-btn-bg: var(--accent-solid);
   --bs-btn-color: #fff;
-  --bs-btn-border-color: var(--accent);
-  --bs-btn-hover-bg: var(--accent-dark);
+  --bs-btn-border-color: var(--accent-solid);
+  --bs-btn-hover-bg: var(--accent-hover);
   --bs-btn-hover-color: #fff;
-  --bs-btn-hover-border-color: var(--accent-dark);
-  --bs-btn-active-bg: var(--accent-dark);
+  --bs-btn-hover-border-color: var(--accent-hover);
+  --bs-btn-active-bg: var(--accent-hover);
   --bs-btn-active-color: #fff;
-  --bs-btn-active-border-color: var(--accent-dark);
+  --bs-btn-active-border-color: var(--accent-hover);
   --bs-btn-border-width: 1px;
   --bs-btn-border-radius: var(--control);
   --bs-btn-font-size: 13px;
@@ -91,8 +100,11 @@
   --bs-btn-border-color: var(--rule);
   --bs-btn-hover-border-color: var(--accent-line);
 }
+.app-button { transition-duration: var(--fast); }
+.app-button:active:not(:disabled) { transform: translateY(1px) scale(.987); }
 .curve-app .run-calculation { align-self: end; width: auto; min-height: 44px; padding-inline: 13px; font-size: 13px; white-space: normal; }
-.curve-app .curve-preparation-error { padding: 10px 13px; border-radius: var(--control); background: #fff0f1; }
+.curve-app .run-calculation:disabled { --bs-btn-disabled-bg: var(--accent-solid); --bs-btn-disabled-color: #fff; }
+.curve-app .curve-preparation-error { padding: 10px 13px; border-radius: var(--control); background: var(--error-bg); }
 .curve-app .curve-preparation-error .run-calculation { margin-inline-start: auto; }
 .calculation-hint, .calculation-status { margin: 0 0 12px; }
 .curve-status, .data-availability { margin: 0; padding: 0; color: var(--muted); font-size: 12px; }
@@ -117,9 +129,9 @@
   border-bottom: 1px solid var(--rule);
 }
 .results-panel h2 { font-size: 18px; font-weight: 640; line-height: 1.3; }
-.results-view-tabs::before { border-radius: var(--control); }
-.results-view-tabs .nav-link { width: auto; min-width: 67px; height: 32px; padding: 4px 10px; border-radius: var(--control); font-size: 12px; line-height: 1.5; }
-.results-view-tabs .nav-link.active { color: #fff; }
+.results-view-tabs::before { border-radius: var(--control); background: var(--glass-accent); transition-duration: var(--enter); }
+.results-view-tabs .nav-link { width: auto; min-width: 67px; height: 32px; padding: 4px 10px; border-radius: var(--control); font-size: 12px; line-height: 1.5; transition-duration: var(--fast); }
+.results-view-tabs .nav-link.active { color: var(--accent-dark); }
 .result-export { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .result-export .app-button { gap: 6px; min-height: 40px; width: auto; border-radius: var(--control); font-size: 12px; }
 .result-export img { width: 14px; }
@@ -127,9 +139,8 @@
 .curve-chart__plot, .curve-chart svg { min-width: 0; }
 .curve-chart__plot { flex: none; height: clamp(228px, 34vh, 348px); min-height: 0; }
 .curve-chart__plot > svg { height: 100%; }
-.curve-chart polyline { animation: trace-in 320ms var(--ease-ui) both; }
 .curve-chart text { font-size: 12px; }
-.curve-chart__tooltip { max-width: min(85%, 290px); }
+.curve-chart__tooltip { max-width: min(85%, 290px); transition: left var(--fast) var(--ease-ui); }
 .curve-legend { display: flex; flex-wrap: wrap; gap: 7px 12px; margin: 9px 15px 0; }
 .curve-legend-toggle { display: inline-flex; align-items: center; gap: 8px; width: auto; min-height: 36px; margin: 4px 15px 0; color: var(--accent-dark); font-size: 13px; }
 .curve-legend[hidden] { display: none; }
@@ -141,13 +152,22 @@
 .curve-integration summary { color: var(--accent-dark); cursor: pointer; font-size: 13px; }
 .curve-integration code { overflow-wrap: anywhere; }
 .curve-archive-back { margin-bottom: 14px; }
-.parameters-modal .modal-content { border-radius: var(--radius); }
+.parameters-modal .modal-content { border-radius: var(--glass-radius); }
 .parameters-modal .modal-title { font-size: 23px; }
 .parameters-modal .app-button { min-height: 40px; border-radius: var(--control); font-size: 13px; }
+.parameters-modal .dialog-close img { filter: opacity(.65) drop-shadow(0 0 0 var(--ink)); }
+.parameters-backdrop { --bs-backdrop-bg: var(--ink); --bs-backdrop-opacity: .24; }
 
-@keyframes trace-in {
-  from { opacity: .25; }
-  to { opacity: 1; }
+.date-calendar, .run-history__panel, .parameters-modal .modal-content, .curve-chart__tooltip, .parameter-help__content {
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-rim), var(--glass-shadow);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .date-calendar, .run-history__panel, .parameters-modal .modal-content, .curve-chart__tooltip, .parameter-help__content {
+    background-color: var(--embedded-glass);
+    -webkit-backdrop-filter: var(--embedded-frost);
+    backdrop-filter: var(--embedded-frost);
+  }
 }
 
 @media (max-width: 550px) {
@@ -166,8 +186,4 @@
   .parameter-help__content { left: auto; right: -60px; }
   .scenario-option, .scenario-option span { min-height: 29px; }
   .result-export .app-button { min-height: 44px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .curve-chart polyline { animation: none; }
 }
