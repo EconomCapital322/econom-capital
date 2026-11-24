@@ -406,7 +406,8 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 return self.static("index.html", "text/html")
             mime = {"/studio.css": "text/css", "/studio.mjs": "text/javascript",
-                    "/charts.mjs": "text/javascript", "/views.mjs": "text/javascript"}
+                    "/charts.mjs": "text/javascript", "/views.mjs": "text/javascript",
+                    "/spectrum.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
             if path in mime:
                 return self.static(path[1:], mime[path])
             if path == "/favicon.ico":
@@ -489,7 +490,8 @@ class Handler(BaseHTTPRequestHandler):
                 folder = run_folder(request.get('workspaceId'))
                 workspace = load(folder)
                 active_revision(workspace, request)
-                rendered = explain(workspace, request.get('question', ''), allow_external=request.get('allowExternal') is True)
+                rendered = explain(workspace, request.get('question', ''), allow_external=request.get('allowExternal') is True,
+                                   focus_factor=request.get('focusFactor'))
                 active_revision(workspace, request)
                 if rendered.get('analysisId') and rendered['facts']:
                     atomic_write(folder / 'reports' / (rendered['analysisId'] + '.ai.json'), json_bytes(rendered))
@@ -511,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_data(200, data, mime + "; charset=utf-8", filename)
 
     def static(self, name, mime):
-        return self.send_data(200, (STATIC / name).read_bytes(), mime + "; charset=utf-8")
+        return self.send_data(200, (STATIC / name).read_bytes(), mime if mime.startswith("font/") else mime + "; charset=utf-8")
 
     def instrument_data(self, mode, workspace_id, args):
         folder = run_folder(workspace_id)
@@ -535,7 +537,7 @@ class Handler(BaseHTTPRequestHandler):
         selected_rows = [
             row for row in dataset.rows if iso_date(row[date_col]) == selected and query in row[id_col].casefold()
         ]
-        selected_rows.sort(key=lambda row: -(number(row.get("principal", "")) or 0))
+        selected_rows.sort(key=lambda row: (row[id_col].casefold() != query, -(number(row.get("principal", "")) or 0)))
         return {"date": selected, "size": len(selected_rows), "page": index, "pageSize": 25,
                 "rows": selected_rows[index * 25:(index + 1) * 25]}
 

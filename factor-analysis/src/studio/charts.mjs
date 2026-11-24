@@ -57,7 +57,8 @@ export function waterfall({ start, end, bars, active, unit }) {
     const bottom = y(entry.total ? Math.min(entry.value, 0) : Math.min(entry.from, entry.to));
     const state = entry.total ? 'total' : ['residual', 'reconciliation'].includes(entry.key) ? 'residual' : entry.value >= 0 ? 'up' : 'down';
     const label = wrap(entry.chartLabel ?? entry.label, Math.max(6, Math.min(15, Math.floor(band / 6.5))));
-    const figure = entry.total ? short(entry.value) : (entry.value > 0 ? '+' : '') + short(entry.value);
+    const underCent = entry.key === 'reconciliation' && entry.value !== 0 && Math.abs(entry.value) < .01;
+    const figure = underCent ? '<0,01' : entry.total ? short(entry.value) : (entry.value > 0 ? '+' : '') + short(entry.value);
     const tail = i < values.length - 1
       ? `<line class="connector" x1="${x + barWidth / 2}" x2="${x + band - barWidth / 2}" y1="${y(entry.total ? entry.value : entry.to)}" y2="${y(entry.total ? entry.value : entry.to)}"/>`
       : '';
@@ -72,40 +73,51 @@ export function waterfall({ start, end, bars, active, unit }) {
     <p class="note">Итоговые столбцы начинаются от нуля. Нажмите на столбец для пояснения.</p>`;
 }
 
-export function bars(items, { unit = '', action, active, label, left = 195, narrow = false } = {}) {
+export function bars(items, { unit = '', label = 'Вклады факторов' } = {}) {
   const values = items.filter((item) => Number.isFinite(item.value));
   if (!values.length) return '<p class="note">Недостаточно наблюдений для графика.</p>';
-  const width = narrow ? 610 : 740, right = 96, top = 18, row = 33;
-  left = narrow ? Math.min(left, 155) : left;
-  const end = width - right, plot = end - left;
   const maximum = Math.max(0, ...values.map((item) => item.value));
   const minimum = Math.min(0, ...values.map((item) => item.value));
   const span = maximum - minimum || 1;
-  const x = (value) => left + (value - minimum) / span * plot;
-  const zero = x(0);
-  const rows = values.map((item, i) => {
-    const y = top + i * row;
-    const xEnd = x(item.value);
-    const act = action ? `data-action="${action}" data-key="${esc(item.key)}" role="button" tabindex="0" aria-pressed="${active === item.key}"` : '';
-    const type = item.value >= 0 ? 'up' : 'down';
-    const name = item.chartLabel ?? item.label;
-    const limit = narrow ? 26 : 33;
-    const display = name.length > limit ? name.slice(0, limit - 1) + '…' : name;
-    return `<g ${act} aria-label="${esc(item.label)} ${esc(signed(item.value, unit))}">
-      <title>${esc(item.label)} · ${esc(signed(item.value, unit))}</title>
-      ${action ? `<rect class="bar-hit" x="2" y="${y - 6}" width="${width - 5}" height="${row - 2}" rx="4"/>` : ''}
-      <text class="group-label" x="6" y="${y + 12}">${esc(display)}</text>
-      <rect class="bar-${type}" x="${Math.min(zero, xEnd)}" y="${y}" width="${Math.max(1.5, Math.abs(zero - xEnd))}" height="16" rx="3"/>
-      <text class="value" text-anchor="end" x="${width - 6}" y="${y + 12}">${esc((item.value > 0 ? '+' : '') + short(item.value, unit))}</text></g>`;
+  const x = (value) => 100 * (value - minimum) / span;
+  const zero = minimum === maximum ? 50 : x(0);
+  const rows = values.map((item) => {
+    const start = x(Math.min(0, item.value));
+    const width = 100 * Math.abs(item.value) / span;
+    return `<div class="contribution-row ${tone(item.value)}" title="${esc(item.label)} · ${esc(signed(item.value, unit))}">
+      <span class="contribution-name">${esc(item.chartLabel ?? item.label)}</span>
+      <span class="contribution-track" aria-hidden="true"><i style="--start:${start}%;--width:${width}%"></i></span>
+      <strong class="contribution-value">${esc((item.value > 0 ? '+' : '') + short(item.value, unit))}</strong>
+    </div>`;
   }).join('');
-  return `<svg class="chart" role="group" aria-label="${esc(label ?? 'Вклады факторов')}" viewBox="0 0 ${width} ${top + row * values.length + 1}">
-    <line class="zero" x1="${zero}" x2="${zero}" y1="6" y2="${top + row * values.length - 4}"/>${rows}</svg>`;
+  return `<div class="contribution-chart bar-chart" role="group" aria-label="${esc(label)}" style="--zero:${zero}%">${rows}</div>`;
 }
 
-export function lineChart(series, { unit = '', title = '', axes = [], connect = true } = {}) {
-  const points = series.flatMap((entry) => entry.points).filter((entry) => Number.isFinite(entry.value));
+export function divergingBars(items, { active, unit = '' } = {}) {
+  const rows = items.filter((item) => Number.isFinite(item.value)).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  if (!rows.length) return '<p class="note">За этот период вклады не рассчитаны.</p>';
+  const max = Math.max(...rows.map((item) => Math.abs(item.value))) || 1;
+  return `<div class="contribution-chart" role="group" aria-label="Вклады факторов относительно нуля">
+    <div class="contribution-axis" aria-hidden="true"><span>Компонент</span><span><b>−</b><b>0</b><b>+</b></span><span>Вклад</span></div>
+    ${rows.map((item) => {
+      const amount = signed(item.value, unit);
+      const start = item.value < 0 ? 50 - 50 * Math.abs(item.value) / max : 50;
+      const width = 50 * Math.abs(item.value) / max;
+      const color = item.key === 'residual' || item.key === 'reconciliation' || !item.value ? 'neutral' : tone(item.value);
+      return `<button type="button" class="contribution-row ${color}" data-action="factor" data-key="${esc(item.key)}"
+        aria-pressed="${active === item.key}" title="${esc(item.label)} · ${esc(amount)}">
+        <span class="contribution-name">${esc(item.chartLabel ?? item.label)}</span>
+        <span class="contribution-track" aria-hidden="true"><i style="--start:${start}%;--width:${width}%"></i></span>
+        <strong class="contribution-value">${esc(amount)}</strong>
+      </button>`;
+    }).join('')}
+  </div>`;
+}
+
+export function lineChart(series, { unit = '', title = '', axes = [], connect = true, xLabel = '', yLabel = '', tall = false } = {}) {
+  const points = series.flatMap((entry) => entry.points).filter((entry) => Number.isFinite(entry.value) && Number.isFinite(entry.x));
   if (points.length < 2) return '<p class="note">Недостаточно точек для графика.</p>';
-  const w = 730, h = 239, l = 67, r = 17, t = 17, b = 197;
+  const w = 736, l = 69, r = 21, t = 19, b = tall ? 251 : 190, h = b + 31;
   const xMin = Math.min(...points.map((p) => p.x)), xMax = Math.max(...points.map((p) => p.x));
   const yMin = Math.min(...points.map((p) => p.value)), yMax = Math.max(...points.map((p) => p.value));
   const span = yMax - yMin || Math.max(1, Math.abs(yMax) * 0.08);
@@ -116,15 +128,27 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
   const y = (value) => b - (value - low) / (high - low) * (b - t);
   const grid = Array.from({ length: Math.round((high - low) / step) + 1 }, (_, i) => {
     const value = low + step * i;
-    return `<line class="${Math.abs(value) < step / 10 ? 'zero' : 'grid'}" x1="${l}" x2="${w - r}" y1="${y(value)}" y2="${y(value)}"/><text x="${l - 8}" y="${y(value) + 4}" text-anchor="end">${esc(short(value, unit))}</text>`;
+    return `<line class="${Math.abs(value) < step / 10 ? 'zero' : 'grid'}" x1="${l}" x2="${w - r}" y1="${y(value)}" y2="${y(value)}"/>
+      <text x="${l - 8}" y="${y(value) + 4}" text-anchor="end">${esc(short(value, yLabel ? '' : unit))}</text>`;
   }).join('');
-  const axisPoints = axes.length ? axes : series[0].points;
-  const marks = axisPoints.filter((p, i, a) => i === 0 || i === a.length - 1 ||
-    (i % Math.ceil(a.length / 7) === 0 && x(p.x) - l > 35 && w - r - x(p.x) > 36))
-    .map((p, i, a) => `<text x="${x(p.x)}" y="${b + 18}" text-anchor="${i === 0 ? 'start' : i === a.length - 1 ? 'end' : 'middle'}">${esc(p.label ?? n(p.x))}</text>`).join('');
+  const axis = axes.length ? axes : [...new Map(points.map((point) => [point.x, point])).values()].sort((a, b) => a.x - b.x);
+  const marks = [axis[0]];
+  const end = axis.at(-1);
+  for (const point of axis.slice(1, -1)) {
+    if (x(point.x) - x(marks.at(-1).x) >= 77 && x(end.x) - x(point.x) >= 77) marks.push(point);
+  }
+  if (end !== axis[0]) marks.push(end);
+  const ticks = marks.map((p, i) => {
+    const name = String(p.label ?? n(p.x));
+    const text = name.length > 13 ? name.slice(0, 12) + '…' : name;
+    return `<text x="${x(p.x)}" y="${b + 21}" text-anchor="${i === 0 ? 'start' : i === marks.length - 1 ? 'end' : 'middle'}"><title>${esc(name)}</title>${esc(text)}</text>`;
+  }).join('');
   const traces = series.map((entry) => `<g stroke="${entry.color}" aria-label="${esc(entry.name)}">
-    ${connect ? `<polyline fill="none" stroke-width="2.7" stroke-linejoin="round" points="${entry.points.map((p) => x(p.x) + ',' + y(p.value)).join(' ')}"/>` : ''}
-    ${entry.points.map((p) => `<circle cx="${x(p.x)}" cy="${y(p.value)}" r="${p.selected ? 5.5 : 3.4}" fill="${p.selected ? entry.color : '#fff'}" stroke-width="2">
+    ${connect ? `<polyline fill="none" stroke-width="2.6" stroke-linejoin="round" stroke-dasharray="${entry.dash ?? 'none'}"
+      points="${entry.points.map((p) => x(p.x) + ',' + y(p.value)).join(' ')}"/>` : ''}
+    ${entry.points.map((p) => `<circle cx="${x(p.x)}" cy="${y(p.value)}" r="${p.selected ? 5 : 3}" fill="${p.selected || !connect ? entry.color : '#fff'}" stroke-width="${connect ? 1.8 : 0}">
       <title>${esc(p.label ?? n(p.x))} · ${esc(exact(p.value, unit))}${p.support ? ' · ' + p.support + ' строк' : ''}</title></circle>`).join('')}</g>`).join('');
-  return `<svg class="chart" role="img" aria-label="${esc(title)}" viewBox="0 0 ${w} ${h}">${grid}${marks}${traces}</svg>`;
+  const svg = `<svg class="chart line-chart" role="img" aria-label="${esc(title)}" viewBox="0 0 ${w} ${h}">${grid}${ticks}${traces}</svg>`;
+  return `<figure class="line-figure">${yLabel ? `<figcaption>${esc(yLabel)}</figcaption>` : ''}
+    <div class="chart-scroll" tabindex="0" aria-label="${esc(title)}">${svg}</div>${xLabel ? `<p class="axis-caption">${esc(xLabel)}</p>` : ''}</figure>`;
 }

@@ -1,13 +1,17 @@
 import { day, esc } from './charts.mjs';
-import { analysisPage, analysisTab, dataPage, dealTable, explanation, factorDetails, flowDialog, pages, portfolioPage, reportTabs, scenarioPage } from './views.mjs';
+import { analysisChart, analysisPage, analysisTab, assistantStatus, dataPage, dealTable, explanation, factorDetails, flowDialog,
+  pages, portfolioCurveNote, portfolioPage, portfolioPreview, portfolioProgress, reportTabs, scenarioPage } from './views.mjs';
 
 const main = document.querySelector('#content');
 const activity = document.querySelector('#activity');
 const inspector = document.querySelector('#inspector');
+const drawer = document.querySelector('#factor-drawer');
 const state = {
   workspace: null, route: 'analysis', tab: 'timeline', factor: null, effect: null, effectPlot: 'ale', scenarioCode: null,
   scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
+  chart: 'contributions', compareExpanded: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
+  question: '', focusFactor: null, allowExternal: false, asking: false,
 };
 let dealsRequest = 0;
 let flowRequest = 0;
@@ -29,6 +33,12 @@ function notice(message, kind = '', value = null) {
     <span>${esc(message)}</span>${value ? `<progress aria-label="Готовность расчёта" value="${value.done}" max="${value.total}"></progress>` : ''}</div>` : '';
 }
 
+function updatePortfolioJob(job) {
+  state.portfolioJob = job;
+  const host = document.querySelector('#portfolio-progress');
+  if (host) host.innerHTML = portfolioProgress(job);
+}
+
 function routeName() {
   const route = location.hash.slice(1);
   return Object.hasOwn(pages, route) ? route : 'analysis';
@@ -40,26 +50,28 @@ function swapWorkspace(workspace) {
   dealsRequest++;
   flowRequest++;
   if (inspector.open) inspector.close();
+  if (drawer.open) drawer.close();
   state.workspace = workspace;
   state.tab = 'timeline';
   state.pair = null;
   state.pairDeal = null;
   state.comparison = null;
+  state.compareExpanded = false;
   state.preview = null;
   state.factor = null;
   state.effect = null;
   state.effectPlot = 'ale';
   state.answer = null;
   state.mapping = null;
+  state.question = '';
+  state.focusFactor = null;
+  state.allowExternal = false;
+  state.asking = false;
+  state.sourceFormat = workspace?.periods ? 'zip' : 'csv';
 }
 
 function render() {
   document.querySelector('#crumb').textContent = pages[state.route];
-  const work = state.workspace;
-  const origin = work?.periods ? ({ synthetic: 'Синтетические сделки', bank: 'Банковские снимки', external: 'Загруженные сделки' })[work.portfolioSource] ?? 'Синтетические сделки' : '';
-  const curves = work?.periods?.some((item) => item.curveSource === 'fixture') ? 'Есть учебные кривые' : 'Снимки кривых MOEX';
-  document.querySelector('#origin').textContent = state.route === 'analysis' && work?.report ? ''
-    : origin ? `${origin} · ${curves}` : work?.filename ?? '';
   for (const anchor of document.querySelectorAll('[data-route]')) {
     if (anchor.dataset.route === state.route) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
@@ -77,36 +89,69 @@ function navigate(route) {
   }
 }
 
+function refreshAssistant() {
+  const status = document.querySelector('#assistant-status');
+  if (status) status.innerHTML = assistantStatus(state);
+  const consent = document.querySelector('#assistant-consent');
+  if (consent) consent.hidden = !(state.health?.llm && state.health?.ai?.provider === 'deepseek');
+}
+
 async function updateHealth() {
   const host = document.querySelector('#services');
   try {
     const result = await api('/api/services');
     state.health = result;
-    const provider = result.ai?.provider === 'deepseek' ? 'DeepSeek' : result.ai?.provider === 'local' ? 'Локальная модель' : 'Объяснение по фактам';
-    host.innerHTML = Object.entries({ calculator: 'Калькулятор · команда 1', curves: 'Кривые · команда 2', llm: provider })
-      .map(([key, text]) => {
-        const facts = key === 'llm' && result.ai?.provider === 'facts';
-        const status = facts ? 'Локальный режим' : key === 'llm' && result.ai?.status === 'configured'
-          ? 'Настроено, проверяется при запросе' : result[key] ? 'Подключено' : 'Сервис недоступен';
-        return `<li class="${result[key] || facts ? 'up' : 'down'}" title="${status}">
-          <i aria-hidden="true"></i>${text}<span class="sr-only">. ${status}</span></li>`;
-      }).join('');
+    const provider = result.ai?.provider === 'local' ? 'Локальная модель' : 'DeepSeek';
+    host.innerHTML = Object.entries({ calculator: 'Калькулятор', curves: 'Кривые ставок', llm: provider }).map(([key, text]) => {
+      const facts = key === 'llm' && result.ai?.provider === 'facts';
+      const status = facts ? 'Выключен' : key === 'llm' && result.ai?.status === 'configured'
+        ? 'Настроен' : result[key] ? 'Подключено' : 'Недоступно';
+      return `<li class="${result[key] ? 'up' : facts ? '' : 'down'}"><i aria-hidden="true"></i><span>${text}</span><small>${status}</small></li>`;
+    }).join('');
   } catch {
-    host.innerHTML = '<li class="down"><i></i>Состояние неизвестно</li>';
+    host.innerHTML = '<li class="down"><i aria-hidden="true"></i>Состояние неизвестно</li>';
+    state.health = { ai: { provider: 'facts' }, llm: false };
   }
+  refreshAssistant();
 }
 
 function selectFactor(key) {
   if (!state.workspace?.report) return;
+  const wasOpen = drawer.open;
+  const selectedInDrawer = drawer.contains(document.activeElement);
+  const controlId = document.activeElement?.id;
   state.factor = key;
-  const target = document.querySelector('#factor-details');
-  if (!target) return;
-  const selected = document.activeElement?.id === 'factor-select';
-  target.innerHTML = factorDetails(state.workspace, key);
-  for (const control of document.querySelectorAll('#bridge-chart [data-key]')) {
+  drawer.innerHTML = factorDetails(state);
+  for (const control of document.querySelectorAll('#bridge-chart [data-action="factor"]')) {
     control.setAttribute('aria-pressed', String(control.dataset.key === key));
   }
-  if (selected) document.querySelector('#factor-select')?.focus({ preventScroll: true });
+  if (!wasOpen) drawer.showModal();
+  else if (selectedInDrawer) drawer.querySelector(controlId === 'factor-select' ? '#factor-select' : '.drawer-head button')?.focus({ preventScroll: true });
+}
+
+function selectChart(chart) {
+  if (!['contributions', 'waterfall'].includes(chart)) return;
+  state.chart = chart;
+  document.querySelector('#bridge-chart').innerHTML = analysisChart(state);
+  for (const control of document.querySelectorAll('[data-action="analysis-chart"]')) {
+    control.setAttribute('aria-pressed', String(control.dataset.key === chart));
+  }
+}
+
+function applyComparison(form, rerender) {
+  state.comparison = Object.fromEntries(new FormData(form));
+  if (rerender) render();
+  else {
+    const report = state.workspace?.report;
+    const draft = state.comparison;
+    const note = form.querySelector('.pending-note');
+    if (note && report) {
+      const submitted = draft.mode === report.mode && draft.target === report.target && draft.before === report.before
+        && draft.after === report.after && (draft.target !== 'stress_delta' || draft.scenario === report.scenario);
+      note.hidden = submitted;
+      form.querySelector('.compare-draft').hidden = submitted;
+    }
+  }
 }
 
 function selectTab(tab, focus = false) {
@@ -123,17 +168,20 @@ function selectTab(tab, focus = false) {
 
 const pause = (millis) => new Promise((resolve) => setTimeout(resolve, millis));
 const rememberedJob = () => {
-  try { return sessionStorage.getItem('spectrum-job'); } catch { return null; }
+  try {
+    const saved = sessionStorage.getItem('spectrum-job');
+    return saved?.startsWith('{') ? JSON.parse(saved) : saved ? { id: saved, kind: 'report' } : null;
+  } catch { return null; }
 };
 const remember = (job) => {
   try {
-    if (job) sessionStorage.setItem('spectrum-job', job);
+    if (job) sessionStorage.setItem('spectrum-job', JSON.stringify(job));
     else sessionStorage.removeItem('spectrum-job');
   } catch { /* Running in a browser with storage disabled is supported. */ }
 };
 
 async function followJob(id, kind = 'report') {
-  remember(id);
+  remember({ id, kind });
   try {
     let errors = 0;
     for (;;) {
@@ -153,22 +201,31 @@ async function followJob(id, kind = 'report') {
         if (kind === 'diagnostics' && state.workspace?.report?.analysisId === latest.report.analysisId) {
           state.workspace = latest;
           if (state.route === 'analysis') selectTab(state.tab);
+          if (drawer.open) selectFactor(state.factor);
         } else {
           swapWorkspace(latest);
           state.scenarioCode = null;
           state.scenarioDay = null;
           state.portfolioDay = null;
           state.dealPage = 0;
-          navigate('analysis');
+          state.dealQuery = '';
+          if (kind === 'portfolio') {
+            updatePortfolioJob({ ...job, message: 'Портфель рассчитан. Можно открыть договорные платежи и факторный анализ.' });
+            state.portfolioTab = 'holdings';
+            navigate('portfolio');
+          } else navigate('analysis');
         }
-        notice(kind === 'diagnostics' ? '' : 'Факторное разложение готово.');
+        notice(['diagnostics', 'portfolio'].includes(kind) ? '' : 'Факторное разложение готово.');
         return true;
       }
       if (job.state === 'failed') throw new Error(job.message);
-      notice(job.message, '', job);
-      await pause(500);
+      if (kind === 'portfolio') updatePortfolioJob(job);
+      if (kind !== 'portfolio' || state.route !== 'portfolio') notice(job.message, '', job);
+      else notice('');
+      await pause(350);
     }
   } catch (error) {
+    if (kind === 'portfolio') updatePortfolioJob(null);
     notice(error.message, 'error');
     return false;
   } finally {
@@ -184,7 +241,8 @@ async function launch(path, body, message, kind = 'report') {
     explanationRequest?.abort();
     mappingRequest?.abort();
   }
-  const locked = [...main.querySelectorAll('button[type="submit"], [data-action="diagnostics"]')]
+  const locked = [...main.querySelectorAll('button[type="submit"], [data-action="diagnostics"]'),
+    ...drawer.querySelectorAll('[data-action="diagnostics"]')]
     .map((control) => [control, control.disabled]);
   for (const [control] of locked) control.disabled = true;
   notice(message);
@@ -203,12 +261,14 @@ async function launch(path, body, message, kind = 'report') {
 }
 
 async function generate(form) {
+  if (state.generating) return;
   const settings = Object.fromEntries(new FormData(form));
   for (const key of ['count', 'monthly', 'periods', 'liabilityShare']) settings[key] = Number(settings[key]);
   settings.useSavedCurves = settings.curveSource === 'saved';
   settings.demoCurves = settings.curveSource === 'fixture';
   state.draft = settings;
-  await launch('/api/run', settings, 'Запускаем совместный расчёт.');
+  updatePortfolioJob(null);
+  await launch('/api/run', settings, 'Запускаем совместный расчёт.', 'portfolio');
 }
 
 function settingsFrom(form, config) {
@@ -297,36 +357,49 @@ async function diagnostics() {
 }
 
 async function ask(form) {
+  const initial = state.workspace;
+  if (!initial?.report || state.generating) return;
   const values = new FormData(form);
   const question = String(values.get('question') || '').trim();
-  const initial = state.workspace;
-  const button = form.querySelector('button');
+  state.question = question;
+  state.allowExternal = values.has('allowExternal');
+  const focusFactor = state.focusFactor?.key;
+  const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   explanationRequest?.abort();
   const request = new AbortController();
   explanationRequest = request;
-  let box = document.querySelector('#answer');
-  box.innerHTML = '<p class="note checks-note">Подбираем факты по текущему расчёту…</p>';
+  state.asking = true;
+  document.querySelector('#answer').innerHTML = '<p class="note checks-note">Подбираем факты по текущему расчёту…</p>';
   try {
-    const needsMLDetails = initial.report.diagnosticsReady === false && /нелинейн|насыщ|порог|взаим|совмест|пара факторов/i.test(question);
-    const needsCashDetails = initial.report.mode === 'valuation' && !initial.report.cashDetails &&
+    const needsMLDetails = initial.report.diagnosticsReady === false && !focusFactor
+      && /нелинейн|насыщ|порог|взаим|совмест|пара факторов/i.test(question);
+    const needsCashDetails = initial.report.mode === 'valuation' && !initial.report.cashDetails && !focusFactor &&
       /погашен|проценты по преж|выпавшие проценты|перенос (платеж|срок|поток)|остат(ок|ка) долга|баланс договора|договорн|график[а]? платеж|срок договора|детализац.*поток/i.test(question);
-    if (needsMLDetails || needsCashDetails) {
-      if (!await diagnostics()) throw new Error('Сначала завершите расчёт детализации.');
-      box = document.querySelector('#answer') ?? box;
-    }
+    if ((needsMLDetails || needsCashDetails) && !await diagnostics()) throw new Error('Сначала завершите расчёт детализации.');
     const answer = await api('/api/explain', { body: { workspaceId: initial.id, analysisId: initial.report.analysisId, question,
-      allowExternal: values.has('allowExternal') }, signal: request.signal });
-    if (request.signal.aborted || answer.analysisId !== (state.workspace.report.analysisId ?? null)) return;
+      focusFactor, allowExternal: values.has('allowExternal') }, signal: request.signal });
+    if (request.signal.aborted || answer.analysisId !== (state.workspace?.report?.analysisId ?? null)) return;
     state.answer = answer;
   } catch (error) {
     if (!request.signal.aborted) state.answer = { error: error.message };
   } finally {
     if (!request.signal.aborted && explanationRequest === request && initial.report.analysisId === state.workspace?.report?.analysisId) {
+      state.asking = false;
       button.disabled = false;
-      if (box.isConnected) box.innerHTML = explanation(state.answer);
+      const box = document.querySelector('#answer');
+      if (box) box.innerHTML = explanation(state.answer);
+      refreshAssistant();
     }
   }
+}
+
+function setQuestionContext(factor) {
+  state.focusFactor = factor;
+  const context = document.querySelector('#answer-focus');
+  if (!context) return;
+  context.hidden = !factor;
+  context.textContent = factor ? `Вопрос о компоненте «${factor.label}».` : '';
 }
 
 async function loadDeals() {
@@ -358,20 +431,44 @@ async function showFlows(id) {
   }
 }
 
-function selectScenario(code, focus) {
+function selectScenario(code) {
   state.scenarioCode = code;
   main.innerHTML = scenarioPage(state);
-  if (focus) {
-    const selector = '[data-action="scenario"][data-key="' + CSS.escape(code) + '"]';
-    main.querySelector(selector)?.focus({ preventScroll: true });
-  } else main.querySelector('#scenario-code')?.focus({ preventScroll: true });
+  main.querySelector('[data-action="scenario"][aria-pressed="true"]')?.focus({ preventScroll: true });
 }
 
 function action(element) {
   const { action: kind, key } = element.dataset;
   if (kind === 'factor') selectFactor(key);
+  if (kind === 'analysis-chart') selectChart(key);
+  if (kind === 'toggle-comparison') {
+    state.compareExpanded = !state.compareExpanded;
+    element.form.dataset.expanded = String(state.compareExpanded);
+    element.setAttribute('aria-expanded', String(state.compareExpanded));
+  }
+  if (kind === 'analysis-mode') {
+    const form = element.closest('form');
+    form.elements.mode.value = key;
+    applyComparison(form, true);
+    main.querySelector('[data-action="analysis-mode"][aria-pressed="true"]')?.focus({ preventScroll: true });
+  }
+  if (kind === 'source-format' || kind === 'portfolio-tab') {
+    if (kind === 'source-format') state.sourceFormat = key;
+    else state.portfolioTab = key;
+    render();
+    main.querySelector('[data-action="' + kind + '"][aria-pressed="true"]')?.focus({ preventScroll: true });
+  }
+  if (kind === 'new-run') {
+    state.portfolioTab = 'builder';
+    state.portfolioJob = state.generating ? state.portfolioJob : null;
+    navigate('portfolio');
+  }
+  if (kind === 'upload-history') {
+    state.sourceFormat = 'zip';
+    navigate('data');
+  }
   if (kind === 'tab') selectTab(key, true);
-  if (kind === 'scenario') selectScenario(key, true);
+  if (kind === 'scenario') selectScenario(key);
   if (kind === 'flow') void showFlows(key);
   if (kind === 'diagnostics') void diagnostics();
   if (kind === 'check-mapping') void checkMapping(element.form);
@@ -382,7 +479,17 @@ function action(element) {
   }
   if (kind === 'question') {
     const form = document.querySelector('#explain-form');
+    setQuestionContext(null);
     form.elements.question.value = key;
+    form.requestSubmit();
+  }
+  if (kind === 'explain-factor') {
+    drawer.close();
+    const form = document.querySelector('#explain-form');
+    setQuestionContext({ key, label: element.dataset.label });
+    form.elements.question.value = ('Каков вклад компонента «' + element.dataset.label + '»?').slice(0, 300);
+    form.closest('#assistant').scrollIntoView({ block: 'nearest' });
+    form.elements.question.focus({ preventScroll: true });
     form.requestSubmit();
   }
   if (kind === 'compare-scenario') {
@@ -390,6 +497,7 @@ function action(element) {
     const at = dates.indexOf(element.dataset.date);
     state.comparison = { mode: 'valuation', target: 'stress_delta', scenario: key,
       before: dates[Math.max(0, at - 1)], after: dates[Math.max(1, at)] };
+    state.compareExpanded = true;
     navigate('analysis');
   }
   if (kind === 'deal-page') {
@@ -398,7 +506,11 @@ function action(element) {
   }
   if (kind === 'fact-source') {
     const { detail } = element.dataset;
-    if (key === '#waterfall' && detail) selectFactor(detail);
+    if (key === '#waterfall' && detail) {
+      selectFactor(detail);
+      return;
+    }
+    if (drawer.open) drawer.close();
     if (key === '#interactions' && detail) state.pair = Number(detail);
     if (key === '#effects' && detail) state.effect = detail;
     const targetTab = { '#quality': 'quality', '#interactions': 'interactions', '#effects': 'effects', '#valuation-detail': 'calculation', '#cash-details': 'calculation' }[key];
@@ -409,7 +521,9 @@ function action(element) {
 
 document.addEventListener('click', (event) => {
   const element = event.target.closest('[data-action]');
-  if (element) action(element);
+  if (!element) return;
+  if (['new-run', 'upload-history'].includes(element.dataset.action) && element.tagName === 'A') event.preventDefault();
+  action(element);
 });
 document.addEventListener('keydown', (event) => {
   if (!['Enter', ' '].includes(event.key)) return;
@@ -439,6 +553,13 @@ document.addEventListener('submit', (event) => {
 });
 document.addEventListener('change', (event) => {
   const element = event.target;
+  if (element.type === 'file' && element.classList.contains('sr-only')) {
+    const file = element.files[0];
+    const name = element.closest('.file-picker').querySelector('.file-name');
+    name.textContent = file?.name || 'Файл не выбран';
+    name.title = file?.name || '';
+    element.form.querySelector('button[type="submit"]').disabled = !file?.size || state.generating;
+  }
   if (element.id === 'factor-select') selectFactor(element.value);
   if (element.id === 'effect-select') {
     state.effect = element.value;
@@ -455,7 +576,6 @@ document.addEventListener('change', (event) => {
     render();
     document.querySelector('#scenario-date')?.focus({ preventScroll: true });
   }
-  if (element.id === 'scenario-code') selectScenario(element.value, false);
   if (element.id === 'pair-deal') {
     state.pairDeal = element.value;
     selectTab('interactions');
@@ -467,30 +587,49 @@ document.addEventListener('change', (event) => {
     document.querySelector('#pair-select')?.focus({ preventScroll: true });
   }
   if (element.form?.id === 'compare-form') {
-    state.comparison = Object.fromEntries(new FormData(element.form));
-    if (['analysis-mode', 'metric'].includes(element.id)) {
-      render();
-      document.getElementById(element.id)?.focus({ preventScroll: true });
-    }
+    applyComparison(element.form, element.id === 'metric');
+    if (element.id === 'metric') document.getElementById(element.id)?.focus({ preventScroll: true });
   }
   if (element.id === 'portfolio-date') {
     flowRequest++;
     if (inspector.open) inspector.close();
     state.portfolioDay = element.value;
     state.dealPage = 0;
-    void loadDeals();
+    render();
+    document.querySelector('#portfolio-date')?.focus({ preventScroll: true });
   }
-  if (element.dataset.column && element.form?.id === 'mapping-form') {
+  if (element.form?.id === 'mapping-form') {
     mappingRequest?.abort();
     const data = new FormData(element.form);
     state.preview = null;
     state.mapping = { ...Object.fromEntries(data), features: data.getAll('feature') };
-    if (element.dataset.column === 'dateColumn') {
-      state.mapping.before = '';
-      state.mapping.after = '';
+    if (element.dataset.column) {
+      if (element.dataset.column === 'dateColumn') {
+        state.mapping.before = '';
+        state.mapping.after = '';
+      }
+      render();
+      document.querySelector('[data-column="' + CSS.escape(element.dataset.column) + '"]')?.focus({ preventScroll: true });
+    } else {
+      document.querySelector('#mapping-verified').hidden = true;
     }
-    render();
-    document.querySelector('[data-column="' + CSS.escape(element.dataset.column) + '"]')?.focus({ preventScroll: true });
+  }
+});
+
+document.addEventListener('input', (event) => {
+  const element = event.target;
+  if (element.form?.id === 'generate-form') {
+    const draft = Object.fromEntries(new FormData(element.form));
+    state.draft = draft;
+    document.querySelector('#portfolio-preview').innerHTML = portfolioPreview(draft);
+    document.querySelector('#curve-note').textContent = portfolioCurveNote(draft.curveSource);
+  }
+  if (element.form?.id === 'explain-form') {
+    if (element.name === 'question') {
+      state.question = element.value;
+      setQuestionContext(null);
+    }
+    if (element.name === 'allowExternal') state.allowExternal = element.checked;
   }
 });
 
@@ -504,13 +643,14 @@ window.addEventListener('hashchange', () => {
 
 async function start() {
   state.route = routeName();
+  document.querySelector('.services').open = !matchMedia('(max-width: 810px)').matches;
   try {
     swapWorkspace(await api('/api/workspace'));
     render();
     const job = rememberedJob();
     if (job) {
       state.generating = true;
-      void followJob(job).finally(() => { state.generating = false; render(); });
+      void followJob(job.id, job.kind).finally(() => { state.generating = false; render(); });
     }
   } catch (error) {
     notice(error.message, 'error');
