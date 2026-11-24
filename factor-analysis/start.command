@@ -17,7 +17,15 @@ present() {
 }
 
 open_browser() {
-  if [[ "${SPECTRUM_OPEN_BROWSER:-1}" == "1" ]] && command -v open >/dev/null 2>&1; then open "$app"; fi
+  if [[ "${SPECTRUM_OPEN_BROWSER:-1}" == "1" ]]; then
+    if command -v open >/dev/null 2>&1; then
+      open "$app"
+    elif command -v start >/dev/null 2>&1; then
+      start "$app"
+    elif command -v cmd.exe >/dev/null 2>&1; then
+      cmd.exe /c start "$app" >/dev/null 2>&1 || true
+    fi
+  fi
 }
 
 if present "${app}api/workspace"; then
@@ -27,15 +35,36 @@ if present "${app}api/workspace"; then
 fi
 
 mkdir -p .local
-if [[ ! -x "$repo_dir/.venv/bin/python" ]]; then
-  python_bin="${SPECTRUM_PYTHON:-python3}"
-  if ! "$python_bin" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+python_bin=""
+for candidate in "$repo_dir/.venv/bin/python" "$repo_dir/.venv/Scripts/python.exe" "$repo_dir/.venv/bin/python.exe"; do
+  if [[ -x "$candidate" ]]; then
+    python_bin="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$python_bin" ]]; then
+  py_cmd="${SPECTRUM_PYTHON:-python3}"
+  if [[ -z "${SPECTRUM_PYTHON:-}" ]] && ! command -v "$py_cmd" >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then
+    py_cmd="python"
+  fi
+  if ! "$py_cmd" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
     printf 'Для аналитики нужен Python 3.11 или новее. Задайте SPECTRUM_PYTHON.\n' >&2
     exit 1
   fi
-  "$python_bin" -m venv "$repo_dir/.venv"
+  "$py_cmd" -m venv "$repo_dir/.venv"
+  for candidate in "$repo_dir/.venv/bin/python" "$repo_dir/.venv/Scripts/python.exe" "$repo_dir/.venv/bin/python.exe"; do
+    if [[ -x "$candidate" ]]; then
+      python_bin="$candidate"
+      break
+    fi
+  done
 fi
-python_bin="$repo_dir/.venv/bin/python"
+if [[ -z "$python_bin" ]]; then
+  printf 'В окружении .venv не найден исполняемый файл Python.\n' >&2
+  exit 1
+fi
+
 if ! "$python_bin" - <<'CHECK_SPECTRUM_REQUIREMENTS'
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -54,9 +83,9 @@ then
   "$python_bin" -m pip install -r requirements.txt
 fi
 
-if [[ -z "${SPECTRUM_CFCORE:-}" && ! -x "$module_dir/.local/bin/cfcore" && ! -x "$repo_dir/calculator/build/core/cfcore" ]]; then
+if [[ -z "${SPECTRUM_CFCORE:-}" ]] && ! "$python_bin" -c 'from service.integration import core_path; core_path()' >/dev/null 2>&1; then
   cmake -S "$repo_dir/calculator" -B "$repo_dir/calculator/build" -DCMAKE_BUILD_TYPE=Release
-  cmake --build "$repo_dir/calculator/build" --target cfcore_cli -j 4
+  cmake --build "$repo_dir/calculator/build" --config Release --target cfcore_cli -j 4
 fi
 
 if [[ "${SPECTRUM_SKIP_CURVES:-0}" != "1" && "$curves" == "http://127.0.0.1:8000" ]] && ! present "$curves/openapi.json"; then

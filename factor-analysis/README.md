@@ -2,9 +2,13 @@
 
 «Спектр» отвечает на вопрос, почему изменилась стоимость портфеля между двумя датами. В **расчётном режиме** приложение сверяет договорные платежи и NPV с общим калькулятором и раскладывает изменение на потоки, дисконтирование и состав портфеля. В **ML-режиме** оно анализирует произвольную суммируемую метрику, оценивает вклад признаков и отдельно показывает необъяснённый остаток.
 
-## Запуск на macOS и Linux
+## Запуск
 
-Нужен весь репозиторий `econom-capital`, включая `calculator` и `curves-module`. Для запуска на компьютере установите Python 3.11 или новее (проверено на 3.12), Node.js, CMake 3.20+, C++20, Make и Docker Compose 2.20+ для рыночного API. На macOS запустите Docker Desktop. На Linux включите Docker Engine.
+Нужен весь репозиторий `econom-capital`, включая `calculator` и `curves-module`. Для локального расчёта нужны Python 3.11 или новее, Node.js, CMake 3.20+ и компилятор C++20. Для рыночных кривых нужен Docker Compose 2.20+. В контейнерах зависимости приложения устанавливаются при сборке.
+
+### macOS, Linux или Git Bash
+
+Для `start.command` нужен Make. На macOS запустите Docker Desktop, на Linux включите Docker Engine.
 
 ```sh
 cd factor-analysis
@@ -18,6 +22,33 @@ cd factor-analysis
 - Для запуска без Docker и MOEX используйте `SPECTRUM_SKIP_CURVES=1 SPECTRUM_LLM_ENABLED=0 ./start.command`. В **Портфеле** выберите **Учебные кривые (офлайн)**. Сборка ядра и первая установка зависимостей могут потребовать интернет.
 - Для расчёта по сохранённым ответам команды 2 выберите **Сохранённые рыночные кривые**. На каждую дату нужен полный официальный снимок `factor-analysis/.local/curves/YYYY-MM-DD.json`. При наличии готового портфеля можно открыть его сразу.
 
+### Windows
+
+Из корня репозитория запустите скрипт в командной строке.
+
+```cmd
+cd factor-analysis
+start.bat
+```
+
+В PowerShell из корня репозитория выполните следующее.
+
+```powershell
+cd factor-analysis
+.\start.ps1
+```
+
+`start.bat` также открывается двойным щелчком в Проводнике. Скрипты ищут Python в папке `.venv` и при необходимости создают окружение. Если установлен `uv`, для нового окружения используется Python 3.12. Для расчёта по учебным кривым откройте **Портфель → Учебные кривые (офлайн)**.
+
+Для рыночных кривых запустите Docker Desktop с Linux-контейнерами и поднимите API команды 2 перед запуском `start.bat` или `start.ps1`. Выполните команды в PowerShell из корня репозитория.
+
+```powershell
+if (-not (Test-Path curves-module/.env)) {
+    Copy-Item curves-module/.env.example curves-module/.env
+}
+docker compose up -d --wait postgres migrate api worker stress frontend
+```
+
 ### Запуск через Docker
 
 Из корня репозитория выполните следующие команды. Compose поднимет API команды 2 и «Спектр» с собранным `cfcore`. Для браузера используются обычный адрес «Спектра» 8780 и интерфейс кривых 5173. Если уже запущен другой локальный экземпляр на этих портах, сначала используйте свободные порты или завершите свой предыдущий запуск.
@@ -27,7 +58,7 @@ make configure
 docker compose -f docker-compose.yaml -f factor-analysis/compose.yaml up -d --build
 ```
 
-Данные сохраняются в томе `spectrum_data`. Порт «Спектра» в Compose можно изменить через `SPECTRUM_DOCKER_PORT`. Для расчёта по учебным кривым достаточно отдельно собранного образа «Спектра». На Windows используйте Docker Desktop с Linux-контейнерами и WSL 2 для `make configure` и команд запуска. Нативный `.command` в Windows и запуск на WSL не тестировались.
+Данные сохраняются в томе `spectrum_data`. Порт «Спектра» в Compose можно изменить через `SPECTRUM_DOCKER_PORT`. Для расчёта по учебным кривым достаточно отдельно собранного образа «Спектра». На Windows используйте Docker Desktop с Linux-контейнерами. Команду `make configure` можно выполнить в WSL 2 или создать файл `curves-module/.env` командой PowerShell из раздела «Windows».
 
 При ошибке TLS в worker MOEX сохраните официальный сертификат в `factor-analysis/.local/certs/moex-ca.pem` либо задайте `SPECTRUM_MOEX_CA`. Для уже поднятого стенда добавьте `-f factor-analysis/compose.moex-ca.yaml` к файлам Compose и пересоздайте `worker`. Для обработки новых дат API и worker должны использовать `AUTOMATION__ENABLED=true` из `curves-module/.env`. Затем повторите подготовку проблемной даты в интерфейсе команды 2. При отсутствии публикации за дату выберите доступную отчётную дату. [Инструкция MOEX](https://www.moex.com/n106155?nt=112)
 
@@ -85,6 +116,13 @@ DEEPSEEK_API_KEY=
 ```sh
 # Из корня econom-capital после установки зависимостей запуска
 make check-factor-analysis
+```
+
+На Windows после первого запуска выполните проверки из папки `factor-analysis`.
+
+```cmd
+..\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
+node --test tests/integration.test.mjs
 ```
 
 Полный CI также включает проверки калькулятора, кривых и браузерные сценарии. Расчётный режим использует согласованный `calendar-bucket-v1`. Для полного NII и Economic Capital требуется банковская методика и соответствующие данные. Проверки на внутренних банковских данных требуют отдельной обезличенной истории. [Чек-лист по постановке](docs/task-checklist.md) · [Формулы и критерии надёжности](docs/methodology.md) · [Отчёт о доработке и результаты](docs/verification.md) · [Общий контракт](../integration/CONTRACT.md) · [Материалы предыдущих спринтов](docs/previous-sprints.md)
