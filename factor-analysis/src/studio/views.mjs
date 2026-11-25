@@ -1,4 +1,4 @@
-import { bars, divergingBars, lineChart, numberMarkup, waterfall, day, esc, exact, n, short, signed, tone } from './charts.mjs';
+import { bars, divergingBars, expandChart, lineChart, numberMarkup, waterfall, day, esc, exact, n, short, signed, tone } from './charts.mjs';
 
 const icon = (name) => `<svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-${name}"/></svg>`;
 
@@ -372,9 +372,11 @@ export function analysisPage(state) {
         <span class="difference" title="${difference.hint}"><span>${difference.label}</span><strong>${difference.value}</strong></span></div>
       <section class="attribution" id="waterfall">
         <header class="chart-head"><h2>Вклады факторов</h2>
+          <div class="chart-tools">
           <button class="button small chart-toggle" id="chart-toggle" type="button" data-action="analysis-chart"
-            aria-controls="bridge-chart" data-key="${chart === 'waterfall' ? 'contributions' : 'waterfall'}">${chart === 'waterfall' ? 'К вкладам' : 'Водопад'}</button></header>
-        <div id="bridge-chart" data-chart-scope="${esc(numberKey)}">${analysisChart(state)}</div>
+            aria-controls="bridge-chart" data-key="${chart === 'waterfall' ? 'contributions' : 'waterfall'}">${chart === 'waterfall' ? 'К вкладам' : 'Водопад'}</button>
+          ${expandChart('#bridge-chart')}</div></header>
+        <div id="bridge-chart" data-chart-title="Вклады факторов" data-chart-scope="${esc(numberKey)}">${analysisChart(state)}</div>
         <p class="business-conclusion">${conclusion(work)}</p>
       </section>
       <div class="report-actions"><button type="button" class="button primary" data-action="research">Подробный анализ${icon('arrow')}</button>${ask}</div>
@@ -450,24 +452,24 @@ function interactionPanel(state, work, unit) {
     Array.isArray(first) && Array.isArray(second) ? first[0] - second[0] : a.localeCompare(b, 'ru')).map(([label]) => label);
   const series = profile.map((item, i) => ({ name: rangeLabel(item.group), color: ['var(--accent)', 'var(--warning)', 'var(--chart-neutral)'][i % 3],
     points: item.points.map((p) => ({ ...p, x: bands.indexOf(rangeLabel(p.range)), label: rangeLabel(p.range) })) }));
-  const matrix = `<div class="table-wrap" tabindex="0"><table class="heatmap" aria-label="Тепловая карта попарных взаимодействий">
+  const matrix = `<div class="table-wrap" id="heatmap-chart" data-chart-title="Матрица факторов" tabindex="0"><table class="heatmap" aria-label="Тепловая карта попарных взаимодействий">
       <thead><tr><th scope="col">Фактор</th>${keys.map((key) => `<th scope="col" class="${axesSelected.has(key) ? 'heat-axis-selected' : ''}">${label(key)}</th>`).join('')}</tr></thead>
       <tbody>${keys.map((a) => `<tr><th scope="row" class="${axesSelected.has(a) ? 'heat-axis-selected' : ''}">${label(a)}</th>${keys.map((b) => cells(a, b)).join('')}</tr>`).join('')}</tbody></table></div>`;
   return `<div id="interactions">${h2('Совместное влияние факторов', 'Вклад одного признака в прогноз модели зависит от значения другого.')}
     <label class="field">Пара факторов<select id="pair-select" aria-label="Пара факторов">${r.interactions.map((item, i) => option(i, pairName(item), pairIndex)).join('')}</select></label>
     <details class="details interaction-matrix" open><summary>Матрица факторов</summary>
-      <div class="heat-legend note"><span>Сила взаимодействия</span><i aria-hidden="true"></i><span>0 — ${fmt(max, unit)}</span></div>${matrix}</details>
-    <div class="score-strip">${[['Сила в начале', selected.strengthBefore], ['Сила в конце', selected.strength], ['Изменение среднего вклада', selected.change]]
+      <div class="heat-legend note"><span>Сила взаимодействия</span><i aria-hidden="true"></i><span>0 — ${fmt(max, unit)}</span>${expandChart('#heatmap-chart')}</div>${matrix}</details>
+    <div id="interaction-detail"><div class="score-strip">${[['Сила в начале', selected.strengthBefore], ['Сила в конце', selected.strength], ['Изменение среднего вклада', selected.change]]
       .map(([name, amount]) => `<div class="score">${name}<strong>${fmt(amount, unit)}</strong></div>`).join('')}</div>
     <p class="note">${selected.rows} из ${selected.population} общих наблюдений. ${selected.estimated ? 'Оценка по выборке.' : 'Использованы все общие наблюдения.'}
       ${selected.stable ? 'Сила воспроизводится в повторных выборках.' : 'Устойчивость пары не подтверждена.'} Интервал ${fmt(selected.low, unit)} – ${endSentence(fmt(selected.high, unit))}</p>
     ${selected.portfolioChange === null ? '' : `<p class="note">Суммарное изменение взаимодействия по общим наблюдениям ${endSentence(delta(selected.portfolioChange, unit))}</p>`}
     ${series.length ? `<h3>Совместный вклад по наблюдаемым диапазонам</h3><p class="note">Ось X — ${label(selected.a)}. Группы — диапазоны ${label(selected.b)}.</p>
       <ul class="legend">${series.map((item) => `<li><i class="swatch" style="background:${item.color}"></i>${esc(item.name)}</li>`).join('')}</ul>
-      ${lineChart(series, { unit, title: 'Совместный вклад по диапазонам', xLabel: titleOf(work, selected.a), yLabel: 'Совместный вклад' + (unit ? ' / ' + unit.trim() : ''), axes: bands.map((name, x) => ({ x, label: name })), connect: false })}`
+      ${lineChart(series, { unit, title: 'Совместный вклад по диапазонам', xLabel: titleOf(work, selected.a), yLabel: 'Совместный вклад' + (unit ? ' / ' + unit.trim() : ''), axes: bands.map((name, x) => ({ x, label: name })), connect: false, inspect: true })}`
       : '<p class="note">Для графика этой пары мало наблюдений в отдельных диапазонах или пара вне 12 крупнейших.</p>'}
     ${local ? `<div class="local-pair"><label class="field">Наблюдение из выборки<select id="pair-deal" aria-label="Наблюдение из выборки">${selected.local.map((row) => option(row.id, row.id, local.id)).join('')}</select></label><p class="note">Вклад в начале ${delta(local.before, unit)}, в конце ${endSentence(delta(local.after, unit))} Изменение ${endSentence(delta(local.change, unit))}</p></div>` : ''}
-    <p class="note">Совместный эффект уже входит во вклады на водопаде.</p></div>`;
+    <p class="note">Совместный эффект уже входит во вклады на водопаде.</p></div></div>`;
 }
 
 function qualityPanel(work, unit) {
@@ -518,11 +520,11 @@ function effectPanel(state, work, unit) {
   if (!numeric) chart = bars(effect.points.map((item) => ({ label: item.x, value: item.value })), { unit, label: sourceLabel });
   else if (mode === 'ice') {
     chart = plots?.ice?.length ? lineChart(plots.ice.map((points, i) => ({ name: `Наблюдение ${i + 1}`, color: i % 3 ? '#9089c3' : 'var(--accent)', points })),
-      { title: labels.ice, unit, xLabel: name + xUnit, yLabel: 'Изменение прогноза' + (unit ? ' / ' + unit.trim() : '') }) : '';
+      { title: labels.ice, unit, xLabel: name + xUnit, yLabel: 'Изменение прогноза' + (unit ? ' / ' + unit.trim() : ''), inspect: true }) : '';
   } else {
     const points = mode === 'ale' ? effect.points : plots?.[mode];
     chart = points?.length ? lineChart([{ name, color: 'var(--accent)', points }], { title: labels[mode], unit, connect: mode !== 'shap', xLabel: name + xUnit,
-      yLabel: labels[mode] + (unit ? ' / ' + unit.trim() : '') }) : '';
+      yLabel: labels[mode] + (unit ? ' / ' + unit.trim() : ''), inspect: true }) : '';
   }
   const affected = plots?.dependencies?.map((key) => titleOf(work, key)).join(', ');
   const warning = !chart ? `<p class="status warn">${esc(plots?.reason ?? 'Для этого графика недостаточно наблюдений.')}${affected ? ' ' + esc(affected) : ''}</p>` : '';
@@ -532,7 +534,7 @@ function effectPanel(state, work, unit) {
   return `<div id="effects" class="panel-head"><div><h2>Как меняется связь с показателем</h2><p class="note">${esc(sourceLabel)}</p></div>
     <div class="effect-controls"><label class="field">Признак<select id="effect-select">${effects.map((item) => option(item.key, titleOf(work, item.key), effect.key)).join('')}</select></label>
       ${numeric ? `<label class="field">Вид графика<select id="effect-plot" aria-label="Вид графика">${Object.entries(plotModes).map(([key, label]) => option(key, label, mode)).join('')}</select></label>` : ''}</div></div>
-    ${mode === 'ale' ? `<div class="effect-summary"><strong>${esc(effect.shapeLabel ?? 'Тип зависимости не подтверждён')}</strong><span>${effect.support ?? 0} наблюдений${effect.range ? ` · диапазон ${effect.range.map(n).join(' – ')}` : ''}${effect.stability != null && effect.shape !== 'unconfirmed' ? ` · форма в ${n(effect.stability * 100)}% повторных выборок` : ''}</span></div>` : ''}
+    <div id="effect-detail">${mode === 'ale' ? `<div class="effect-summary"><strong>${esc(effect.shapeLabel ?? 'Тип зависимости не подтверждён')}</strong><span>${effect.support ?? 0} наблюдений${effect.range ? ` · диапазон ${effect.range.map(n).join(' – ')}` : ''}${effect.stability != null && effect.shape !== 'unconfirmed' ? ` · форма в ${n(effect.stability * 100)}% повторных выборок` : ''}</span></div>` : ''}
     ${mode !== 'ale' && effect.range ? `<p class="note effect-range">Наблюдаемые значения ${effect.range.map(n).join('–')}${esc(xUnit ? ' ' + xUnit.slice(2) : '')}.</p>` : ''}
     ${unstableShape ? '<p class="status warn">Форма основной модели менялась при переобучении. Устойчивость этой зависимости пока не подтверждена.</p>' : ''}
     ${chart || warning}${refits}<p class="note">${numeric ? notes[mode] : 'Средний вклад SHAP по категории. Группы с менее чем тремя наблюдениями скрыты.'}</p>
@@ -540,7 +542,7 @@ function effectPanel(state, work, unit) {
     ${records?.length ? table([['Значение'], [mode === 'pdp' ? 'Средний прогноз' : 'Эффект', 'num'], ['Наблюдений', 'num'],
       ...(mode === 'ale' && numeric ? [['Наклон на единицу признака', 'num'], ['Разброс при повторной выборке', 'num']] : [])],
       records.map((item) => `<tr><td>${typeof item.x === 'number' ? n(item.x) : esc(item.x)}</td><td class="num">${mode === 'pdp' ? fmt(item.value, unit) : delta(item.value, unit)}</td><td class="num">${item.support}</td>
-        ${mode === 'ale' && numeric ? `<td class="num">${delta(item.slope, unit)}</td><td class="num">${item.low == null ? '—' : `${delta(item.low, unit)} – ${delta(item.high, unit)}`}</td>` : ''}</tr>`), 'Данные графика эффекта') : ''}`;
+        ${mode === 'ale' && numeric ? `<td class="num">${delta(item.slope, unit)}</td><td class="num">${item.low == null ? '—' : `${delta(item.low, unit)} – ${delta(item.high, unit)}`}</td>` : ''}</tr>`), 'Данные графика эффекта') : ''}</div>`;
 }
 
 export function analysisTab(state) {
@@ -548,17 +550,17 @@ export function analysisTab(state) {
   const r = work.report;
   const unit = unitOf(work);
   if (tab === 'cash') return cashFlowDetail(work, unit, state.generating);
-  if (tab === 'contributions') return `<div class="research-contributions">${divergingBars(bridge(work), { unit })}</div>` + contributionTable(work);
+  if (tab === 'contributions') return `<div class="research-contributions">${divergingBars(bridge(work), { unit, active: state.factor })}</div>` + contributionTable(work);
   if (r.mode === 'ml' && ['importance', 'interactions', 'effects'].includes(tab) && r.diagnosticsReady === false) {
     return h2('Углублённая аналитика', 'Дополнительный расчёт запускается по запросу.')
       + `<button type="button" data-action="diagnostics" class="button primary" ${state.generating ? 'disabled' : ''}>Рассчитать детализацию</button>`;
   }
   const factorLabel = (name) => esc(titleOf(work, name));
   if (tab === 'timeline') {
-    const points = r.timeline.map((item) => ({ x: Date.parse(item.date), label: day(item.date).slice(0, 5), value: item.value,
+    const points = r.timeline.map((item) => ({ x: Date.parse(item.date), date: item.date, label: day(item.date).slice(0, 5), value: item.value,
       support: item.count, selected: [r.before, r.after].includes(item.date) }));
     return h2('Динамика показателя', 'Сумма метрики по всем наблюдениям на каждую дату. Заливкой отмечены даты сравнения.')
-      + lineChart([{ name: titleOf(work, r.target), color: 'var(--accent)', points }], { unit, title: 'История выбранного показателя', xLabel: 'Отчётная дата', yLabel: metricName(work) + (unit ? ' / ' + unit.trim() : '') });
+      + lineChart([{ name: titleOf(work, r.target), color: 'var(--accent)', points }], { unit, title: 'История выбранного показателя', xLabel: 'Отчётная дата', yLabel: metricName(work) + (unit ? ' / ' + unit.trim() : ''), inspect: true, period: true });
   }
   if (tab === 'importance') {
     const stats = r.importance.filter((item) => item.value !== null);
@@ -615,16 +617,22 @@ export function assistantPanel(state) {
   const { workspace: work, assistantContext: context } = state;
   const analysisQuestions = work?.report?.mode === 'valuation'
     ? [metricQuestion(work), 'Как повлияла кривая ставок?', 'Как повлияли погашения?']
-    : ['Какие факторы главные?', context.analysisFocus?.kind === 'effect'
+    : ['Какие факторы главные?', context?.analysisFocus?.kind === 'effect'
         ? 'Какая форма зависимости у выбранного признака?' : 'Какие факторы взаимодействуют?', 'Насколько надёжен результат?'];
-  const questions = context.page === 'analysis' ? analysisQuestions : pageQuestions[context.page];
-  return `<header class="drawer-head"><div><h2 id="assistant-title">${icon('spark')}Спектр AI</h2><div id="assistant-status">${assistantStatus(state)}</div></div>
-      <form method="dialog"><button class="icon-button" aria-label="Закрыть помощника">${icon('close')}</button></form></header>
+  const questions = context?.page === 'analysis' ? analysisQuestions : pageQuestions[context?.page];
+  const header = `<div class="assistant-resize" role="separator" tabindex="0" aria-label="Ширина помощника" aria-orientation="vertical" data-assistant-resize></div>
+    <header class="drawer-head"><div><h2 id="assistant-title" tabindex="-1">${icon('spark')}Спектр AI</h2>
+      ${context ? `<div id="assistant-status">${assistantStatus(state)}</div>` : ''}</div>
+      <div class="drawer-tools"><button class="icon-button assistant-minimize" type="button" data-action="minimize-assistant" aria-label="Свернуть помощника" title="Свернуть">${icon('minus')}</button>
+      <form method="dialog"><button class="icon-button" aria-label="Закрыть помощника">${icon('close')}</button></form></div></header>`;
+  if (!context) return header + `<div class="drawer-body"><p class="note">${state.route === 'curves'
+    ? 'Выберите готовый запуск кривых и нажмите «Спросить AI», чтобы обсудить его.' : 'Загрузите данные или откройте готовый расчёт, чтобы задать вопрос.'}</p></div>`;
+  return header + `
     <div class="drawer-body assistant" id="assistant">
-    <div class="assistant-context"><p>${esc(context.title)}</p><span>${esc(context.subtitle)}</span></div>
+    <div class="assistant-context"><small>${esc(context.reportLabel || pages[context.page])}</small><p>${esc(context.title)}</p>${context.subtitle ? `<span>${esc(context.subtitle)}</span>` : ''}</div>
     <div class="question-list" aria-label="Быстрые вопросы">${questions.map((question) =>
       `<button type="button" data-action="question" data-key="${esc(question)}">${esc(question)}${icon('chevron')}</button>`).join('')}</div>
-    <div id="answer" aria-live="polite">${assistantConversation(state)}</div>
+    <div id="answer" aria-live="polite" aria-busy="${state.asking}">${assistantConversation(state)}</div>
     <details class="assistant-limits"><summary>Как формируется ответ</summary>
       <p class="note">Ассистент опирается на готовые результаты. С разрешения DeepSeek получает только допустимые агрегаты и очищенный вопрос.
       Для загруженных данных облачная обработка требует отдельно настроенной политики. Источники открываются из ответа.</p></details>
@@ -720,7 +728,7 @@ export function scenarioPage(state) {
         ${lineChart([{ name: 'Базовая', color: 'var(--accent)', points: plotted('base') },
           { name: codes[active.code], color: 'var(--muted-strong)', points: plotted(active.code), dash: '6 4', morph: true }],
           { title: 'Базовая и выбранная стрессовая кривые', unit: '%', xLabel: 'Срок (логарифмическая шкала)', yLabel: 'Доходность, % годовых', tall: true,
-            domain: curveDomain, motionKey: `${work.id}:${item.date}:curves` })}
+            domain: curveDomain, motionKey: `${work.id}:${item.date}:curves`, inspect: true })}
         <a class="text-button" href="${esc(snapshotUrl(work, item))}">Открыть использованные кривые${icon('arrow')}</a>
       </section>
       <section class="stress-picker" aria-label="Стресс для сравнения">
@@ -741,7 +749,7 @@ export function scenarioPage(state) {
     </details>
     <details class="details scenario-buckets" id="scenario-buckets" data-scenario-detail="buckets" open><summary>Вклад сроков платежей</summary>
       <p class="note">В каждом интервале сравниваются оценки платежей по двум кривым.</p>
-      ${buckets.length ? bars(buckets, { unit: ' ₽', label: 'Вклад сроков платежей', motionKey: `${work.id}:${item.date}:buckets` })
+      ${buckets.length ? expandChart('#scenario-bucket-chart') + '<div id="scenario-bucket-chart" data-chart-title="Вклад сроков платежей">' + bars(buckets, { unit: ' ₽', label: 'Вклад сроков платежей', motionKey: `${work.id}:${item.date}:buckets` }) + '</div>'
         : '<p class="note">Вклады по срокам меньше копейки или отсутствуют.</p>'}
       <p class="note">Общий эффект ${delta(active.delta, ' ₽')}. Договорные проценты за год ${fmt(item.interest12, ' ₽')}.</p>
     </details>`;
@@ -987,7 +995,7 @@ function filePicker(name, title, accepts) {
   return `<div class="file-field"><label class="field" for="${name}">${title}</label>
     <label class="file-picker"><input class="sr-only" id="${name}" type="file" name="${name}" accept="${accepts}" aria-label="${title}" aria-describedby="${name}-selected" required>
       <span class="file-pick-label" aria-hidden="true">Выбрать файл</span><span class="file-name" id="${name}-selected">Файл не выбран</span>
-    </label><p class="note negative" data-file-warning role="alert" hidden></p></div>`;
+    </label><p class="note negative" id="${name}-warning" data-file-warning role="alert" hidden></p></div>`;
 }
 
 export function servicesList(health) {

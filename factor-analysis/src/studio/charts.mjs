@@ -17,6 +17,7 @@ export const signed = (value, unit = '') => (value > 0 ? '+' : '') + exact(value
 export const tone = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : '';
 export const day = (iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso ?? '') ? iso.split('-').reverse().join('.') : '';
 export function displayNumber(value, unit, format) {
+  if (unit === ' ₽') unit = '\u00a0₽';
   if (format === 'signed') return signed(value, unit);
   if (format === 'change') return (value > 0 ? '+' : '') + short(value, unit);
   return short(value, unit);
@@ -24,8 +25,7 @@ export function displayNumber(value, unit, format) {
 
 export function numberMarkup(key, value, unit, format = 'compact') {
   const amount = Number.isFinite(value) ? value : '';
-  return `<span class="motion-number" data-number-key="${esc(key)}" data-number-value="${amount}" data-number-unit="${esc(unit)}"
-    data-number-format="${esc(format)}"><span data-number-visual>${esc(displayNumber(value, unit, format))}</span></span>`;
+  return `<span class="motion-number" data-number-key="${esc(key)}" data-number-value="${amount}">${esc(displayNumber(value, unit, format))}</span>`;
 }
 const wrap = (text, maxLength = 14) => {
   const str = String(text);
@@ -41,7 +41,7 @@ function nice(value, floor = 0.01) {
 }
 
 export function waterfall({ start, end, bars, active, unit }) {
-  const w = 920, h = 292, l = 74, r = 19, t = 28, b = 225;
+  const w = 920, h = 260, l = 74, r = 19, t = 24, b = 220;
   const values = [{ key: 'start', label: 'Начало', value: start, total: true }];
   let current = start;
   for (const bar of bars) {
@@ -121,7 +121,7 @@ export function bars(items, { unit = '', label = 'Вклады факторов'
   const rows = values.map((item) => {
     const start = x(Math.min(0, item.value));
     const width = 100 * Math.abs(item.value) / span;
-    return `<div class="contribution-row ${tone(item.value)}" title="${esc(item.label)} · ${esc(signed(item.value, unit))}">
+    return `<div class="contribution-row ${tone(item.value)}"${motionKey ? ` data-plot-match="${esc(item.label)}"` : ''} title="${esc(item.label)} · ${esc(signed(item.value, unit))}">
       <span class="contribution-name">${esc(item.chartLabel ?? item.label)}</span>
       <span class="contribution-track" aria-hidden="true"><i ${motionKey ? `data-morph-key="${esc(item.label)}"` : ''} style="--start:${start}%;--width:${width}%"></i></span>
       <strong class="contribution-value">${esc((item.value > 0 ? '+' : '') + short(item.value, unit))}</strong>
@@ -151,12 +151,18 @@ export function divergingBars(items, { active, unit = '' } = {}) {
   </div>`;
 }
 
+let nextPlot = 0;
+const chartIcon = (id) => `<svg class="icon" aria-hidden="true"><use href="#icon-${id}"/></svg>`;
+export const expandChart = (target = '') => `<button type="button" class="icon-button chart-expand" data-chart-command="expand"
+  ${target ? `data-chart-target="${target}"` : ''} aria-label="Развернуть график" title="Развернуть график">${chartIcon('expand')}</button>`;
+
 export function lineChart(series, { unit = '', title = '', axes = [], connect = true, xLabel = '', yLabel = '', tall = false,
-  domain = [], motionKey = '' } = {}) {
+  domain = [], motionKey = '', inspect = false, period = false } = {}) {
   const valid = (point) => Number.isFinite(point?.value) && Number.isFinite(point.x);
   const points = series.flatMap((entry) => entry.points).filter(valid);
   if (points.length < 2) return '<p class="note">Недостаточно точек для графика.</p>';
   const w = 736, l = 69, r = 21, t = 19, b = tall ? 251 : 190, h = b + 31;
+  const clipId = 'chart-clip-' + ++nextPlot;
   const xMin = Math.min(...points.map((p) => p.x)), xMax = Math.max(...points.map((p) => p.x));
   const yMin = Math.min(...domain, ...points.map((p) => p.value)), yMax = Math.max(...domain, ...points.map((p) => p.value));
   const span = yMax - yMin || Math.max(1, Math.abs(yMax) * 0.08);
@@ -178,10 +184,11 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
     if (x(point.x) - x(marks.at(-1).x) >= 77 && x(end.x) - x(point.x) >= 77) marks.push(point);
   }
   if (end !== axis[0]) marks.push(end);
-  const ticks = marks.map((p, i) => {
+  const ticks = (inspect ? axis : marks).map((p) => {
     const name = String(p.label ?? n(p.x));
     const text = name.length > 13 ? name.slice(0, 12) + '…' : name;
-    return `<text x="${x(p.x)}" y="${b + 21}" text-anchor="${i === 0 ? 'start' : i === marks.length - 1 ? 'end' : 'middle'}"><title>${esc(name)}</title>${esc(text)}</text>`;
+    return `<text x="${x(p.x)}" y="${b + 21}" text-anchor="${p === axis[0] ? 'start' : p === end ? 'end' : 'middle'}"
+      ${inspect ? `data-axis-x="${x(p.x)}"${marks.includes(p) ? '' : ' visibility="hidden"'}` : ''}><title>${esc(name)}</title>${esc(text)}</text>`;
   }).join('');
   const traces = series.map((entry) => {
     const runs = [[]];
@@ -192,10 +199,27 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
     return `<g stroke="${entry.color}" data-series="${esc(entry.name)}"${entry.morph ? ' data-morph-line' : ''}>
       ${connect ? runs.filter((run) => run.length > 1).map((run) => `<polyline fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-dasharray="${entry.dash ?? 'none'}" points="${run.join(' ')}"/>`).join('') : ''}
       ${entry.points.filter(valid).map((p) => `<circle cx="${x(p.x)}" cy="${y(p.value)}" r="${p.selected ? 5 : connect ? 2.75 : 3}" fill="${p.selected || !connect ? entry.color : 'var(--surface)'}" stroke-width="${connect ? 1.55 : 0}"
-        data-point="${p.x}" data-label="${esc(p.label ?? n(p.x))}" data-value="${esc(exact(p.value, unit) + (p.support ? ' · ' + n(p.support) + ' строк' : ''))}"/>`).join('')}</g>`;
+        data-point="${p.x}" data-label="${esc(p.date ? day(p.date) : p.label ?? n(p.x))}"${p.date ? ` data-date="${esc(p.date)}"` : ''} data-value="${esc(exact(p.value, unit) + (p.support ? ' · ' + n(p.support) + ' строк' : ''))}"/>`).join('')}</g>`;
   }).join('');
   const svg = `<svg class="chart line-chart" role="img" aria-label="${esc(title)}" data-crosshair${motionKey ? ` data-chart-scope="${esc(motionKey)}"` : ''} viewBox="0 0 ${w} ${h}">
-    ${grid}${ticks}${traces}<g class="chart-cursor" aria-hidden="true"><line x1="0" x2="0" y1="${t}" y2="${b}"/></g></svg>`;
-  return `<figure class="line-figure">${yLabel ? `<figcaption>${esc(yLabel)}</figcaption>` : ''}
-    <div class="chart-scroll" tabindex="0" aria-label="${esc(title)}. Стрелки влево и вправо показывают значения">${svg}<span class="sr-only" data-chart-announcement aria-live="polite"></span></div>${xLabel ? `<p class="axis-caption">${esc(xLabel)}</p>` : ''}</figure>`;
+    ${grid}${ticks}${inspect ? `<defs><clipPath id="${clipId}"><rect x="${l - 6}" y="${t - 6}" width="${w - l - r + 12}" height="${b - t + 12}"/></clipPath></defs>
+      <g clip-path="url(#${clipId})"><rect x="${l}" y="${t}" width="${w - l - r}" height="${b - t}" fill="transparent"/>
+      <g data-plot data-left="${l}" data-right="${w - r}">${traces}</g></g>` : traces}
+    <g class="chart-cursor" aria-hidden="true"><line x1="0" x2="0" y1="${t}" y2="${b}"/></g></svg>`;
+  const dates = period ? [...new Map(points.filter((p) => day(p.date)).map((p) => [p.date, p])).values()] : [];
+  const rangeOptions = (selected) => dates.map((p) => `<option value="${p.date}"${p.date === selected ? ' selected' : ''}>${day(p.date)}</option>`).join('');
+  const tools = inspect ? `<div class="chart-tools" role="group" aria-label="Инструменты графика">
+    ${dates.length > 1 ? '<button type="button" class="button small" data-chart-command="period" aria-expanded="false">Период</button>' : ''}
+    <button type="button" class="icon-button" data-chart-command="out" aria-label="Уменьшить масштаб" title="Уменьшить масштаб" disabled>−</button>
+    <button type="button" class="icon-button" data-chart-command="in" aria-label="Увеличить масштаб" title="Увеличить масштаб">+</button>
+    <button type="button" class="button small chart-reset" data-chart-command="reset" disabled>Сбросить</button>
+    ${expandChart()}</div>` : '';
+  const range = dates.length > 1 ? `<div class="chart-range" hidden>
+      <label class="field">Начало<select data-chart-before>${rangeOptions(dates.find((p) => p.selected)?.date ?? dates[0].date)}</select></label>
+      <label class="field">Конец<select data-chart-after>${rangeOptions(dates.findLast((p) => p.selected)?.date ?? dates.at(-1).date)}</select></label>
+      <button type="button" class="button small" data-chart-command="apply-period">К параметрам расчёта</button>
+      <p class="note" data-chart-range-note role="status" hidden></p></div>` : '';
+  return `<figure class="line-figure"${inspect ? ' data-chart-figure' : ''}><div class="line-heading">
+    ${yLabel ? `<p class="line-caption">${esc(yLabel)}</p>` : '<span></span>'}${tools}</div>${range}
+    <div class="chart-scroll" tabindex="0" aria-label="${esc(title)}. Стрелки влево и вправо показывают значения${inspect ? ', Enter закрепляет подсказку' : ''}">${svg}<span class="sr-only" data-chart-announcement aria-live="polite"></span></div>${xLabel ? `<p class="axis-caption">${esc(xLabel)}</p>` : ''}</figure>`;
 }

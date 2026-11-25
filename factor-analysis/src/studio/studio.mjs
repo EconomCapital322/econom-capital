@@ -1,6 +1,8 @@
 import { day, esc } from './charts.mjs';
-import { animateCharts, captureCharts, installChartInteraction } from './chart-interaction.mjs';
-import { animateContent, captureIndicators, installLighting, installPanels, motionAllowed, openPanel, syncIndicators, transitionChart } from './motion.mjs';
+import { animateCharts, captureCharts, installChartInteraction, updateChartPlot } from './chart-interaction.mjs';
+import { assistantDock } from './assistant-dock.mjs';
+import { commandPalette } from './command-palette.mjs';
+import { animateContent, captureIndicators, installLighting, installPanels, motionAllowed, openPanel, settleChartTransition, syncIndicators, transitionChart } from './motion.mjs';
 import { analysisChart, analysisPage, analysisTab, assistantConversation, assistantPanel, assistantStatus, comparisonPanel,
   codes, dataPage, dateCountLabel, dealTable, factorDetails, flowDialog, holdingsOverview, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
   portfolioPreview, portfolioProgress, portfolioSources, reportTabs, scenarioPage, servicesList, titleOf } from './views.mjs';
@@ -12,8 +14,12 @@ const activity = document.querySelector('#activity');
 const inspector = document.querySelector('#inspector');
 const drawer = document.querySelector('#factor-drawer');
 const assistant = document.querySelector('#assistant-drawer');
+const dock = assistantDock(assistant, document.querySelector('#assistant-restore'));
 const settings = document.querySelector('#settings-dialog');
 const appearance = document.querySelector('#appearance-dialog');
+const palette = document.querySelector('#command-palette');
+const chartFocus = document.querySelector('#chart-focus');
+const root = document.documentElement;
 const locationLabel = document.querySelector('#page-location');
 const workspaceContext = document.querySelector('#workspace-context');
 const serviceLink = document.querySelector('.service-link');
@@ -26,10 +32,12 @@ const state = {
   scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
   chart: 'waterfall', research: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
-  question: '', focusFactor: null, allowExternal: false, asking: false, assistantMessage: '',
+  question: '', assistantFactor: null, allowExternal: false, asking: false, assistantMessage: '',
   assistantContext: null, dialogId: null, turns: [], summary: null,
   curveSelection: null,
 };
+const conversations = new Map();
+let curvesContext = null;
 let dealsRequest = 0;
 let flowRequest = 0;
 let healthTimer;
@@ -56,6 +64,11 @@ function updatePortfolioJob(job) {
   state.portfolioJob = job;
   const host = document.querySelector('#portfolio-progress');
   if (host) host.innerHTML = portfolioProgress(job);
+  syncBusy();
+}
+
+function syncBusy() {
+  root.toggleAttribute('data-calculating', state.generating);
 }
 
 function routeName() {
@@ -93,6 +106,7 @@ function showCurveLocation(next) {
   if (next.workspaceId) hash.set('workspaceId', next.workspaceId);
   history.replaceState(history.state, '', '#curves?' + hash);
   renderCurves(true);
+  syncDockContext();
 }
 
 function selectCurveRun(reportDate, runId) {
@@ -122,7 +136,11 @@ function renderCurves(active) {
     curveModule.update({ active, location,
       valuationRunId: state.workspace?.periods?.find((p) => p.date === location.reportDate)?.runId,
       onLocation: showCurveLocation, onRunSelect: selectCurveRun, onUse: useCurve,
-      onExplain: (curve) => openAssistant(null, curve, curveScreen.shadowRoot?.activeElement) });
+      onExplain: (curve) => openAssistant(null, curve, curveScreen.shadowRoot?.activeElement),
+      onContext: (curve) => {
+        curvesContext = curve;
+        if (state.route === 'curves') syncDockContext();
+      } });
   } else if (active && !curveLoading) {
     curveLoading = import('/curve-ui/curves.js').then(({ mountCurves }) => {
       curveScreen.replaceChildren();
@@ -140,7 +158,8 @@ function swapWorkspace(workspace) {
   dealsRequest++;
   flowRequest++;
   closeDialogs();
-  assistant.replaceChildren();
+  conversations.clear();
+  if (!assistant.open && !dock.minimized()) assistant.replaceChildren();
   settings.replaceChildren();
   state.workspace = workspace;
   state.tab = 'timeline';
@@ -155,7 +174,7 @@ function swapWorkspace(workspace) {
   state.answer = null;
   state.mapping = null;
   state.question = '';
-  state.focusFactor = null;
+  state.assistantFactor = null;
   state.assistantContext = null;
   state.dialogId = null;
   state.turns = [];
@@ -166,7 +185,9 @@ function swapWorkspace(workspace) {
   state.sourceFormat = workspace?.periods ? 'zip' : 'csv';
 }
 
-function render(disclosureState = null) {
+function render() {
+  settleChartTransition();
+  syncBusy();
   for (const anchor of document.querySelectorAll('[data-route]')) {
     if (anchor.dataset.route === state.route) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
@@ -184,20 +205,19 @@ function render(disclosureState = null) {
   studioScreen.hidden = curvesActive;
   renderCurves(curvesActive);
   syncIndicators(document.querySelector('.navigation-shell'));
-  if (curvesActive) return;
+  if (curvesActive) { syncDockContext(); return; }
   const previousIndicators = captureIndicators(studioScreen);
   const previousCharts = motionAllowed() ? captureCharts(studioScreen) : null;
   studioScreen.innerHTML = { analysis: analysisPage, scenarios: scenarioPage, portfolio: portfolioPage, data: dataPage }[state.route](state);
-  if (disclosureState) for (const disclosure of studioScreen.querySelectorAll('details[data-scenario-detail]')) {
-    disclosure.open = disclosureState.has(disclosure.dataset.scenarioDetail);
-  }
   syncIndicators(studioScreen, previousIndicators);
   if (previousCharts) animateCharts(studioScreen, previousCharts);
   if (state.route === 'portfolio') void loadDeals();
+  syncDockContext();
 }
 
 function closeDialogs() {
-  for (const dialog of [inspector, drawer, assistant, settings, appearance]) {
+  for (const dialog of [inspector, drawer, assistant, settings, appearance, palette, chartFocus]) {
+    if (dialog === assistant && dock.isDocked()) continue;
     if (dialog.open) dialog.close();
   }
 }
@@ -229,12 +249,13 @@ function assistantScope(factor, curve) {
   const report = work?.report;
   const page = state.route;
   const scope = { page, workspaceId: work?.id ?? null, analysisId: report?.analysisId ?? null };
-  let title = pages[page], subtitle = '';
+  let title = pages[page], subtitle = '', reportLabel = '';
   if (page === 'analysis') {
     if (!report) return null;
     scope.focusFactor = factor?.key ?? null;
     title = factor?.label ?? metricName(work);
     subtitle = day(report.before) + ' — ' + day(report.after);
+    reportLabel = [metricName(work), report.mode === 'valuation' ? 'Расчётный анализ' : 'ML-анализ'].join(' · ');
     if (!factor && state.research && state.tab === 'effects' && report.effects?.length) {
       const selected = report.effects.find(item => item.key === state.effect)
         ?? report.effects.find(item => item.points?.length) ?? report.effects[0];
@@ -268,36 +289,72 @@ function assistantScope(factor, curve) {
     }
     subtitle = day(scope.reportDate);
   }
-  return { ...scope, key: JSON.stringify(scope), title, subtitle };
+  if (page === 'analysis' && title === metricName(work)) reportLabel = reportLabel.split(' · ').at(-1);
+  return { ...scope, key: JSON.stringify(scope), title, subtitle, reportLabel };
+}
+
+function setAssistantContext(context) {
+  if (state.assistantContext?.key === context?.key && assistant.firstElementChild
+    && assistant.dataset.contextReady === String(Boolean(context))) return false;
+  const previous = state.assistantContext;
+  if (previous) {
+    conversations.delete(previous.key);
+    conversations.set(previous.key, {
+      turns: state.turns, answer: state.answer, dialogId: state.dialogId,
+      question: state.question, scroll: assistant.querySelector('.drawer-body')?.scrollTop ?? 0,
+    });
+    if (conversations.size > 16) conversations.delete(conversations.keys().next().value);
+  }
+  explanationRequest?.abort();
+  explanationRequest = null;
+  const saved = conversations.get(context?.key);
+  state.asking = false;
+  state.assistantMessage = '';
+  state.dialogId = saved?.dialogId ?? null;
+  state.turns = saved?.turns ?? [];
+  state.answer = saved?.answer ?? null;
+  state.question = saved?.question ?? '';
+  state.allowExternal = false;
+  state.assistantContext = context;
+  if (context?.page === 'analysis' && state.summary?.analysisId !== context.analysisId) state.summary = null;
+  assistant.innerHTML = assistantPanel(state);
+  assistant.dataset.contextReady = String(Boolean(context));
+  dock.resize();
+  if (saved?.scroll) assistant.querySelector('.drawer-body').scrollTop = saved.scroll;
+  if (context?.page === 'analysis' && !state.summary) {
+    void api('/api/summary/' + context.workspaceId + '/' + context.analysisId).then((response) => {
+      if (response && state.assistantContext?.key === context.key && !state.summary) {
+        state.summary = response;
+        refreshAnswer();
+      }
+    }).catch(() => {});
+  }
+  return true;
+}
+
+function currentCurveContext() {
+  const routeCurve = state.route === 'curves' ? curveRoute() : null;
+  const matchingCurve = routeCurve && curvesContext?.reportDate === routeCurve.reportDate
+    && (!routeCurve.runId || curvesContext.runId === routeCurve.runId)
+    && (curvesContext.workspaceId ?? null) === (routeCurve.workspaceId ?? null);
+  return matchingCurve ? curvesContext : null;
+}
+
+function syncDockContext() {
+  if ((!assistant.open || !dock.isDocked()) && !dock.minimized()) return;
+  const selectedFactor = state.route === 'analysis' && (!state.research || state.tab === 'contributions')
+    ? state.assistantFactor : null;
+  setAssistantContext(assistantScope(selectedFactor, currentCurveContext()));
 }
 
 function openAssistant(factor = null, curve = null, source) {
   const context = assistantScope(factor, curve);
   if (!context) return;
-  if (state.assistantContext?.key !== context.key) {
-    stopWaiting();
-    state.dialogId = null;
-    state.turns = [];
-    state.answer = null;
-    state.question = '';
-    state.allowExternal = false;
-  }
-  state.assistantContext = context;
-  state.focusFactor = factor;
-  assistant.innerHTML = assistantPanel(state);
-  openPanel(assistant, source);
-  assistant.querySelectorAll('.question-list button').forEach((button, index) => {
-    if (motionAllowed() && button.animate) button.animate([{ opacity: .45, transform: 'translateX(6px)' }, { opacity: 1, transform: 'none' }],
-      { duration: 180, delay: 30 + index * 23, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' });
-  });
-  if (context.page === 'analysis' && state.summary?.analysisId !== context.analysisId) {
-    void api('/api/summary/' + context.workspaceId + '/' + context.analysisId).then((saved) => {
-      if (saved && state.assistantContext?.key === context.key && !state.summary) {
-        state.summary = saved;
-        refreshAnswer();
-      }
-    }).catch(() => {});
-  }
+  state.assistantFactor = factor;
+  const changed = setAssistantContext(context);
+  const wasOpen = assistant.open;
+  dock.open(source);
+  if (changed || !wasOpen) animateContent(assistant.querySelector('.assistant-context'));
 }
 
 function refreshAssistant() {
@@ -326,12 +383,21 @@ function selectFactor(key, source) {
   const selectedInDrawer = drawer.contains(document.activeElement);
   const controlId = document.activeElement?.id;
   state.factor = key;
+  if (chartFocus.open) {
+    source = source?.getBoundingClientRect?.() ?? source;
+    chartFocus.close();
+  }
+  const adjacent = assistant.open && dock.isDocked();
+  drawer.toggleAttribute('data-adjacent', adjacent);
+  if (wasOpen && drawer.matches(':modal') === adjacent) drawer.close();
   drawer.innerHTML = factorDetails(state);
-  for (const control of document.querySelectorAll('#bridge-chart [data-action="factor"]')) {
+  state.assistantFactor = { key, label: drawer.querySelector('#factor-title').textContent.trim() };
+  for (const control of document.querySelectorAll('[data-action="factor"]')) {
     control.setAttribute('aria-pressed', String(control.dataset.key === key));
   }
-  if (!wasOpen) openPanel(drawer, source);
+  if (!drawer.open) openPanel(drawer, source, { modal: !adjacent });
   else if (selectedInDrawer) drawer.querySelector(controlId === 'factor-select' ? '#factor-select' : '.drawer-head button')?.focus({ preventScroll: true });
+  syncDockContext();
 }
 
 function selectChart(chart, control) {
@@ -356,6 +422,7 @@ function selectTab(tab, focus = false) {
   if (!Object.hasOwn(reportTabs(state.workspace), tab)) return;
   const target = document.querySelector('#tab-body');
   if (!target || !state.workspace?.report) return;
+  if (state.tab !== tab) state.assistantFactor = null;
   state.tab = tab;
   if (state.research) history.replaceState(history.state, '', '#' + analysisLocation());
   hideChartTooltip();
@@ -368,7 +435,38 @@ function selectTab(tab, focus = false) {
   // Animate the heading so the interactive content keeps a stable hit area.
   const heading = focus && target.querySelector('h2');
   if (heading) animateContent(heading);
+  syncDockContext();
 }
+
+const openCommands = commandPalette(palette, (source) => {
+  const appearanceCommand = (key, value, title, keywords) => ({ title, group: 'Внешний вид', keywords,
+    run: () => document.dispatchEvent(new CustomEvent('spectrum-appearance', { detail: { key, value } })) });
+  const commands = Object.entries(pages).map(([route, name]) => ({
+    title: 'Открыть ' + ({ analysis: 'анализ', curves: 'кривые доходности', scenarios: 'сценарии', portfolio: 'портфель', data: 'данные' }[route]),
+    group: 'Разделы', keywords: name, run: () => navigate(route),
+  }));
+  if (state.workspace?.report && !state.generating) {
+    commands.push({ title: 'Изменить параметры анализа', group: 'Расчёт', keywords: 'метрика период даты',
+      run: () => openSettings(source) });
+    commands.push({ title: state.research ? 'К обзору' : 'Подробный анализ', group: 'Анализ',
+      run: () => { state.research = !state.research; navigate('analysis'); } });
+  }
+  const assistantButton = [...main.querySelectorAll('[data-action="open-assistant"]')].find((button) => !button.closest('[hidden]'));
+  if (dock.minimized()) commands.push({ title: 'Восстановить AI', group: 'Помощник', run: () => { syncDockContext(); dock.open(source); } });
+  else if (assistantButton || currentCurveContext()) {
+    commands.push({ title: 'Спросить AI', group: 'Помощник', keywords: 'ии ассистент',
+      run: () => openAssistant(null, currentCurveContext(), source) });
+  }
+  commands.push(
+    { title: 'Настроить внешний вид', group: 'Внешний вид', run: () => openPanel(appearance, source) },
+    appearanceCommand('theme', 'light', 'Светлая тема', 'light'),
+    appearanceCommand('theme', 'dark', 'Тёмная тема', 'dark'),
+    appearanceCommand('theme', 'system', 'Системная тема', 'system'),
+    appearanceCommand('density', 'compact', 'Компактная плотность', 'compact'),
+    appearanceCommand('density', 'comfortable', 'Комфортная плотность', 'comfortable'),
+  );
+  return commands;
+});
 
 const pause = (millis) => new Promise((resolve) => setTimeout(resolve, millis));
 const rememberedJob = () => {
@@ -454,8 +552,9 @@ async function followJob(id, kind = 'report', portfolioSettings = null) {
 async function launch(path, body, message, kind = 'report') {
   if (state.generating) return false;
   state.generating = true;
+  syncBusy();
   if (kind !== 'diagnostics') {
-    explanationRequest?.abort();
+    if (state.asking) stopWaiting();
     mappingRequest?.abort();
   }
   const initiating = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
@@ -474,6 +573,7 @@ async function launch(path, body, message, kind = 'report') {
     return false;
   } finally {
     state.generating = false;
+    syncBusy();
     initiating?.removeAttribute('aria-busy');
     for (const [control, previous] of locked) {
       if (control.isConnected) control.disabled = previous;
@@ -569,8 +669,10 @@ async function importCsv(form) {
   if (!file?.size) return;
   const button = form.querySelector('button');
   button.disabled = true;
+  form.querySelector('[data-file-warning]').hidden = true;
   state.generating = true;
-  explanationRequest?.abort();
+  syncBusy();
+  if (state.asking) stopWaiting();
   mappingRequest?.abort();
   notice('Проверяем историю из CSV.');
   try {
@@ -580,9 +682,10 @@ async function importCsv(form) {
     notice('CSV загружен. Проверьте колонки и запустите анализ.');
     render();
   } catch (error) {
-    notice(error.message, 'error');
+    importError(form, error.message);
   } finally {
     state.generating = false;
+    syncBusy();
     button.disabled = false;
   }
 }
@@ -591,15 +694,27 @@ async function importHistory(form) {
   if (state.generating) return;
   const values = new FormData(form);
   const file = values.get('history');
-  if (!file?.size || file.size > 16_000_000) return notice('Выберите ZIP размером до 16 МБ.', 'error');
+  if (!file?.size || file.size > 16_000_000) return importError(form, 'Выберите ZIP размером до 16 МБ.');
+  form.querySelector('[data-file-warning]').hidden = true;
   try {
     const fileBytes = new Uint8Array(await file.arrayBuffer());
     const parts = [];
     for (let i = 0; i < fileBytes.length; i += 12_288) parts.push(btoa(String.fromCharCode(...fileBytes.subarray(i, i + 12_288))));
     await launch('/api/import-history', { archive: parts.join(''), provenance: values.has('bank') ? 'bank' : 'external' }, 'Проверяем историю из ZIP.');
   } catch (error) {
-    notice(error.message, 'error');
+    importError(form, error.message);
   }
+}
+
+function importError(form, message) {
+  if (!form.isConnected || form.closest('[hidden]')) return notice(message, 'error');
+  notice('');
+  const warning = form.querySelector('[data-file-warning]');
+  warning.textContent = message;
+  warning.hidden = false;
+  const file = form.querySelector('input[type="file"]');
+  file.setAttribute('aria-invalid', 'true');
+  file.setAttribute('aria-describedby', file.id + '-selected ' + warning.id);
 }
 
 async function diagnostics() {
@@ -625,13 +740,18 @@ function newDialogue() {
   state.dialogId = null;
   state.answer = null;
   state.question = '';
-  assistant.innerHTML = assistantPanel(state);
-  assistant.querySelector('#question')?.focus({ preventScroll: true });
+  const field = assistant.querySelector('#question');
+  if (field) {
+    field.value = '';
+    field.focus({ preventScroll: true });
+  }
+  refreshAnswer();
 }
 
 function refreshAnswer() {
   const host = assistant.querySelector('#answer');
   if (host) {
+    host.setAttribute('aria-busy', String(state.asking));
     const details = [...host.querySelectorAll('details')].map((item) => [item.querySelector('summary').textContent, item.open]);
     host.innerHTML = assistantConversation(state);
     for (const item of host.querySelectorAll('details')) {
@@ -659,7 +779,7 @@ async function ask(form, summary = false) {
   form.querySelector('button[type="submit"]').disabled = true;
   refreshAnswer();
   try {
-    const { key, title, subtitle, ...scope } = context;
+    const { key, title, subtitle, reportLabel, ...scope } = context;
     const answer = await api('/api/explain', { body: { ...scope, question, summary,
       dialogId: summary ? null : state.dialogId, allowExternal: state.allowExternal }, signal: controller.signal });
     if (controller.signal.aborted || state.assistantContext?.key !== key || answer.workspaceId !== scope.workspaceId
@@ -725,11 +845,79 @@ async function showFlows(id, source) {
   }
 }
 
+function fragment(html) {
+  const view = document.createElement('template');
+  view.innerHTML = html;
+  return view.content;
+}
+
 function refreshScenarios(focus) {
-  const open = new Set([...main.querySelectorAll('details[data-scenario-detail][open]')]
-    .map((element) => element.dataset.scenarioDetail));
-  render(open);
+  const next = fragment(scenarioPage(state));
+  const previous = motionAllowed() ? captureCharts(studioScreen) : null;
+  hideChartTooltip();
+  for (const selector of ['.scope-meta', '[data-action="compare-scenario"]', '.scenario-values', '.rate-panel .legend', '.rate-panel > a']) {
+    main.querySelector(selector).replaceWith(next.querySelector(selector));
+  }
+  const currentChart = main.querySelector('.rate-panel figure');
+  const nextChart = next.querySelector('.rate-panel figure');
+  const compatible = currentChart.querySelector('svg').dataset.chartScope === nextChart.querySelector('svg').dataset.chartScope;
+  updateChartPlot(currentChart, nextChart, compatible);
+  const buttons = main.querySelectorAll('[data-action="scenario"]');
+  const updates = next.querySelectorAll('[data-action="scenario"]');
+  buttons.forEach((button, index) => {
+    const update = updates[index];
+    const pressed = update.getAttribute('aria-pressed');
+    const selectionChanged = pressed !== button.getAttribute('aria-pressed');
+    button.setAttribute('aria-pressed', pressed);
+    if (!compatible) button.replaceChildren(...update.childNodes);
+    if (selectionChanged && pressed === 'true' && motionAllowed()) {
+      button.querySelector('strong').animate?.([{ opacity: .65 }, { opacity: 1 }], { duration: 160 });
+    }
+  });
+  for (const details of main.querySelectorAll('[data-scenario-detail]')) {
+    const incoming = next.querySelector('#' + details.id);
+    const summary = details.querySelector('summary');
+    const scroll = details.querySelector('.table-wrap')?.scrollLeft;
+    for (const child of [...details.children]) if (child !== summary) child.remove();
+    details.append(...[...incoming.children].filter(child => child.tagName !== 'SUMMARY'));
+    if (scroll) details.querySelector('.table-wrap').scrollLeft = scroll;
+  }
+  if (previous) animateCharts(studioScreen, previous);
   main.querySelector(focus)?.focus({ preventScroll: true });
+  syncDockContext();
+}
+
+function refreshEffect() {
+  const next = fragment(analysisTab(state));
+  const selected = main.querySelector('#effect-select');
+  const formPlot = main.querySelector('#effect-plot');
+  const nextPlot = next.querySelector('#effect-plot');
+  selected.value = next.querySelector('#effect-select').value;
+  if (formPlot && nextPlot) formPlot.value = nextPlot.value;
+  else if (formPlot) formPlot.closest('label').remove();
+  else if (nextPlot) selected.closest('.effect-controls').append(nextPlot.closest('label'));
+  main.querySelector('#effects .note').textContent = next.querySelector('#effects .note').textContent;
+  hideChartTooltip();
+  main.querySelector('#effect-detail').replaceWith(next.querySelector('#effect-detail'));
+  syncDockContext();
+}
+
+function refreshInteraction(localOnly = false) {
+  const next = fragment(analysisTab(state));
+  if (localOnly) {
+    main.querySelector('.local-pair .note').textContent = next.querySelector('.local-pair .note').textContent;
+    return;
+  }
+  const selector = main.querySelector('#pair-select');
+  selector.value = next.querySelector('#pair-select').value;
+  const incoming = [...next.querySelectorAll('.heatmap th, .heatmap td')];
+  document.querySelectorAll('.heatmap th, .heatmap td').forEach((cell, index) => {
+    cell.classList.toggle('heat-axis-selected', incoming[index].classList.contains('heat-axis-selected'));
+    const button = cell.querySelector('button');
+    if (button) button.setAttribute('aria-pressed', incoming[index].querySelector('button').getAttribute('aria-pressed'));
+  });
+  main.querySelector('#interaction-detail').replaceWith(next.querySelector('#interaction-detail'));
+  syncDockContext();
 }
 
 function reveal(target) {
@@ -743,7 +931,7 @@ function reveal(target) {
 }
 
 function openFactSource(key, detail) {
-  if (assistant.open) assistant.close();
+  if (assistant.open && !dock.isDocked()) assistant.close();
   const contextual = {
     '#scenario-results': 'scenarios', '#scenario-buckets': 'scenarios',
     '#portfolio-holdings': 'portfolio', '#data-profile': 'data', '#data-setup': 'data', '#curve-context': 'curves',
@@ -791,7 +979,10 @@ function action(element) {
   if (kind === 'analysis-chart') selectChart(key, element);
   if (kind === 'edit-parameters') openSettings(element);
   if (kind === 'open-assistant') openAssistant(null, null, element);
+  if (kind === 'minimize-assistant') dock.minimize();
+  if (kind === 'restore-assistant') { syncDockContext(); dock.open(element); }
   if (kind === 'appearance') openPanel(appearance, element);
+  if (kind === 'commands') openCommands(element);
   if (kind === 'service-status') navigate('data', () => reveal(main.querySelector('#data-services')));
   if (kind === 'change-mode') void changeReportMode(key);
   if (kind === 'new-dialogue') newDialogue();
@@ -799,8 +990,9 @@ function action(element) {
   if (kind === 'prepare-summary') void ask(assistant.querySelector('#explain-form'), true);
   if (kind === 'overview' || kind === 'research') {
     state.research = kind === 'research';
+    state.assistantFactor = null;
     navigate('analysis');
-    const target = main.querySelector(state.research ? '.research-sheet' : '.report-sheet');
+    const target = main.querySelector('h1');
     if (target) animateContent(target);
   }
   if (kind === 'analysis-mode') {
@@ -841,8 +1033,8 @@ function action(element) {
   if (kind === 'check-mapping') void checkMapping(element.form);
   if (kind === 'pair') {
     state.pair = Number(key);
-    selectTab('interactions');
-    document.querySelector('#pair-select')?.focus({ preventScroll: true });
+    state.pairDeal = null;
+    refreshInteraction();
   }
   if (kind === 'question') {
     const form = document.querySelector('#explain-form');
@@ -851,7 +1043,7 @@ function action(element) {
   }
   if (kind === 'explain-factor') {
     const source = element.getBoundingClientRect();
-    drawer.close();
+    if (drawer.matches(':modal')) drawer.close();
     openAssistant({ key, label: element.dataset.label }, null, source);
     const form = assistant.querySelector('#explain-form');
     form.elements.question.value = 'Каков вклад выбранного компонента?';
@@ -936,6 +1128,8 @@ document.addEventListener('change', (event) => {
   if (element.type === 'file' && element.classList.contains('sr-only')) {
     const warning = element.closest('.file-field').querySelector('[data-file-warning]');
     warning.hidden = true;
+    element.removeAttribute('aria-invalid');
+    element.setAttribute('aria-describedby', element.id + '-selected');
     const file = element.files[0];
     const name = element.closest('.file-picker').querySelector('.file-name');
     name.textContent = file?.name || 'Файл не выбран';
@@ -945,13 +1139,11 @@ document.addEventListener('change', (event) => {
   if (element.id === 'factor-select') selectFactor(element.value);
   if (element.id === 'effect-select') {
     state.effect = element.value;
-    selectTab('effects');
-    document.querySelector('#effect-select')?.focus({ preventScroll: true });
+    refreshEffect();
   }
   if (element.id === 'effect-plot') {
     state.effectPlot = element.value;
-    selectTab('effects');
-    document.querySelector('#effect-plot')?.focus({ preventScroll: true });
+    refreshEffect();
   }
   if (element.id === 'scenario-date') {
     state.scenarioDay = element.value;
@@ -959,13 +1151,12 @@ document.addEventListener('change', (event) => {
   }
   if (element.id === 'pair-deal') {
     state.pairDeal = element.value;
-    selectTab('interactions');
-    document.querySelector('#pair-deal')?.focus({ preventScroll: true });
+    refreshInteraction(true);
   }
   if (element.id === 'pair-select') {
     state.pair = Number(element.value);
-    selectTab('interactions');
-    document.querySelector('#pair-select')?.focus({ preventScroll: true });
+    state.pairDeal = null;
+    refreshInteraction();
   }
   if (element.form?.id === 'compare-form') {
     applyComparison(element.form, element.id === 'metric');
@@ -1017,9 +1208,7 @@ studioScreen.addEventListener('drop', (event) => {
   const extensions = control.accept.split(',').filter((value) => value.startsWith('.'));
   const files = event.dataTransfer.files;
   if (files.length !== 1 || !extensions.some((extension) => files[0].name.toLowerCase().endsWith(extension))) {
-    const warning = picker.closest('.file-field').querySelector('[data-file-warning]');
-    warning.textContent = 'Перетащите один файл. Допустимые форматы: ' + extensions.join(', ') + '.';
-    warning.hidden = false;
+    importError(control.form, 'Перетащите один файл. Допустимые форматы — ' + extensions.join(', ') + '.');
     return;
   }
   control.files = files;
@@ -1032,7 +1221,13 @@ document.addEventListener('input', (event) => {
     const draft = Object.fromEntries(new FormData(element.form));
     state.draft = draft;
     const preview = document.querySelector('#portfolio-preview');
-    preview.innerHTML = portfolioPreview(draft, preview.querySelector('details').open);
+    const next = fragment(portfolioPreview(draft));
+    const distribution = preview.querySelector('details');
+    const summary = distribution.querySelector('summary');
+    for (const item of [...preview.children]) if (item !== distribution) item.remove();
+    distribution.before(...[...next.children].filter(item => item.tagName !== 'DETAILS'));
+    for (const item of [...distribution.children]) if (item !== summary) item.remove();
+    distribution.append(...[...next.querySelector('details').children].filter(item => item.tagName !== 'SUMMARY'));
     document.querySelector('#curve-note').textContent = portfolioCurveNote(draft.curveSource);
     const pinned = document.querySelector('#pinned-curve');
     if (pinned) pinned.hidden = draft.curveSource !== 'api';
@@ -1045,8 +1240,19 @@ document.addEventListener('input', (event) => {
   }
 });
 
+document.addEventListener('spectrum-chart-period', ({ detail: { before, after, origin } }) => {
+  const report = state.workspace?.report;
+  if (!report || !report.timeline.some((item) => item.date === before)
+    || !report.timeline.some((item) => item.date === after) || before >= after) return;
+  state.comparison = { mode: report.mode, target: report.target, scenario: report.scenario, before, after };
+  openSettings(origin);
+});
+
 assistant.addEventListener('close', () => {
-  if (!assistant.open && state.asking) stopWaiting();
+  if (!assistant.open && !dock.minimized() && state.asking) stopWaiting();
+});
+drawer.addEventListener('close', () => {
+  if (!drawer.open) delete drawer.dataset.adjacent;
 });
 
 inspector.addEventListener('close', () => {
@@ -1064,6 +1270,7 @@ document.fonts.ready.then(fitIndicators);
 window.addEventListener('hashchange', () => {
   if (location.hash === '#content') return;
   closeDialogs();
+  state.assistantFactor = null;
   state.route = routeName();
   if (state.route === 'analysis') readAnalysisLocation();
   const next = afterNavigation;

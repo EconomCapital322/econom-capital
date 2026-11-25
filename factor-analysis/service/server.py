@@ -524,6 +524,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.static("index.html", "text/html")
             mime = {"/studio.css": "text/css", "/glass.css": "text/css", "/studio.mjs": "text/javascript",
                     "/appearance.js": "text/javascript", "/motion.mjs": "text/javascript",
+                    "/assistant-dock.mjs": "text/javascript", "/command-palette.mjs": "text/javascript",
                     "/charts.mjs": "text/javascript", "/chart-interaction.mjs": "text/javascript", "/views.mjs": "text/javascript",
                     "/spectrum.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
             if path in mime:

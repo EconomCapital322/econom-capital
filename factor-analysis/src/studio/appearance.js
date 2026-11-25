@@ -5,6 +5,7 @@
   const choices = {
     theme: ['system', 'light', 'dark'], transparency: ['full', 'reduced'],
     motion: ['full', 'reduced'], sidebar: ['expanded', 'collapsed'],
+    density: ['comfortable', 'compact'], optics: ['standard', 'enhanced'],
   };
   const system = {
     dark: matchMedia('(prefers-color-scheme: dark)'),
@@ -26,6 +27,8 @@
     root.dataset.transparency = system.reducedTransparency.matches ? 'reduced' : preferences.transparency;
     root.dataset.motion = system.reducedMotion.matches ? 'reduced' : preferences.motion;
     root.dataset.sidebar = preferences.sidebar;
+    root.dataset.density = preferences.density;
+    root.dataset.optics = preferences.optics;
     themeColor.content = theme === 'dark' ? '#14151c' : '#f3f4f8';
   }
 
@@ -49,12 +52,15 @@
       syncControls();
       try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { /* This tab keeps the preference. */ }
     }
-    for (const control of controls) control.addEventListener('change', () => {
-      const key = control.dataset.preference;
-      if (!choices[key].includes(control.value)) return;
-      preferences[key] = control.value;
+    function select(key, value) {
+      if (!choices[key]?.includes(value)) return;
+      preferences[key] = value;
       save();
+    }
+    for (const control of controls) control.addEventListener('change', () => {
+      select(control.dataset.preference, control.value);
     });
+    document.addEventListener('spectrum-appearance', ({ detail }) => select(detail.key, detail.value));
     toggle.addEventListener('click', () => {
       preferences.sidebar = preferences.sidebar === 'expanded' ? 'collapsed' : 'expanded';
       save();

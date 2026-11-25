@@ -38,10 +38,13 @@ export interface CurvePreviewPanelProps {
   graphRevision?: number
   rawPreview?: CurvePreview | null
   compact?: boolean
+  runId?: string
   onExplain?: (scenario: string) => void
+  onContext?: (scenario: string | null) => void
 }
 
-export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null, compact = false, onExplain }: CurvePreviewPanelProps): ReactElement {
+export function CurvePreviewPanel({ preview, calculation, error, message, graphRevision = 0, rawPreview = null,
+  compact = false, runId, onExplain, onContext }: CurvePreviewPanelProps): ReactElement {
   const [viewState, setViewState] = useState<{ view: 'graph' | 'table'; revision: number }>({ view: 'graph', revision: graphRevision })
   const view = viewState.revision === graphRevision ? viewState.view : 'graph'
   const setView = (view: 'graph' | 'table') => setViewState({ view, revision: graphRevision })
@@ -52,6 +55,7 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
   const [selectedCurves, setSelectedCurves] = useState<string[]>(['base'])
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [focusedPoint, setFocusedPoint] = useState<number | null>(null)
+  const [pin, setPin] = useState<{ scope: string; label: string } | null>(null)
   const [legendExpanded, setLegendExpanded] = useState(true)
   const plotRef = useRef<HTMLDivElement | null>(null)
   const [plotSize, setPlotSize] = useState({ width: 1319, height: 263 })
@@ -68,6 +72,14 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
     return () => observer.disconnect()
   }, [view, preview, error, selectedCurves.length, compact])
   const tooltipId = `${panelId}-tooltip`
+  const result = calculation?.reportDate === preview?.reportDate ? calculation : null
+  const activeScenario = selectedCurves.findLast(code => code !== 'base' && result?.stressCurves.some(curve => curve.code === code)) ?? 'base'
+  const scenarioCode = activeScenario.startsWith('short-') ? activeScenario.replace('short-', 'short_rate_') : activeScenario.replace('-', '_')
+  const pinScope = `${scope}:${runId ?? ''}:${showSource}`
+
+  useEffect(() => {
+    onContext?.(result && !showSource && !error && !message ? scenarioCode : null)
+  }, [onContext, result, scenarioCode, error, message, showSource])
 
   function toggleScenario(code: string) {
     setSelectedCurves(current => current.includes(code)
@@ -97,8 +109,6 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
     </section>
   )
 
-  // Only a result belonging to this date can appear beside the source curve.
-  const result = calculation?.reportDate === preview.reportDate ? calculation : null
   const exportAvailable = canExportCurveCalculation(result)
   const basePoints = showSource ? rawPreview.points : result?.baseCurve ?? preview.points
   const curves = [
@@ -111,11 +121,10 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
     }))),
   ]
   const visibleCurves = showSource ? curves : curves.filter(curve => selectedCurves.includes(curve.code))
-  const activeScenario = selectedCurves.filter(code => code !== 'base' && visibleCurves.some(curve => curve.code === code)).at(-1) ?? 'base'
-  const scenarioCode = activeScenario.startsWith('short-') ? activeScenario.replace('short-', 'short_rate_') : activeScenario.replace('-', '_')
   const legendOrder = ['base', 'parallel-up', 'parallel-down', 'short-up', 'short-down', 'steepener', 'flattener']
   const legendCurves = [...curves].sort((a, b) => legendOrder.indexOf(a.code) - legendOrder.indexOf(b.code))
-  const activePoint = hoveredPoint ?? focusedPoint
+  const pinned = pin?.scope === pinScope ? basePoints.findIndex((point) => point.label === pin.label) : -1
+  const activePoint = pinned >= 0 ? pinned : hoveredPoint ?? focusedPoint
   const selectedPoint = activePoint !== null ? basePoints[activePoint] : null
   const dateLabel = new Date(`${preview.reportDate}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', }).replace(' г.', '')
   const heading = showSource ? 'Исходные ставки' : result ? 'Базовая и стрессовые кривые' : 'Базовая кривая'
@@ -144,6 +153,11 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
     ? tick.toExponential(1)
     : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(tick)
   const tickStride = compact ? Math.max(1, Math.ceil(basePoints.length * 37 / (W - left - right))) : 1
+
+  function togglePin(i: number) {
+    setPin(pinned === i ? null : { scope: pinScope, label: basePoints[i].label })
+    setFocusedPoint(i)
+  }
 
   return (
     <section className={`results-panel results-panel--${view}`} aria-label={heading}>
@@ -198,24 +212,27 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
               {basePoints.map((point, i) => (
                 <rect key={point.label} className="curve-chart__hit" x={x(i) - (W - left - right) / Math.max(1, basePoints.length - 1) / 2} y={top} width={(W - left - right) / Math.max(1, basePoints.length - 1)} height={H - top - bottom} fill="transparent" role="button" tabIndex={i === (focusedPoint ?? 0) ? 0 : -1}
                   aria-label={`${point.label}, тенор ${point.tenorYears} года. ${visibleCurves.map(curve => `${curve.name}: ${formatRate(curve.points[i].rate)}%`).join('; ')}`}
-                  aria-describedby={activePoint === i ? tooltipId : undefined}
+                  aria-describedby={activePoint === i ? tooltipId : undefined} aria-pressed={pinned === i}
+                  onClick={() => togglePin(i)}
                   onMouseEnter={() => { setFocusedPoint(null); setHoveredPoint(i) }} onMouseLeave={() => setHoveredPoint(null)}
                   onFocus={() => { setHoveredPoint(null); setFocusedPoint(i) }} onBlur={() => setFocusedPoint(null)}
                   onKeyDown={event => {
-                    if (event.key === 'Escape') { setHoveredPoint(null); setFocusedPoint(null) }
+                    if (event.key === 'Escape') { setHoveredPoint(null); setFocusedPoint(null); setPin(null) }
                     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
                       event.preventDefault()
                       const next = event.key === 'Home' ? 0 : event.key === 'End' ? basePoints.length - 1 : Math.max(0, Math.min(basePoints.length - 1, i + (event.key === 'ArrowRight' ? 1 : -1)))
                       const target = event.currentTarget.parentElement?.querySelectorAll<SVGRectElement>('.curve-chart__hit')[next]
+                      if (pinned >= 0) setPin({ scope: pinScope, label: basePoints[next].label })
                       target?.focus()
                     }
-                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setFocusedPoint(i) }
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); togglePin(i) }
                   }} />
               ))}
             </svg>
             {selectedPoint && activePoint !== null && <div className={`curve-chart__tooltip ${activePoint > basePoints.length / 2 ? 'curve-chart__tooltip--left' : ''}`} id={tooltipId} role="tooltip" style={{ left: `${x(activePoint) / W * 100}%` }}>
               <strong>{selectedPoint.label} · тенор {new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(selectedPoint.tenorYears)} года</strong>
               {visibleCurves.map(curve => <div key={curve.code}><span>{curve.name}</span><b>{formatRate(curve.points[activePoint].rate)}%</b></div>)}
+              {pinned >= 0 && <small>Закреплено · Esc для сброса</small>}
             </div>}
             </div>}
             <p className="curve-chart__x">Срок бакета</p>
