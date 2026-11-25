@@ -258,6 +258,7 @@ export function transitionChart(element, update) {
     if (viewTransition !== transition) return;
     viewTransition = null;
   };
+  transition.ready.catch(() => {});
   transition.updateCallbackDone.catch(() => {});
   transition.finished.then(clear, clear);
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
-import { lineChart, numberMarkup, waterfall } from '../src/studio/charts.mjs';
+import { gapAmount, lineChart, numberMarkup, waterfall } from '../src/studio/charts.mjs';
 import { dateCountLabel } from '../src/studio/views.mjs';
 
 const read = (file) => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
@@ -17,6 +17,15 @@ const inputDeal = {
 };
 const flows = Cashflows.fromCsv(read('data/integration/deal_summary.csv'), read('data/integration/cashflows.csv'));
 const curves = Scenarios.fromFile(read('data/integration/curves.csv'), 'curves.csv');
+
+test('sub-cent differences keep the exact decimal and other units keep their formatting', () => {
+  const amount = gapAmount(-3.88498852e-27, ' ₽', '-3.88498852000433211007E-27');
+  assert.equal(amount.label, '< 0,01 ₽');
+  assert.equal(amount.hint, 'Точное значение -3,88498852000433211007E-27 ₽');
+  assert.equal(gapAmount(0, ' ₽').label, '0,00 ₽');
+  assert.equal(gapAmount(.01, ' ₽').belowCent, false);
+  assert.equal(gapAmount(.003, ' балл.').belowCent, false);
+});
 
 test('calculator export uses the normalized v1 columns and the synthetic benchmark', () => {
   const deals = Portfolio.generate({ ...Portfolio.defaults, count: 30, valuationDate: demoDate }).deals;

@@ -177,6 +177,7 @@ p.note + p.note { margin-top: 6px; }
 .result-status.caution::before, .result-status.insufficient::before { background: #9a7952; }
 .difference { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 3px 7px; color: var(--muted-strong); font-size: 12px; }
 .difference strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.gap-value { white-space: nowrap; }
 .attribution { padding: 20px var(--sheet-inset) 0; }
 .chart-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
 .chart-toggle.button { color: var(--accent-dark); box-shadow: none; }
@@ -401,20 +402,40 @@ p.note + p.note { margin-top: 6px; }
 .portfolio-plan span { color: var(--muted-strong); font-size: 13px; font-weight: 560; }
 .portfolio-plan strong { display: block; font-variant-numeric: tabular-nums; font-size: 43px; letter-spacing: -.06em; color: var(--accent-dark); line-height: 1.18; }
 .portfolio-preview { padding: 17px 20px 8px; border-radius: 13px; background: var(--report-tint); }
-.portfolio-preview .details { margin-top: var(--s5); }
+.portfolio-preview .details { margin: 10px 0 0; }
 .portfolio-preview .details > summary { font-size: 13px; }
-.portfolio-preview .details[open] > .distribution-list { animation: none; }
-.distribution-list { display: grid; gap: 10px; margin-top: 13px; }
+.portfolio-preview .details[open] > :is(.distribution-list, .portfolio-date-list) { animation: none; }
+.portfolio-preview-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 9px; }
+.portfolio-preview-figures button {
+  display: grid; align-content: space-between; gap: 4px; min-width: 0; min-height: 58px; padding: 5px 7px;
+  border: 1px solid var(--rule); border-radius: 7px; background: var(--surface); text-align: start;
+}
+.portfolio-preview-figures span { font-size: 11px; line-height: 1.25; }
+.portfolio-preview-figures b { font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.portfolio-preview-figures button:is(:hover, :focus-visible) { border-color: var(--accent-line); background: var(--accent-soft); }
+.distribution-list { display: grid; gap: 9px; margin-top: 4px; }
 .distribution h3 { font-size: 12px; margin-bottom: 5px; }
-.distribution-track { display: flex; overflow: hidden; border-radius: 3px; height: 7px; background: var(--rule); }
+.distribution-track { display: flex; overflow: hidden; border-radius: 3px; height: 8px; background: var(--rule); }
 .distribution-track > i { height: 100%; flex: none; }
 .series-0 { background: var(--accent); }
 .series-1 { background: #918ae9; }
 .series-2 { background: #c1bbf1; }
-.distribution ul { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 9px; margin: 4px 0 0; padding: 0; list-style: none; }
-.distribution li { display: flex; gap: 4px; align-items: center; color: var(--muted-strong); font-size: 11px; }
-.distribution li i { width: 6px; height: 6px; flex: none; border-radius: 2px; }
+.distribution ul { display: flex; flex-wrap: wrap; align-items: center; gap: 0 3px; margin: 3px 0 0; padding: 0; list-style: none; }
+.distribution-key {
+  display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 4px; border: 0; border-radius: 5px;
+  color: var(--muted-strong); background: none; font-size: 12px; text-align: start;
+}
+.distribution-key:is(:hover, :focus-visible) { color: var(--ink); background: var(--accent-soft); }
+.distribution-key i { width: 6px; height: 6px; flex: none; border-radius: 2px; }
 .distribution b { color: var(--ink); font-weight: 645; }
+.distribution:has([data-segment="0"]:is(:hover, :focus-visible)) .distribution-track i:not(.series-0),
+.distribution:has([data-segment="1"]:is(:hover, :focus-visible)) .distribution-track i:not(.series-1),
+.distribution:has([data-segment="2"]:is(:hover, :focus-visible)) .distribution-track i:not(.series-2) { opacity: .38; }
+.portfolio-calendar summary span { margin-inline-start: auto; color: var(--muted-strong); font-size: 11px; }
+.portfolio-date-list ol { margin: 0 0 8px; padding: 0; list-style: none; }
+.portfolio-date-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  padding: 5px 0; border-bottom: 1px solid var(--rule); font-size: 12px; font-variant-numeric: tabular-nums; }
+.portfolio-date-list li span { color: var(--muted-strong); }
 .integration-progress { margin: var(--s4) 0; padding: 13px var(--s4); border: 1px solid var(--rule); border-radius: var(--control); background: var(--surface); }
 .portfolio-failure { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: var(--s4) 0; }
 .portfolio-failure p { margin: 0; overflow-wrap: anywhere; }

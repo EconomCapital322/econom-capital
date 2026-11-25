@@ -70,6 +70,13 @@ def html_report(report, ai):
             return '—'
         return f'{Decimal(str(value)):z,.{precision}f}'.replace(',', '\xa0').replace('.', ',')
 
+    def factor_value(key, value):
+        if key in ('reconciliation', 'residual', 'numericalGap') and value is not None and report.get('unit') in ('₽', 'RUB'):
+            amount = Decimal(str(value))
+            if 0 < abs(amount) < Decimal('0.01'):
+                return f'{value} ({report["unit"]})'
+        return fmt(value)
+
     labels = report.get('labels', {})
     target = labels.get(report['target'], report['target'])
     state = {'verified': 'Расчёт проверен', 'stable': 'Модельное объяснение устойчиво',
@@ -89,7 +96,7 @@ def html_report(report, ai):
         ('Статус', state.get(report.get('status'), report.get('status'))), ('Версия расчёта', report.get('analysisId')),
         ('Общие / новые / выбывшие наблюдения', f"{report['matched']} / {report.get('added', 0)} / {report.get('removed', 0)}"),
     ]), '<h2>Факторное разложение</h2>', html_table(['Компонент', 'Значение', '10-й процентиль', '90-й процентиль'],
-        [(label, fmt(value), fmt(low), fmt(high)) for _, label, value, low, high in factor_rows(report)])]
+        [(label, factor_value(key, value), fmt(low), fmt(high)) for key, label, value, low, high in factor_rows(report)])]
     if detail := report.get('cashDetails'):
         blocks.extend(['<h2>Детализация денежных потоков</h2>',
                        f'<p>Проверено договорных изменений для {detail["covered"]} из {detail["common"]} общих сделок.</p>',
