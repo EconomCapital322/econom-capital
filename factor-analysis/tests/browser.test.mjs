@@ -243,6 +243,14 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('heading', { name: 'NPV базы', exact: true }).waitFor();
     await page.getByText('Сверено с калькулятором', { exact: true }).waitFor({ timeout: 40_000 });
     await page.getByRole('group', { name: /^Водопад изменения показателя/ }).waitFor();
+    const startBar = page.locator('#bridge-chart [data-key="start"]:visible');
+    const [visibleStart, exactStart] = await startBar.evaluate(bar => [
+      [...bar.querySelectorAll('text')].map(text => text.textContent).join(' '),
+      bar.querySelector('desc').textContent,
+    ]);
+    const startButton = page.getByRole('button', { name: visibleStart, exact: true });
+    assert.equal(await startButton.count(), 1);
+    assert.equal(await startButton.evaluate((bar, exact) => bar.querySelector('desc').textContent === exact, exactStart), true);
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -305,6 +313,12 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.mouse.move(handle.x + handle.width / 2 + 30, handle.y + handle.height / 2, { steps: 4 });
     await page.mouse.up();
     assert.ok(Number(await grip.getAttribute('aria-valuenow')) < startWidth + 24);
+    await page.setViewportSize({ width: 1180, height: 780 });
+    await page.locator('#bridge-chart .chart-waterfall-compact').waitFor();
+    assert.equal(await page.locator('#bridge-chart .chart-waterfall').isVisible(), false);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.locator('#bridge-chart .chart-waterfall').waitFor();
+    await page.setViewportSize({ width: 1440, height: 900 });
     await assistant.locator('#question').fill('Черновик вопроса');
     await assistant.getByRole('button', { name: 'Свернуть помощника' }).click();
     await assistant.waitFor({ state: 'hidden' });
@@ -577,6 +591,21 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('button', { name: 'Таблица CSV', exact: true }).click();
     assert.equal(await sources.getAttribute('data-identity'), 'retained');
     assert.equal(await sources.evaluate(details => details.open), true);
+    const mapping = page.locator('#data-setup');
+    await mapping.locator(':scope > summary').click();
+    const features = mapping.locator('.mapping-step details');
+    await features.locator('summary').click();
+    const configured = mapping.getByLabel('Целевой показатель', { exact: true });
+    const anotherTarget = await configured.locator('option').evaluateAll(items =>
+      items.find(item => item.value && !item.selected).value);
+    const staged = page.getByLabel('Файл истории');
+    await staged.setInputFiles({ name: 'selected.csv', mimeType: 'text/csv', buffer: Buffer.from('date,value\n2026-10-30,1') });
+    await configured.focus();
+    await configured.selectOption(anotherTarget);
+    assert.equal(await configured.evaluate(select => select === document.activeElement), true);
+    assert.equal(await staged.evaluate(input => input.files[0].name), 'selected.csv');
+    assert.equal(await sources.evaluate(details => details.open), true);
+    assert.equal(await features.evaluate(details => details.open), true);
     const example = await (await page.request.get(origin + '/api/example.csv')).text();
     const untrusted = '<b data-column-name="test">Длинное пользовательское название укладывается на мобильном экране</b>';
     const quote = (value) => '"' + value.replaceAll('"', '""') + '"';
@@ -639,6 +668,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('heading', { name: 'Совместное влияние факторов' }).waitFor();
     const matrix = page.getByRole('table', { name: 'Тепловая карта попарных взаимодействий' });
     const newPair = matrix.locator('.heat-cell[aria-pressed="false"]').first();
+    assert.ok((await newPair.getAttribute('aria-label')).startsWith(await newPair.textContent() + ' · '));
     const pairKey = await newPair.getAttribute('data-key');
     await newPair.click();
     assert.equal(await page.getByLabel('Пара факторов').inputValue(), pairKey);
@@ -985,7 +1015,12 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     assert.equal(failure.state, 'failed');
     assert.match(failure.message, /стандартными/);
     assert.equal((await workspace()).id, old.id);
-    await page.getByRole('button', { name: 'История', exact: true }).click();
+    const runHistory = page.getByRole('button', { name: 'История', exact: true });
+    assert.equal(await runHistory.getAttribute('aria-controls'), null);
+    await runHistory.click();
+    const controlledPanel = await runHistory.getAttribute('aria-controls');
+    assert.ok(controlledPanel);
+    assert.equal(await page.locator('.run-history__panel').getAttribute('id'), controlledPanel);
     await page.getByRole('button', { name: /Стандартные · Автоматический/ }).click();
     await use.waitFor();
     assert.ok(page.url().endsWith(upstream.original));

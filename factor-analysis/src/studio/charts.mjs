@@ -3,6 +3,7 @@ const exactFormat = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, m
 const scaleFormat = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 });
 const smallFormat = new Intl.NumberFormat('ru-RU', { notation: 'scientific', maximumFractionDigits: 2 });
 const unsignedZero = (value) => value === 0 ? 0 : value;
+let nextPlot = 0;
 
 export function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) =>
@@ -65,12 +66,15 @@ export function waterfall({ start, end, bars, active, unit }) {
   const barState = (entry) => entry.total ? 'total' : entry.value === 0 || ['residual', 'reconciliation'].includes(entry.key) ? 'residual' : entry.value > 0 ? 'up' : 'down';
   const figureText = (entry) => entry.key === 'reconciliation' && entry.value !== 0 && Math.abs(entry.value) < .01
     ? '<0,01' : entry.total ? short(entry.value) : displayNumber(entry.value, '', 'change');
-  const barControl = (entry) => {
+  const waterfallId = ++nextPlot;
+  const barControl = (entry, id) => {
     const figure = entry.total ? exact(entry.value, unit) : signed(entry.value, unit);
     return `<g tabindex="0" role="button" aria-pressed="${active === entry.key}" data-key="${esc(entry.key)}" data-action="factor"
-      data-tip-title="${esc(entry.label)}" data-tip-value="${esc(figure)}" aria-label="${esc(entry.label)} ${esc(exact(entry.value, unit))}">`;
+      data-tip-title="${esc(entry.label)}" data-tip-value="${esc(figure)}" aria-labelledby="${id}-label ${id}-value" aria-describedby="${id}-exact">
+      <desc id="${id}-exact">${esc(entry.label)} · ${esc(figure)}</desc>`;
   };
   const drawings = values.map((entry, i) => {
+    const id = `waterfall-${waterfallId}-wide-${i}`;
     const x = l + (i + 0.5) * band;
     const top = y(entry.total ? Math.max(entry.value, 0) : Math.max(entry.from, entry.to));
     const bottom = y(entry.total ? Math.min(entry.value, 0) : Math.min(entry.from, entry.to));
@@ -78,11 +82,11 @@ export function waterfall({ start, end, bars, active, unit }) {
     const tail = i < values.length - 1
       ? `<line class="connector" x1="${x + barWidth / 2}" x2="${x + band - barWidth / 2}" y1="${y(entry.total ? entry.value : entry.to)}" y2="${y(entry.total ? entry.value : entry.to)}"/>`
       : '';
-    return `${tail}${barControl(entry)}
+    return `${tail}${barControl(entry, id)}
       <rect class="bar-hit" x="${x - band / 2 + 2}" y="${t - 18}" width="${band - 4}" height="${b - t + 52}" rx="4"/>
       <rect class="bar-${barState(entry)} waterfall-bar" data-morph-key="${esc(entry.key)}" x="${x - barWidth / 2}" y="${top}" width="${barWidth}" height="${Math.max(1.5, bottom - top)}" rx="3"/>
-      <text class="value" x="${x}" y="${Math.max(17, top - 8)}" text-anchor="middle">${esc(figureText(entry))}</text>
-      <text class="group-label" x="${x}" y="${b + 20}" text-anchor="middle">${esc(label[0])}${label[1] ? `<tspan x="${x}" dy="13">${esc(label[1])}</tspan>` : ''}</text></g>`;
+      <text id="${id}-label" class="group-label" x="${x}" y="${b + 20}" text-anchor="middle">${esc(label[0])}${label[1] ? ` <tspan x="${x}" dy="13">${esc(label[1])}</tspan>` : ''}</text>
+      <text id="${id}-value" class="value" x="${x}" y="${Math.max(17, top - 8)}" text-anchor="middle">${esc(figureText(entry))}</text></g>`;
   }).join('');
   const mobileWidth = 380, left = 130, right = 305, top = 27, rowHeight = 34;
   const plotEnd = top + values.length * rowHeight;
@@ -93,14 +97,15 @@ export function waterfall({ start, end, bars, active, unit }) {
   const compactAxis = compactTicks.map(([value, anchor]) =>
     `<text class="waterfall-axis-label" x="${xAt(value)}" y="${plotEnd + 2}" text-anchor="${anchor}">${esc(short(value, unit))}</text>`).join('');
   const mobile = values.map((entry, index) => {
+    const id = `waterfall-${waterfallId}-compact-${index}`;
     const y = top + index * rowHeight;
     const x1 = xAt(entry.total ? 0 : entry.from), x2 = xAt(entry.total ? entry.value : entry.to);
     const label = wrap(entry.chartLabel ?? entry.label, 17);
     return `${index === values.length - 1 ? '' : `<line class="connector" x1="${x2}" x2="${x2}" y1="${y + 6}" y2="${y + rowHeight - 6}"/>`}
-      ${barControl(entry)}<rect class="bar-hit" x="1" y="${y - 16}" width="378" height="32" rx="4"/>
-      <text class="group-label" x="5" y="${label[1] ? y - 3 : y + 4}">${esc(label[0])}${label[1] ? `<tspan x="5" dy="12">${esc(label[1])}</tspan>` : ''}</text>
+      ${barControl(entry, id)}<rect class="bar-hit" x="1" y="${y - 16}" width="378" height="32" rx="4"/>
+      <text id="${id}-label" class="group-label" x="5" y="${label[1] ? y - 3 : y + 4}">${esc(label[0])}${label[1] ? ` <tspan x="5" dy="12">${esc(label[1])}</tspan>` : ''}</text>
       <rect class="bar-${barState(entry)} waterfall-bar" data-morph-key="${esc(entry.key)}" x="${Math.min(x1, x2)}" y="${y - 6}" width="${Math.max(1.5, Math.abs(x1 - x2))}" height="12" rx="3"/>
-      <text class="value" x="375" y="${y + 4}" text-anchor="end">${esc(figureText(entry))}</text></g>`;
+      <text id="${id}-value" class="value" x="375" y="${y + 4}" text-anchor="end">${esc(figureText(entry))}</text></g>`;
   }).join('');
   const aria = 'Водопад изменения показателя. Выберите вклад, чтобы открыть детали';
   return `<div class="waterfall-frame"><svg class="chart chart-waterfall" data-chart-shape="wide" role="group" aria-label="${aria}" viewBox="0 0 ${w} ${h}">${ticks}${drawings}</svg>
@@ -151,7 +156,6 @@ export function divergingBars(items, { active, unit = '' } = {}) {
   </div>`;
 }
 
-let nextPlot = 0;
 const chartIcon = (id) => `<svg class="icon" aria-hidden="true"><use href="#icon-${id}"/></svg>`;
 export const expandChart = (target = '') => `<button type="button" class="icon-button chart-expand" data-chart-command="expand"
   ${target ? `data-chart-target="${target}"` : ''} aria-label="Развернуть график" title="Развернуть график">${chartIcon('expand')}</button>`;

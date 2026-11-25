@@ -658,8 +658,7 @@ async function checkMapping(form) {
     state.preview = preview;
     state.mapping = { ...body, before: preview.before, after: preview.after };
     notice(preview.message);
-    render();
-    document.querySelector('[data-action="check-mapping"]')?.focus({ preventScroll: true });
+    refreshMapping();
   } catch (error) {
     if (!request.signal.aborted) notice(error.message, 'error');
   }
@@ -882,6 +881,31 @@ function fragment(html) {
   const view = document.createElement('template');
   view.innerHTML = html;
   return view.content;
+}
+
+function refreshMapping() {
+  const next = fragment(dataPage(state));
+  const setup = main.querySelector('#data-setup');
+  const updated = next.querySelector('#data-setup');
+  setup.querySelector('.panel-head').replaceWith(updated.querySelector('.panel-head'));
+  main.querySelector('#data-quality .quality-grid').replaceWith(next.querySelector('.quality-grid'));
+  for (const name of ['before', 'after']) {
+    const control = setup.querySelector('[name="' + name + '"]');
+    const replacement = updated.querySelector('[name="' + name + '"]');
+    const value = replacement.value;
+    control.replaceChildren(...replacement.children);
+    control.value = value;
+  }
+  const features = setup.querySelector('.feature-list');
+  const focused = features.contains(document.activeElement) ? document.activeElement.value : null;
+  features.replaceChildren(...updated.querySelector('.feature-list').children);
+  if (state.preview) features.closest('details').open = true;
+  if (focused !== null) {
+    const control = [...features.querySelectorAll('input')].find(input => input.value === focused);
+    (control ?? features.closest('details').querySelector('summary')).focus({ preventScroll: true });
+  }
+  const buttons = updated.querySelectorAll('button');
+  setup.querySelectorAll('button').forEach((button, index) => { button.disabled = buttons[index].disabled; });
 }
 
 function refreshScenarios(focus) {
@@ -1222,8 +1246,7 @@ document.addEventListener('change', (event) => {
         state.mapping.before = '';
         state.mapping.after = '';
       }
-      render();
-      document.querySelector('[data-column="' + CSS.escape(element.dataset.column) + '"]')?.focus({ preventScroll: true });
+      refreshMapping();
     } else {
       document.querySelector('#mapping-verified').hidden = true;
     }

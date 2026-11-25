@@ -111,7 +111,7 @@ export function RunHistory({ reportDate, selectedRunId, onSelect, open, onOpenCh
     <div className="run-history" ref={rootRef} onBlur={event => {
       if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) onOpenChange(false)
     }}>
-      <button className="run-history__trigger" type="button" ref={triggerRef} aria-expanded={open} aria-controls={id} aria-haspopup="dialog" disabled={!isReportDate(reportDate)} onClick={() => onOpenChange(!open)}>
+      <button className="run-history__trigger" type="button" ref={triggerRef} aria-expanded={open} aria-controls={open ? id : undefined} aria-haspopup="dialog" disabled={!isReportDate(reportDate)} onClick={() => onOpenChange(!open)}>
         <span className="run-history__icon" style={{ maskImage: `url("${clockHistoryIcon}")` }} aria-hidden="true" />
         <span className="run-history__label">История</span>
         <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><path d="m3 6 5 5 5-5" /></svg>

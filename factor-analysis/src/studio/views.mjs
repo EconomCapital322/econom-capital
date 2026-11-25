@@ -368,7 +368,7 @@ export function analysisPage(state) {
           <div class="period-end"><dt>На конец периода</dt><dd title="${fmt(r.end, unit)}">${icon('arrow')}${numberMarkup(numberKey + ':end', r.end, unit)}</dd></div>
         </dl>
       </section>
-      <div class="result-check" aria-label="Проверка результата">${statusBadge(r.status)}
+      <div class="result-check" role="group" aria-label="Проверка результата">${statusBadge(r.status)}
         <span class="difference" title="${difference.hint}"><span>${difference.label}</span><strong>${difference.value}</strong></span></div>
       <section class="attribution" id="waterfall">
         <header class="chart-head"><h2>Вклады факторов</h2>
@@ -440,9 +440,11 @@ function interactionPanel(state, work, unit) {
     const index = r.interactions.findIndex((item) => (item.a === a && item.b === b) || (item.a === b && item.b === a));
     if (index < 0) return '<td aria-label="Один признак">·</td>';
     const item = r.interactions[index];
+    const amount = short(item.strength);
+    const name = pairName(item);
     return `<td class="${axesSelected.has(a) || axesSelected.has(b) ? 'heat-axis-selected' : ''}" style="--heat-level:${(7 + 43 * Math.sqrt(item.strength / max)).toFixed(1)}%"><button class="heat-cell"
       type="button" data-action="pair" data-key="${index}" aria-pressed="${index === pairIndex}"
-      aria-label="${esc(pairName(item))} · ${fmt(item.strength, unit)}" title="${esc(pairName(item))} · ${fmt(item.strength, unit)}">${short(item.strength)}</button></td>`;
+      aria-label="${esc(amount)} · ${esc(name)}" title="${esc(name)} · ${fmt(item.strength, unit)}">${esc(amount)}</button></td>`;
   };
   const rangeLabel = (range) => Array.isArray(range) ? range.map(n).join(' – ') : String(range);
   const profile = selected.profile ?? [];
