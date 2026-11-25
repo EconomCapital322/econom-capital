@@ -204,11 +204,23 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByLabel('Число отчётных дат').fill('8');
     await page.getByLabel('Новых сделок в месяц').fill('8');
     assert.equal(await page.locator('.portfolio-plan strong').textContent(), '136');
-    await page.getByText('Распределения', { exact: true }).click();
-    await page.getByText('Дополнительные параметры сделок', { exact: true }).click();
+    const preview = page.locator('#portfolio-preview');
+    await preview.getByRole('button', { name: /^Обязательства/ }).click();
+    assert.equal(await page.getByLabel('Доля обязательств, %').evaluate(input => document.activeElement === input), true);
     await page.getByLabel('Доля обязательств, %').fill('25');
-    await page.locator('#portfolio-preview').getByText('25%', { exact: true }).waitFor();
+    await preview.getByText('25%', { exact: true }).waitFor();
     await page.getByLabel('Доля обязательств, %').fill('0');
+    await preview.getByRole('button', { name: /^Плавающая/ }).click();
+    assert.equal(await page.getByLabel('Плавающая ставка, %').evaluate(input => document.activeElement === input), true);
+    const calendar = preview.locator('.portfolio-calendar');
+    await calendar.locator('summary').click();
+    assert.equal(await calendar.locator('time').count(), 8);
+    await page.getByLabel('Новых сделок в месяц').fill('9');
+    assert.ok(await calendar.evaluate(details => details.open));
+    assert.equal(await calendar.locator('li').last().locator('b').textContent(), '9');
+    await page.getByLabel('Новых сделок в месяц').fill('8');
+    const previewDates = await calendar.locator('time').evaluateAll(nodes => nodes.map(node => node.dateTime));
+    await calendar.locator('summary').click();
     await page.getByText('Дополнительные параметры сделок', { exact: true }).click();
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -219,6 +231,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.locator('#holding-overview').getByText(/^Активы ·/).waitFor();
     const holdings = page.locator('#portfolio-holdings');
     const holdingDate = holdings.locator('#portfolio-date');
+    assert.deepEqual(await holdingDate.locator('option').evaluateAll(options => options.map(option => option.value)), previewDates);
     const latestDate = await holdingDate.inputValue();
     const earliestDate = await holdingDate.locator('option').first().getAttribute('value');
     const distributions = holdings.getByText('Структура по ставкам, платежам и срокам', { exact: true });
@@ -338,10 +351,20 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.keyboard.press('Escape');
     await drawer.waitFor({ state: 'hidden' });
     assert.equal(await assistant.isVisible(), true, 'Follow a verified source and keep the assistant visible.');
-    await page.getByRole('button', { name: 'К вкладам', exact: true }).click();
+    const modes = page.getByRole('group', { name: 'Вид графика', exact: true });
+    const viewWaterfall = modes.getByRole('button', { name: 'Водопад', exact: true });
+    const viewContributions = modes.getByRole('button', { name: 'Вклады', exact: true });
+    await viewContributions.click();
     await page.getByRole('group', { name: 'Вклады факторов относительно нуля' }).waitFor();
-    await page.getByRole('button', { name: 'Водопад', exact: true }).click();
+    assert.equal(await viewContributions.getAttribute('aria-pressed'), 'true');
+    await modes.evaluate(group => {
+      const [waterfall, contributions] = group.querySelectorAll('button');
+      waterfall.click();
+      contributions.click();
+      waterfall.click();
+    });
     await page.getByRole('group', { name: /^Водопад изменения показателя/ }).waitFor();
+    assert.equal(await viewWaterfall.getAttribute('aria-pressed'), 'true');
     await record(page, '01-waterfall', '#waterfall');
     await cash.click();
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
@@ -349,7 +372,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await drawer.waitFor({ state: 'hidden' });
     await assistant.getByRole('button', { name: 'Закрыть помощника' }).click();
     await assistant.waitFor({ state: 'hidden' });
-    await page.getByRole('button', { name: 'К вкладам', exact: true }).click();
+    await viewContributions.click();
     await openResearch.click();
     await page.getByRole('img', { name: 'История выбранного показателя' }).waitFor();
     assert.match(page.url(), /#analysis\?view=details&tab=timeline$/);
@@ -357,10 +380,17 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await openResearch.waitFor();
     await page.goForward();
     await page.getByRole('img', { name: 'История выбранного показателя' }).waitFor();
+    const trend = page.locator('#tab-body [data-chart-figure]');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => document.fonts.ready);
+    assert.ok(await trend.locator('.line-y-tick').evaluateAll(ticks => ticks.every(tick => tick.getBBox().x >= 0)));
+    for (const tick of [trend.locator('[data-axis-x]').first(), trend.locator('[data-axis-x]').last()]) {
+      assert.ok(await tick.isVisible(), 'Both ends of the time axis stay visible on mobile');
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.locator('.tab-body .chart-scroll').focus();
     await page.keyboard.press('ArrowRight');
     assert.match(await page.locator('[data-chart-announcement]').textContent(), /₽/);
-    const trend = page.locator('#tab-body [data-chart-figure]');
     await page.keyboard.press('Enter');
     await page.locator('.chart-tooltip').getByText('Закреплено · Esc для сброса').waitFor();
     await trend.getByRole('button', { name: 'Увеличить масштаб' }).click();

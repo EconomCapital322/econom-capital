@@ -17,6 +17,16 @@ export const short = (value, unit = '') => Number.isFinite(value)
 export const signed = (value, unit = '') => (value > 0 ? '+' : '') + exact(value, unit);
 export const tone = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : '';
 export const day = (iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso ?? '') ? iso.split('-').reverse().join('.') : '';
+
+export function gapAmount(value, unit, decimal = value) {
+  const belowCent = ['₽', 'RUB'].includes(unit.trim()) && Math.abs(value) > 0 && Math.abs(value) < .01;
+  return {
+    label: belowCent ? '< 0,01' + unit : signed(value, unit),
+    hint: belowCent ? 'Точное значение ' + String(decimal).replace('.', ',') + unit : '',
+    belowCent,
+  };
+}
+
 export function displayNumber(value, unit, format) {
   if (unit === ' ₽') unit = '\u00a0₽';
   if (format === 'signed') return signed(value, unit);
@@ -58,17 +68,16 @@ export function waterfall({ start, end, bars, active, unit }) {
   const max = high === 0 ? (min === 0 ? step : 0) : Math.ceil((high + 0.06 * span) / step) * step;
   const y = (a) => b - ((a - min) / (max - min)) * (b - t);
   const band = (w - l - r) / values.length;
-  const barWidth = Math.min(72, band * 0.66);
+  const barWidth = Math.min(66, band * 0.62);
   const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => {
     const value = min + i * step;
     return `<line class="${Math.abs(value) < step / 10 ? 'zero' : 'grid'}" x1="${l}" x2="${w - r}" y1="${y(value)}" y2="${y(value)}"/><text x="${l - 9}" y="${y(value) + 4}" text-anchor="end">${esc(short(value, unit))}</text>`;
   }).join('');
-  const barState = (entry) => entry.total ? 'total' : entry.value === 0 || ['residual', 'reconciliation'].includes(entry.key) ? 'residual' : entry.value > 0 ? 'up' : 'down';
-  const figureText = (entry) => entry.key === 'reconciliation' && entry.value !== 0 && Math.abs(entry.value) < .01
-    ? '<0,01' : entry.total ? short(entry.value) : displayNumber(entry.value, '', 'change');
+  const barState = (entry) => entry.total ? 'total' : entry.value === 0 || entry.gap ? 'residual' : entry.value > 0 ? 'up' : 'down';
+  const figureText = (entry) => entry.gap?.belowCent ? '< 0,01' : entry.total ? short(entry.value) : displayNumber(entry.value, '', 'change');
   const waterfallId = ++nextPlot;
   const barControl = (entry, id) => {
-    const figure = entry.total ? exact(entry.value, unit) : signed(entry.value, unit);
+    const figure = entry.gap?.hint || (entry.total ? exact(entry.value, unit) : signed(entry.value, unit));
     return `<g tabindex="0" role="button" aria-pressed="${active === entry.key}" data-key="${esc(entry.key)}" data-action="factor"
       data-tip-title="${esc(entry.label)}" data-tip-value="${esc(figure)}" aria-labelledby="${id}-label ${id}-value" aria-describedby="${id}-exact">
       <desc id="${id}-exact">${esc(entry.label)} · ${esc(figure)}</desc>`;
@@ -84,11 +93,12 @@ export function waterfall({ start, end, bars, active, unit }) {
       : '';
     return `${tail}${barControl(entry, id)}
       <rect class="bar-hit" x="${x - band / 2 + 2}" y="${t - 18}" width="${band - 4}" height="${b - t + 52}" rx="4"/>
-      <rect class="bar-${barState(entry)} waterfall-bar" data-morph-key="${esc(entry.key)}" x="${x - barWidth / 2}" y="${top}" width="${barWidth}" height="${Math.max(1.5, bottom - top)}" rx="3"/>
+      <rect class="bar-${barState(entry)} waterfall-bar" data-morph-key="${esc(entry.key)}" x="${x - barWidth / 2}" y="${top}" width="${barWidth}" height="${bottom - top}" rx="3"/>
+      ${bottom - top < 1 ? `<circle class="bar-${barState(entry)}" cx="${x}" cy="${top}" r="2" aria-hidden="true"/>` : ''}
       <text id="${id}-label" class="group-label" x="${x}" y="${b + 20}" text-anchor="middle">${esc(label[0])}${label[1] ? ` <tspan x="${x}" dy="13">${esc(label[1])}</tspan>` : ''}</text>
       <text id="${id}-value" class="value" x="${x}" y="${Math.max(17, top - 8)}" text-anchor="middle">${esc(figureText(entry))}</text></g>`;
   }).join('');
-  const mobileWidth = 380, left = 130, right = 305, top = 27, rowHeight = 34;
+  const mobileWidth = 400, left = 151, right = 315, top = 27, rowHeight = 34;
   const plotEnd = top + values.length * rowHeight;
   const xAt = (value) => left + (value - min) / (max - min) * (right - left);
   const zero = xAt(0);
@@ -100,19 +110,20 @@ export function waterfall({ start, end, bars, active, unit }) {
     const id = `waterfall-${waterfallId}-compact-${index}`;
     const y = top + index * rowHeight;
     const x1 = xAt(entry.total ? 0 : entry.from), x2 = xAt(entry.total ? entry.value : entry.to);
-    const label = wrap(entry.chartLabel ?? entry.label, 17);
+    const label = wrap(entry.chartLabel ?? entry.label, 15);
     return `${index === values.length - 1 ? '' : `<line class="connector" x1="${x2}" x2="${x2}" y1="${y + 6}" y2="${y + rowHeight - 6}"/>`}
-      ${barControl(entry, id)}<rect class="bar-hit" x="1" y="${y - 16}" width="378" height="32" rx="4"/>
+      ${barControl(entry, id)}<rect class="bar-hit" x="1" y="${y - 16}" width="${mobileWidth - 2}" height="32" rx="4"/>
       <text id="${id}-label" class="group-label" x="5" y="${label[1] ? y - 3 : y + 4}">${esc(label[0])}${label[1] ? ` <tspan x="5" dy="12">${esc(label[1])}</tspan>` : ''}</text>
-      <rect class="bar-${barState(entry)} waterfall-bar" data-morph-key="${esc(entry.key)}" x="${Math.min(x1, x2)}" y="${y - 6}" width="${Math.max(1.5, Math.abs(x1 - x2))}" height="12" rx="3"/>
-      <text id="${id}-value" class="value" x="375" y="${y + 4}" text-anchor="end">${esc(figureText(entry))}</text></g>`;
+      <rect class="bar-${barState(entry)} waterfall-bar" data-morph-key="${esc(entry.key)}" x="${Math.min(x1, x2)}" y="${y - 6}" width="${Math.abs(x1 - x2)}" height="12" rx="3"/>
+      ${Math.abs(x1 - x2) < 1 ? `<circle class="bar-${barState(entry)}" cx="${x2}" cy="${y}" r="2" aria-hidden="true"/>` : ''}
+      <text id="${id}-value" class="value" x="${mobileWidth - 5}" y="${y + 4}" text-anchor="end">${esc(figureText(entry))}</text></g>`;
   }).join('');
   const aria = 'Водопад изменения показателя. Выберите вклад, чтобы открыть детали';
   return `<div class="waterfall-frame"><svg class="chart chart-waterfall" data-chart-shape="wide" role="group" aria-label="${aria}" viewBox="0 0 ${w} ${h}">${ticks}${drawings}</svg>
     <svg class="chart chart-waterfall-compact" data-chart-shape="compact" role="group" aria-label="${aria}" viewBox="0 0 ${mobileWidth} ${plotEnd + 7}">
       <line class="zero" x1="${zero}" x2="${zero}" y1="10" y2="${plotEnd - 13}"/>
       ${compactAxis}${mobile}</svg></div>
-    <p class="note waterfall-note">Итоги от нуля. Выберите вклад для пояснения.</p>`;
+    <p class="note waterfall-note">Итоги от нуля. Точки отмечают нулевые и малые вклады. Выберите столбец или точку для пояснения.</p>`;
 }
 
 export function bars(items, { unit = '', label = 'Вклады факторов', motionKey = '' } = {}) {
@@ -138,16 +149,18 @@ export function bars(items, { unit = '', label = 'Вклады факторов'
 export function divergingBars(items, { active, unit = '' } = {}) {
   const rows = items.filter((item) => Number.isFinite(item.value)).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   if (!rows.length) return '<p class="note">За этот период вклады не рассчитаны.</p>';
-  const max = Math.max(...rows.map((item) => Math.abs(item.value))) || 1;
+  const limit = Math.max(...rows.map((item) => Math.abs(item.value)));
+  const max = limit ? nice(limit, 1e-12) : 1;
+  const tick = short(max, unit);
   return `<div class="contribution-chart" role="group" aria-label="Вклады факторов относительно нуля">
-    <div class="contribution-axis" aria-hidden="true"><span>Компонент</span><span><b>−</b><b>0</b><b>+</b></span><span>Вклад</span></div>
+    <div class="contribution-axis" aria-hidden="true"><span>Компонент</span><span><b>${limit ? '−' + esc(tick) : ''}</b><b>0</b><b>${limit ? '+' + esc(tick) : ''}</b></span><span>Вклад</span></div>
     ${rows.map((item) => {
-      const amount = signed(item.value, unit);
+      const amount = item.gap?.label ?? signed(item.value, unit);
       const start = item.value < 0 ? 50 - 50 * Math.abs(item.value) / max : 50;
       const width = 50 * Math.abs(item.value) / max;
-      const color = item.key === 'residual' || item.key === 'reconciliation' || !item.value ? 'neutral' : tone(item.value);
+      const color = item.gap || !item.value ? 'neutral' : tone(item.value);
       return `<button type="button" class="contribution-row ${color}" data-action="factor" data-key="${esc(item.key)}"
-        aria-pressed="${active === item.key}" data-tip-title="${esc(item.label)}" data-tip-value="${esc(amount)}">
+        aria-pressed="${active === item.key}" data-tip-title="${esc(item.label)}" data-tip-value="${esc(item.gap?.hint || amount)}">
         <span class="contribution-name">${esc(item.chartLabel ?? item.label)}</span>
         <span class="contribution-track" aria-hidden="true"><i data-morph-key="${esc(item.key)}" style="--start:${start}%;--width:${width}%"></i></span>
         <strong class="contribution-value">${esc(amount)}</strong>
@@ -165,7 +178,7 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
   const valid = (point) => Number.isFinite(point?.value) && Number.isFinite(point.x);
   const points = series.flatMap((entry) => entry.points).filter(valid);
   if (points.length < 2) return '<p class="note">Недостаточно точек для графика.</p>';
-  const w = 736, l = 69, r = 21, t = 19, b = tall ? 251 : 190, h = b + 31;
+  const w = 736, l = 92, r = 21, t = 23, b = tall ? 251 : 190, h = b + 34;
   const clipId = 'chart-clip-' + ++nextPlot;
   const dates = period ? [...new Map(points.filter((p) => day(p.date)).map((p) => [p.date, p])).values()] : [];
   const rangeId = clipId + '-range';
@@ -180,7 +193,7 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
   const grid = Array.from({ length: Math.round((high - low) / step) + 1 }, (_, i) => {
     const value = low + step * i;
     return `<line class="${Math.abs(value) < step / 10 ? 'zero' : 'grid'}" x1="${l}" x2="${w - r}" y1="${y(value)}" y2="${y(value)}"/>
-      <text x="${l - 8}" y="${y(value) + 4}" text-anchor="end">${esc(short(value, yLabel ? '' : unit))}</text>`;
+      <text class="line-y-tick" x="${l - 8}" y="${y(value) + 4}" text-anchor="end">${esc(short(value, yLabel ? '' : unit))}</text>`;
   }).join('');
   const explicitAxis = axes.filter((point) => Number.isFinite(point.x));
   const axis = (explicitAxis.length ? explicitAxis : [...new Map(points.map((point) => [point.x, point])).values()]).sort((a, b) => a.x - b.x);
@@ -198,17 +211,18 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
   }).join('');
   const traces = series.map((entry) => {
     const runs = [[]];
+    const pointRadius = connect ? (entry.points.length > 12 ? 2.5 : 3.4) : 3.6;
     for (const point of entry.points) {
       if (valid(point)) runs.at(-1).push(`${x(point.x)},${y(point.value)}`);
       else if (runs.at(-1).length) runs.push([]);
     }
     return `<g stroke="${entry.color}" data-series="${esc(entry.name)}"${entry.morph ? ' data-morph-line' : ''}>
-      ${connect ? runs.filter((run) => run.length > 1).map((run) => `<polyline fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-dasharray="${entry.dash ?? 'none'}" points="${run.join(' ')}"/>`).join('') : ''}
-      ${entry.points.filter(valid).map((p) => `<circle cx="${x(p.x)}" cy="${y(p.value)}" r="${p.selected ? 5 : connect ? 2.75 : 3}" fill="${p.selected || !connect ? entry.color : 'var(--surface)'}" stroke-width="${connect ? 1.55 : 0}"
+      ${connect ? runs.filter((run) => run.length > 1).map((run) => `<polyline fill="none" stroke-width="${entry.dash ? 2 : 2.6}" stroke-linejoin="round" stroke-dasharray="${entry.dash ?? 'none'}" points="${run.join(' ')}"/>`).join('') : ''}
+      ${entry.points.filter(valid).map((p) => `<circle cx="${x(p.x)}" cy="${y(p.value)}" r="${p.selected ? 5 : pointRadius}" fill="${p.selected || !connect ? entry.color : 'var(--surface)'}" stroke-width="${connect ? 1.5 : 0}"
         data-point="${p.x}" data-label="${esc(p.date ? day(p.date) : p.label ?? n(p.x))}"${p.date ? ` data-date="${esc(p.date)}"` : ''} data-value="${esc(exact(p.value, unit) + (p.support ? ' · ' + n(p.support) + ' строк' : ''))}"/>`).join('')}</g>`;
   }).join('');
   const svg = `<svg class="chart line-chart" role="img" aria-label="${esc(title)}" data-crosshair${motionKey ? ` data-chart-scope="${esc(motionKey)}"` : ''} viewBox="0 0 ${w} ${h}">
-    ${grid}${ticks}${inspect ? `<defs><clipPath id="${clipId}"><rect x="${l - 6}" y="${t - 6}" width="${w - l - r + 12}" height="${b - t + 12}"/></clipPath></defs>
+    ${grid}<g class="line-x-axis">${ticks}</g>${inspect ? `<defs><clipPath id="${clipId}"><rect x="${l - 6}" y="${t - 6}" width="${w - l - r + 12}" height="${b - t + 12}"/></clipPath></defs>
       <g clip-path="url(#${clipId})"><rect data-plot-hit x="${l}" y="${t}" width="${w - l - r}" height="${b - t}" fill="transparent"/>
       ${dates.length > 1 ? `<g data-period-mark visibility="hidden" aria-hidden="true" pointer-events="none">
         <rect y="${t}" width="0" height="${b - t}"/><path/>

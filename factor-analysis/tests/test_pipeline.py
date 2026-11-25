@@ -133,7 +133,9 @@ class PipelineTest(unittest.TestCase):
             answer = explain(detailed, 'Как повлияли погашения?')
         self.assertEqual(answer['facts'][0]['id'], 'cash.paid_principal')
         self.assertEqual(answer['facts'][0]['source'], '#cash-details')
-        report = {**report, 'labels': {report['target']: '<img src=x onerror=alert(1)>'}}
+        exact_gap = '-0.0000000000000123456789'
+        report = {**report, 'labels': {report['target']: '<img src=x onerror=alert(1)>'},
+                  'decimal': {**report['decimal'], 'reconciliation': exact_gap}}
         content, mime = export(report, 'analysis.html', answer)
         html = content.decode()
         self.assertEqual(mime, 'text/html')
@@ -141,6 +143,9 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('&lt;img', html)
         self.assertIn('Детализация денежных потоков', html)
         self.assertIn('Пояснение по проверенным фактам', html)
+        self.assertIn(exact_gap, html)
+        attribution, _ = export(report, 'factors.csv')
+        self.assertIn(exact_gap, attribution.decode('utf-8-sig'))
         content, mime = export(report, 'cash-details.csv')
         rows = list(csv.DictReader(StringIO(content.decode('utf-8-sig'))))
         self.assertEqual(mime, 'text/csv')

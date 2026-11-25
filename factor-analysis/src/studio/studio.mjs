@@ -402,10 +402,13 @@ function selectFactor(key, source) {
 }
 
 function selectChart(chart, control) {
-  if (!['contributions', 'waterfall'].includes(chart)) return;
+  if (!['contributions', 'waterfall'].includes(chart) || state.chart === chart) return;
   state.chart = chart;
-  control.dataset.key = chart === 'waterfall' ? 'contributions' : 'waterfall';
-  control.textContent = chart === 'waterfall' ? 'К вкладам' : 'Водопад';
+  const switcher = control.parentElement;
+  for (const item of switcher.querySelectorAll('button')) {
+    item.setAttribute('aria-pressed', String(item.dataset.key === chart));
+  }
+  syncIndicators(switcher.parentElement);
   const host = document.querySelector('#bridge-chart');
   transitionChart(host, () => {
     if (!host.isConnected) return;
@@ -1075,6 +1078,13 @@ function action(element) {
     render();
     main.querySelector('[data-action="' + kind + '"][aria-pressed="true"]')?.focus({ preventScroll: true });
   }
+  if (kind === 'edit-portfolio') {
+    const field = document.querySelector('#generate-form').elements.namedItem(key);
+    if (!field) return;
+    const disclosure = field.closest('details');
+    if (disclosure) disclosure.open = true;
+    field.focus();
+  }
   if (kind === 'new-run') {
     state.portfolioTab = 'builder';
     state.portfolioJob = state.generating ? state.portfolioJob : null;
@@ -1285,17 +1295,20 @@ document.addEventListener('input', (event) => {
   if (element.form?.id === 'generate-form') {
     const draft = Object.fromEntries(new FormData(element.form));
     state.draft = draft;
-    const preview = document.querySelector('#portfolio-preview');
-    const next = fragment(portfolioPreview(draft));
-    const distribution = preview.querySelector('details');
-    const summary = distribution.querySelector('summary');
-    for (const item of [...preview.children]) if (item !== distribution) item.remove();
-    distribution.before(...[...next.children].filter(item => item.tagName !== 'DETAILS'));
-    for (const item of [...distribution.children]) if (item !== summary) item.remove();
-    distribution.append(...[...next.querySelector('details').children].filter(item => item.tagName !== 'SUMMARY'));
-    document.querySelector('#curve-note').textContent = portfolioCurveNote(draft.curveSource);
-    const pinned = document.querySelector('#pinned-curve');
-    if (pinned) pinned.hidden = draft.curveSource !== 'api';
+    if (element.name === 'curveSource') {
+      document.querySelector('#curve-note').textContent = portfolioCurveNote(draft.curveSource);
+      const pinned = document.querySelector('#pinned-curve');
+      if (pinned) pinned.hidden = draft.curveSource !== 'api';
+    }
+    if (['count', 'monthly', 'periods', 'valuationDate', 'liabilityShare', 'annuity', 'linear', 'bullet',
+      'fixed', 'floating', 'termMin', 'termMax', 'termProfile'].includes(element.name)) {
+      const preview = document.querySelector('#portfolio-preview');
+      const next = fragment(portfolioPreview(draft));
+      for (const selector of ['.portfolio-plan', '.distribution-list', '.portfolio-date-list']) {
+        preview.querySelector(selector).replaceWith(next.querySelector(selector));
+      }
+      preview.querySelector('.portfolio-calendar > summary').replaceChildren(...next.querySelector('.portfolio-calendar > summary').childNodes);
+    }
   }
   if (element.form?.id === 'explain-form') {
     if (element.name === 'question') {

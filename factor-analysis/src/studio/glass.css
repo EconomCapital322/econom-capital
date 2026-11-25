@@ -4,19 +4,8 @@
   --rail-inset: 12px;
   --glass-radius: 21px;
   --glass-inner-radius: calc(var(--glass-radius) - 7px);
-  --glass-edge: #44457424;
   --glass-rim: #ffffffed;
   --glass-light: #ffffffaa;
-  --glass-clear: #fbfaffab;
-  --glass-frosted: #f8f8fcc5;
-  --glass-dense: #fcfbfff0;
-  --glass-accent: #ddd8f8;
-  --glass-veil: #1c1b3831;
-  --glass-shadow: 0 2px 6px #2829430a, 0 15px 36px -19px #34355643;
-  --glass-reflection: linear-gradient(165deg, #ffffff90 0%, transparent 45%, #bdb8ee16 88%, #ffffff64 100%);
-  --canvas-light: #e4e3f2;
-  --canvas-secondary: #e6edf7;
-  --chart-guide: #777b9a;
   --motion-pane: 330ms;
   --motion-tab: 220ms;
   --motion-exit: 155ms;
@@ -24,11 +13,31 @@
   --embedded-glass: var(--glass-dense);
   --prism-cold: #bcb8fa9e;
   --prism-warm: #edc9dc8c;
-  --table-heading: #edf0f8;
   --scroll-thumb: #a4a5ba;
   --press-size: .985;
   --density-pad: 16px;
   --density-row: 44px;
+}
+
+:root:not([data-theme="dark"]) {
+  --canvas: #eceef1;
+  --canvas-light: #dadde3;
+  --canvas-secondary: #f8f9fb;
+  --surface-subtle: #f5f6f9;
+  --report-tint: #f0f1f7;
+  --rule: #dce0e7;
+  --control-line: #c4cad5;
+  --chart-guide: #747988;
+  --table-heading: #edf0f5;
+  --sheet-shadow: 0 1px 3px #242a390c, 0 18px 35px -23px #30384830;
+  --glass-edge: #565c743b;
+  --glass-clear: #ffffffa3;
+  --glass-frosted: #f0f3f7ad;
+  --glass-dense: #fbfcfff2;
+  --glass-accent: #e0daf8;
+  --glass-veil: #1d21382f;
+  --glass-shadow: 0 2px 5px #2d334317, 0 17px 34px -19px #323b5360;
+  --glass-reflection: linear-gradient(157deg, #ffffffd9 0%, #ffffff2b 35%, transparent 62%, #c8cddd29 91%, #ffffff4d 100%);
 }
 
 :root[data-theme="dark"] {
@@ -287,6 +296,20 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 }
 #inspector[data-kind="deal"] { width: min(660px, calc(100% - 2 * var(--rail-inset))); }
 #inspector[data-kind="deal"][open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+#factor-drawer {
+  bottom: auto; height: auto; max-height: calc(min(100dvh, var(--panel-viewport, 100dvh)) - 2 * var(--rail-inset));
+}
+#factor-drawer .drawer-head, #factor-drawer .drawer-footer { padding-block: 10px; }
+#factor-drawer .drawer-body { padding-block: 13px 6px; }
+.factor-result { margin-top: 12px; padding: 12px 14px; border-radius: var(--control); background: var(--surface-subtle); }
+.factor-result h2 { margin: 0 0 3px; font-size: 21px; }
+.factor-result .figure-value + .note { margin-top: 5px; }
+.factor-result .drawer-description { margin: 7px 0 0; font-size: 13px; }
+.factor-evidence { margin: 12px 0; }
+.factor-evidence h3 { margin: 0 0 4px; font-size: 13px; }
+.factor-evidence .drawer-dl { margin: 0 0 4px; padding: 5px 0; border-top: 0; }
+.factor-evidence .text-button { display: flex; }
+.factor-method { margin: 10px 0 2px; }
 #appearance-dialog { width: min(414px, calc(100% - 24px)); padding: 0; }
 .appearance-settings { display: grid; grid-template-columns: 1fr minmax(0, 1fr); align-items: center; gap: 12px; padding: 17px 20px 20px; }
 .appearance-settings select { min-height: 40px; padding: 6px 9px; border: 1px solid var(--control-line); border-radius: var(--control); background: var(--surface); color: var(--ink); font-size: 13px; }
@@ -397,6 +420,9 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 }
 
 .chart .zero { stroke: var(--chart-guide); }
+.line-chart :is(.zero, .grid, polyline) { vector-effect: non-scaling-stroke; }
+.line-chart text { font-size: 12.5px; }
+.chart .bar-total { fill-opacity: .83; }
 .waterfall-frame { container: waterfall / inline-size; }
 .chart-waterfall-compact { display: none; }
 .waterfall-frame .chart { width: 100%; height: auto; }
@@ -418,7 +444,18 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 .chart-tools .chart-reset { border-color: transparent; }
 .line-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px; }
 .line-caption { color: var(--muted-strong); font-size: 12px; font-weight: 555; }
+.line-figure[data-chart-figure] { container: plot / inline-size; }
 .line-figure[data-chart-figure] .line-chart { min-width: 0; }
+.chart-head [data-motion-track="analysis-chart"] button { min-height: 33px; padding: 5px 10px; white-space: nowrap; }
+.chart-head [data-motion-track="analysis-chart"] + .chart-expand { flex: none; }
+@container plot (max-width: 540px) {
+  .line-figure .line-chart text { font-size: 17px; }
+  .line-figure:not(.is-zoomed) .line-x-axis > :nth-child(2n):not(:last-child) { display: none; }
+}
+@container plot (max-width: 400px) {
+  .line-figure .line-chart text { font-size: 21px; }
+  .line-figure .line-chart .line-y-tick { font-size: 19px; }
+}
 .line-figure[data-chart-figure] .chart-scroll:focus-visible { outline-offset: 1px; border-radius: 5px; }
 .line-figure.is-zoomed svg { cursor: grab; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
 .line-figure.is-panning svg { cursor: grabbing; }
@@ -498,8 +535,7 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
   .scenario-buckets { padding: 12px 14px; }
   .chart-tools .icon-button, .chart-tools > .button { min-height: 40px; }
   .chart-tools .icon-button { width: 40px; }
-  .line-figure[data-chart-figure] .line-chart text { font-size: 19px; }
-  .line-figure[data-chart-figure] [data-axis-x]:nth-of-type(2n) { display: none; }
+  .chart-head:has([data-motion-track="analysis-chart"]) { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
 }
 @media (max-width: 430px) {
   #assistant-drawer[data-presentation="modal"] { inset: 0; width: 100%; height: min(100dvh, var(--panel-viewport, 100dvh)); border-radius: 0; }
