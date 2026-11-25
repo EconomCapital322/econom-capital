@@ -559,8 +559,11 @@ export function analysisTab(state) {
   if (tab === 'timeline') {
     const points = r.timeline.map((item) => ({ x: Date.parse(item.date), date: item.date, label: day(item.date).slice(0, 5), value: item.value,
       support: item.count, selected: [r.before, r.after].includes(item.date) }));
-    return h2('Динамика показателя', 'Сумма метрики по всем наблюдениям на каждую дату. Заливкой отмечены даты сравнения.')
-      + lineChart([{ name: titleOf(work, r.target), color: 'var(--accent)', points }], { unit, title: 'История выбранного показателя', xLabel: 'Отчётная дата', yLabel: metricName(work) + (unit ? ' / ' + unit.trim() : ''), inspect: true, period: true });
+    return h2('Динамика показателя', 'Сумма метрики по всем наблюдениям на каждую дату. Заполненные точки отмечают даты текущего расчёта.')
+      + lineChart([{ name: titleOf(work, r.target), color: 'var(--accent)', points }], {
+        unit, title: 'История выбранного показателя', xLabel: 'Отчётная дата', yLabel: metricName(work) + (unit ? ' / ' + unit.trim() : ''),
+        inspect: true, period: true, motionKey: [work.id, 'timeline', r.mode, r.target, r.scenario, ...r.timeline.map(item => item.date)].join(':'),
+      });
   }
   if (tab === 'importance') {
     const stats = r.importance.filter((item) => item.value !== null);
@@ -835,6 +838,10 @@ export function portfolioProgress(job) {
   </section>`;
 }
 
+export function holdingsDateNote(date) {
+  return `${n(date.deals)} действующих сделок на ${day(date.date)}. Откройте ID, чтобы посмотреть платежи.`;
+}
+
 export function portfolioPage(state) {
   const work = state.workspace;
   const last = work?.periods?.at(-1);
@@ -852,8 +859,8 @@ export function portfolioPage(state) {
       ${toUpdate.runId !== pin.runId ? `<p class="note">Текущая оценка относится к прежнему снимку. Переоценка применит выбранные коэффициенты к тем же платежам за эту дату и сохранит новую ревизию.</p>
         <button class="button" type="button" data-action="curve-revalue" ${state.generating ? 'disabled' : ''}>Переоценить портфель</button>` : ''}
       <button class="text-button" type="button" data-action="curve-clear">Снять выбор</button></div>` : '';
-    return title + navigation + progress + selection + `<section class="panel holdings" id="portfolio-holdings"><header class="panel-head"><div><h2>Состав портфеля</h2>
-      <p class="note">${n(date.deals)} действующих сделок на ${day(date.date)}. Откройте ID, чтобы посмотреть платежи.</p></div>
+    return title + navigation + progress + selection + `<section class="panel holdings" id="portfolio-holdings" data-date="${date.date}"><header class="panel-head"><div><h2>Состав портфеля</h2>
+      <p class="note" data-holdings-date>${holdingsDateNote(date)}</p></div>
       <div class="data-actions">${link(exportUrl(work, date.date + '/calculator_input.csv'), 'CSV для калькулятора')}
         <a class="button small" href="#analysis" data-action="overview">Открыть факторный анализ</a></div></header>
       <div id="holding-overview"></div>
@@ -864,7 +871,9 @@ export function portfolioPage(state) {
       </div></details>
       <form class="toolbar" id="deal-search"><label class="field">Дата<select id="portfolio-date">${dateOpts(work.periods.map((p) => p.date), date.date)}</select></label>
         <label class="field">ID сделки<input type="search" name="query" value="${esc(state.dealQuery ?? '')}" placeholder="Например, 120"></label>
-        <button class="button" type="submit">Найти</button></form><div id="deal-table" aria-live="polite"><p class="note">Загрузка списка сделок…</p></div></section>`;
+        <button class="button" type="submit">Найти</button></form>
+      <p class="note" data-holdings-loading role="status" hidden></p>
+      <div id="deal-table" aria-live="polite"><p class="note">Загрузка списка сделок…</p></div></section>`;
   }
   const ranges = [
     ['amountMin', 'Сумма от, ₽', 'number" min="0.01" step="0.01'], ['amountMax', 'Сумма до, ₽', 'number" min="0.01" step="0.01'],
@@ -1010,15 +1019,8 @@ export function servicesList(health) {
   }).join('');
 }
 
-export function dataPage(state) {
-  const work = state.workspace;
-  const integrated = Boolean(work?.periods);
-  const format = state.sourceFormat;
-  const isCsv = format === 'csv';
-  const choice = segments('source-format', format, [['csv', 'Таблица CSV'], ['zip', 'Снимки ZIP']], 'Формат загрузки');
-  const importer = `<section class="panel data-import">
-    <header class="panel-head"><h2>Загрузка</h2>${choice}</header>
-    ${isCsv ? `<div class="upload-box">
+export function uploadBox(format) {
+  return format === 'csv' ? `<div class="upload-box">
       <p class="note">CSV для анализа зависимостей. Одна строка на ID и дату, до 6 МБ и 20 000 строк.</p>
       <form id="import-form" class="upload-form">${filePicker('csvfile', 'Файл истории', '.csv,.tsv,text/csv')}
       <button class="button primary" type="submit" disabled>Загрузить CSV</button></form>
@@ -1027,7 +1029,16 @@ export function dataPage(state) {
       <p class="note">Платежи, PV и кривые на совпадающие даты. От двух дат, архив до 16 МБ.</p>
       <form id="history-form" class="upload-form">${filePicker('history', 'Архив снимков', '.zip,application/zip')}
       <button class="button primary" type="submit" disabled>Загрузить ZIP</button>
-      <label class="check"><input type="checkbox" name="bank"> Банковская выгрузка</label></form></div>`}
+      <label class="check"><input type="checkbox" name="bank"> Банковская выгрузка</label></form></div>`;
+}
+
+export function dataPage(state) {
+  const work = state.workspace;
+  const integrated = Boolean(work?.periods);
+  const format = state.sourceFormat;
+  const choice = segments('source-format', format, [['csv', 'Таблица CSV'], ['zip', 'Снимки ZIP']], 'Формат загрузки');
+  const importer = `<section class="panel data-import">
+    <header class="panel-head"><h2>Загрузка</h2>${choice}</header>${uploadBox(format)}
   </section>`;
   const title = heading('Данные', '', work?.profile ? assistantButton : '');
   const connections = `<details class="details technical" id="data-services"><summary>Подключения</summary>

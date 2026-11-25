@@ -1,13 +1,15 @@
 const root = document.documentElement;
 const animations = new WeakMap();
+const trajectories = new WeakMap();
 const origins = new WeakMap();
-const closing = new WeakSet();
+const closing = new WeakMap();
 
 export const motionAllowed = () => root.dataset.motion !== 'reduced' && !document.hidden;
 
 const settings = {
   indicator: { duration: 290, damping: .78, frequency: 10.4 },
   panel: { duration: 340, damping: .9, frequency: 9.2 },
+  dismissal: { duration: 185, damping: .92, frequency: 8.3 },
   content: { duration: 215, damping: .96, frequency: 9.6 },
 };
 
@@ -39,11 +41,49 @@ function spring(element, kind, frame) {
   return play(element, frames, { duration: profile.duration });
 }
 
+function velocityOf(element) {
+  const path = trajectories.get(element);
+  if (!path || animations.get(element) !== path.animation || !Number.isFinite(path.animation.currentTime)) return {};
+  const time = path.animation.currentTime;
+  const first = Math.max(0, time - 4);
+  const last = Math.min(path.duration, time + 4);
+  if (last <= first) return {};
+  const before = path.sample(first / path.duration);
+  const after = path.sample(last / path.duration);
+  return Object.fromEntries(Object.keys(before).map(key => [key, (after[key] - before[key]) / (last - first)]));
+}
+
+function move(element, kind, from, to, render, velocity = velocityOf(element)) {
+  const { duration, damping, frequency } = settings[kind];
+  const decay = damping * frequency;
+  const rate = frequency * Math.sqrt(1 - damping ** 2);
+  const axes = Object.keys(from).map(key => {
+    const distance = from[key] - to[key];
+    const momentum = (velocity[key] ?? 0) * duration;
+    return { key, distance, oscillation: (momentum + decay * distance) / rate };
+  });
+  const sample = time => {
+    const cap = Math.max(0, (time - .82) / .18);
+    const finish = 1 - cap * cap * (3 - 2 * cap);
+    const amplitude = Math.exp(-decay * time) * finish;
+    const cos = Math.cos(rate * time), sin = Math.sin(rate * time);
+    return Object.fromEntries(axes.map(({ key, distance, oscillation }) =>
+      [key, to[key] + amplitude * (distance * cos + oscillation * sin)]));
+  };
+  const frames = Array.from({ length: 25 }, (_, step) => render(step === 24 ? to : sample(step / 24)));
+  const animation = play(element, frames, { duration, fill: kind === 'dismissal' ? 'forwards' : 'none' });
+  if (animation) trajectories.set(element, { animation, duration, sample });
+  return animation;
+}
+
 const activeSelector = ':is([aria-current="page"], [aria-pressed="true"])';
 
 export function captureIndicators(scope) {
   return new Map([...scope.querySelectorAll('[data-motion-track][data-indicator-ready]')]
-    .map((track) => [track.dataset.motionTrack, track.firstElementChild.getBoundingClientRect()]));
+    .map((track) => {
+      const pill = track.firstElementChild;
+      return [track.dataset.motionTrack, { rect: pill.getBoundingClientRect(), velocity: velocityOf(pill) }];
+    }));
 }
 
 export function syncIndicators(scope, previous = new Map(), animate = true) {
@@ -51,7 +91,8 @@ export function syncIndicators(scope, previous = new Map(), animate = true) {
     const active = track.querySelector(activeSelector);
     if (!active || !active.offsetWidth) continue;
     const pill = track.firstElementChild;
-    const from = previous.get(track.dataset.motionTrack) ??
+    const snapshot = previous.get(track.dataset.motionTrack);
+    const from = snapshot?.rect ??
       (track.hasAttribute('data-indicator-ready') ? pill.getBoundingClientRect() : null);
     const width = active.offsetWidth;
     const height = active.offsetHeight;
@@ -60,6 +101,7 @@ export function syncIndicators(scope, previous = new Map(), animate = true) {
     const transform = `translate(${x}px, ${y}px)`;
     const geometry = `${x}:${y}:${width}:${height}`;
     if (pill.dataset.geometry === geometry && !previous.has(track.dataset.motionTrack)) continue;
+    const velocity = snapshot?.velocity ?? velocityOf(pill);
     animations.get(pill)?.cancel();
     Object.assign(pill.style, { width: `${width}px`, height: `${height}px`, transform });
     track.dataset.indicatorReady = '';
@@ -68,15 +110,11 @@ export function syncIndicators(scope, previous = new Map(), animate = true) {
     const to = pill.getBoundingClientRect();
     const dx = (from.left - to.left) * width / (to.width || width);
     const dy = (from.top - to.top) * height / (to.height || height);
-    const sx = from.width / (to.width || width) - 1;
-    const sy = from.height / (to.height || height) - 1;
-    if (Math.abs(dx) + Math.abs(dy) + Math.abs(sx) + Math.abs(sy) < 1) continue;
-    spring(pill, 'indicator', (progress, time) => {
-      const rem = 1 - progress;
-      const travel = Math.max(Math.abs(dx), Math.abs(dy)) / Math.max(width, height);
-      const stretch = Math.sin(Math.PI * time) ** 2 * Math.max(0, rem) * Math.min(.24, travel * .12);
-      return { transform: `translate(${x + dx * rem}px, ${y + dy * rem}px) scale(${1 + sx * rem + (Math.abs(dx) >= Math.abs(dy) ? stretch : 0)}, ${1 + sy * rem + (Math.abs(dx) < Math.abs(dy) ? stretch : 0)})` };
-    });
+    const w = from.width * width / (to.width || width);
+    const h = from.height * height / (to.height || height);
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(w - width) + Math.abs(h - height) < 1) continue;
+    move(pill, 'indicator', { x: x + dx, y: y + dy, w, h }, { x, y, w: width, h: height },
+      pose => ({ transform: `translate(${pose.x}px, ${pose.y}px) scale(${Math.max(.1, pose.w / width)}, ${Math.max(.1, pose.h / height)})` }), velocity);
   }
 }
 
@@ -88,27 +126,43 @@ export function panelOrigin(element) {
   return element?.getBoundingClientRect?.() ?? null;
 }
 
-function panelTransform(dialog, source) {
+function panelPose(dialog) {
+  const { transform, opacity } = getComputedStyle(dialog);
+  const matrix = new DOMMatrixReadOnly(transform === 'none' ? undefined : transform);
+  return { x: matrix.e, y: matrix.f, sx: matrix.a, sy: matrix.d, opacity: Number(opacity) };
+}
+
+function panelTransform(dialog, source, pose = restingPanel) {
   if (!source?.width || !source.height) return { x: 0, y: 10, sx: .98, sy: .98 };
-  const panel = dialog.getBoundingClientRect();
-  const sx = Math.max(.62, Math.min(.98, source.width / panel.width));
-  const sy = Math.max(.76, Math.min(.98, source.height / panel.height));
-  const insetX = panel.width * (1 - sx) / 2;
-  const insetY = panel.height * (1 - sy) / 2;
+  const rect = dialog.getBoundingClientRect();
+  const width = dialog.offsetWidth, height = dialog.offsetHeight;
+  const left = rect.left - pose.x - width * (1 - pose.sx) / 2;
+  const top = rect.top - pose.y - height * (1 - pose.sy) / 2;
+  const sx = Math.max(.62, Math.min(.98, source.width / width));
+  const sy = Math.max(.76, Math.min(.98, source.height / height));
+  const insetX = width * (1 - sx) / 2;
+  const insetY = height * (1 - sy) / 2;
   const clamp = (distance, min, max) => Math.max(min, Math.min(max, distance));
   return {
-    x: clamp(source.left + source.width / 2 - panel.left - panel.width / 2, -panel.left - insetX, innerWidth - panel.right + insetX),
-    y: clamp(source.top + source.height / 2 - panel.top - panel.height / 2, -panel.top - insetY, innerHeight - panel.bottom + insetY),
+    x: clamp(source.left + source.width / 2 - left - width / 2, -left - insetX, innerWidth - left - width + insetX),
+    y: clamp(source.top + source.height / 2 - top - height / 2, -top - insetY, innerHeight - top - height + insetY),
     sx, sy,
   };
 }
 
-const panelFrame = ({ x, y, sx, sy }, rem) =>
-  `translate3d(${x * rem}px, ${y * rem}px, 0) scale(${1 + (sx - 1) * rem}, ${1 + (sy - 1) * rem})`;
+const restingPanel = { x: 0, y: 0, sx: 1, sy: 1, opacity: 1 };
+const panelFrame = ({ x, y, sx, sy, opacity }) => ({
+  transform: `translate3d(${x}px, ${y}px, 0) scale(${sx}, ${sy})`,
+  opacity: Math.max(0, Math.min(1, opacity)),
+});
 
 export function openPanel(dialog, source = document.activeElement, { modal = true } = {}) {
   if (dialog.open) {
-    if (closing.has(dialog)) animations.get(dialog)?.cancel();
+    if (closing.has(dialog)) {
+      closing.delete(dialog);
+      delete dialog.dataset.closing;
+      move(dialog, 'panel', panelPose(dialog), restingPanel, panelFrame);
+    }
     return;
   }
   const origin = source?.getBoundingClientRect ? panelOrigin(source) : source;
@@ -117,14 +171,9 @@ export function openPanel(dialog, source = document.activeElement, { modal = tru
   else dialog.show();
   if (!motionAllowed()) return;
   const geometry = panelTransform(dialog, origin);
-  if (!modal) {
-    spring(dialog, 'panel', (progress) => ({
-      transform: panelFrame({ x: Math.max(-32, Math.min(0, geometry.x)), y: 0, sx: .96, sy: .99 }, Math.max(0, 1 - progress)),
-      opacity: Math.min(1, .72 + progress),
-    }));
-  } else {
-    spring(dialog, 'panel', (progress) => ({ transform: panelFrame(geometry, 1 - progress), opacity: Math.min(1, .32 + progress) }));
-  }
+  const start = modal ? { ...geometry, opacity: .32 }
+    : { x: Math.max(-32, Math.min(0, geometry.x)), y: 0, sx: .96, sy: .99, opacity: .72 };
+  move(dialog, 'panel', start, restingPanel, panelFrame, {});
 }
 
 export function requestClose(dialog, value) {
@@ -133,18 +182,19 @@ export function requestClose(dialog, value) {
     dialog.close(value);
     return;
   }
-  closing.add(dialog);
   dialog.dataset.closing = '';
-  const current = getComputedStyle(dialog);
-  const start = { transform: current.transform, opacity: current.opacity };
-  animations.get(dialog)?.cancel();
-  const target = panelTransform(dialog, origins.get(dialog));
-  const animation = play(dialog, [start, { transform: panelFrame(target, .43), opacity: .08 }], { duration: 155, easing: 'cubic-bezier(.43,0,.76,.32)', fill: 'forwards' });
+  const start = panelPose(dialog);
+  const target = panelTransform(dialog, origins.get(dialog), start);
+  const end = { x: target.x * .43, y: target.y * .43, sx: 1 + (target.sx - 1) * .43, sy: 1 + (target.sy - 1) * .43, opacity: .06 };
+  const animation = move(dialog, 'dismissal', start, end, panelFrame);
+  closing.set(dialog, animation);
   animation.finished.then(() => {
-    animation.cancel();
+    if (closing.get(dialog) !== animation) return;
     closing.delete(dialog);
+    animation.cancel();
     if (dialog.open) dialog.close(value);
   }, () => {
+    if (closing.get(dialog) !== animation) return;
     closing.delete(dialog);
     delete dialog.dataset.closing;
   });
@@ -156,10 +206,6 @@ export function installPanels() {
     const viewport = window.visualViewport;
     const height = viewport?.scale === 1 ? Math.min(innerHeight, viewport.height) : innerHeight;
     root.style.setProperty('--panel-viewport', Math.floor(height) + 'px');
-    for (const dialog of dialogs) {
-      const animation = animations.get(dialog);
-      if (dialog.open && animation?.playState === 'running') animation.finish();
-    }
   }
   window.addEventListener('resize', fitViewport, { passive: true });
   window.visualViewport?.addEventListener('resize', fitViewport, { passive: true });
@@ -221,7 +267,8 @@ export function installLighting() {
   let frame = 0;
   let pointer;
   document.addEventListener('pointermove', (event) => {
-    const control = event.target.closest?.('[data-light], .button.primary, .workspace-nav');
+    const surface = event.target.closest?.('[data-light], .button.primary, .workspace-nav, .segmented, .assistant-button, .chart-expand');
+    const control = surface?.querySelector(':scope > .selection-pill') ?? surface;
     if (!control || root.dataset.transparency === 'reduced' || !motionAllowed()) return;
     pointer = { control, x: event.clientX, y: event.clientY };
     if (frame) return;
@@ -230,8 +277,9 @@ export function installLighting() {
       const { control, x, y } = pointer;
       const rect = control.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      control.style.setProperty('--light-x', Math.round((x - rect.left) / rect.width * 100) + '%');
-      control.style.setProperty('--light-y', Math.round((y - rect.top) / rect.height * 100) + '%');
+      const percent = value => Math.round(Math.max(0, Math.min(100, value * 100))) + '%';
+      control.style.setProperty('--light-x', percent((x - rect.left) / rect.width));
+      control.style.setProperty('--light-y', percent((y - rect.top) / rect.height));
     });
   }, { passive: true });
 }

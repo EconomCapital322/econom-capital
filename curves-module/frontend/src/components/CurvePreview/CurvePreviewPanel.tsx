@@ -238,10 +238,10 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
             <p className="curve-chart__x">Срок бакета</p>
           </div>
         ) : (
-          <div className={`table-responsive curve-table ${showSource ? 'curve-table--source' : ''}`} tabIndex={0} role="region" aria-label="Таблица ставок с горизонтальной прокруткой">
+          <div className={`table-responsive curve-table ${showSource ? 'curve-table--source' : ''}`} tabIndex={0} role="region" aria-label={compact ? 'Таблица ставок с прокруткой' : 'Таблица ставок с горизонтальной прокруткой'}>
             <table className="table mb-0">
               <thead><tr><th scope="col">Бакет</th><th scope="col">Тенор (лет)</th>{curves.map(curve => <th key={curve.code} scope="col">{curve.name}{!result ? ', % годовых' : ''}</th>)}</tr></thead>
-              <tbody tabIndex={0} aria-label="Строки ставок с вертикальной прокруткой">{basePoints.map((point, i) => (
+              <tbody tabIndex={compact ? undefined : 0} aria-label={compact ? undefined : 'Строки ставок с вертикальной прокруткой'}>{basePoints.map((point, i) => (
                 <tr key={point.label}>
                   <th scope="row">{point.label}</th>
                   <td>{new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(point.tenorYears)}</td>

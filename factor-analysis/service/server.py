@@ -526,7 +526,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/appearance.js": "text/javascript", "/motion.mjs": "text/javascript",
                     "/assistant-dock.mjs": "text/javascript", "/command-palette.mjs": "text/javascript",
                     "/charts.mjs": "text/javascript", "/chart-interaction.mjs": "text/javascript", "/views.mjs": "text/javascript",
-                    "/spectrum.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
+                    "/spectrum.svg": "image/svg+xml", "/lens-map.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
             if path in mime:
                 return self.static(path[1:], mime[path])
             if path in ("/curve-ui/curves.js", "/curve-ui/curves.css"):

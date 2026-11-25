@@ -163,6 +163,8 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
   if (points.length < 2) return '<p class="note">Недостаточно точек для графика.</p>';
   const w = 736, l = 69, r = 21, t = 19, b = tall ? 251 : 190, h = b + 31;
   const clipId = 'chart-clip-' + ++nextPlot;
+  const dates = period ? [...new Map(points.filter((p) => day(p.date)).map((p) => [p.date, p])).values()] : [];
+  const rangeId = clipId + '-range';
   const xMin = Math.min(...points.map((p) => p.x)), xMax = Math.max(...points.map((p) => p.x));
   const yMin = Math.min(...domain, ...points.map((p) => p.value)), yMax = Math.max(...domain, ...points.map((p) => p.value));
   const span = yMax - yMin || Math.max(1, Math.abs(yMax) * 0.08);
@@ -203,23 +205,26 @@ export function lineChart(series, { unit = '', title = '', axes = [], connect = 
   }).join('');
   const svg = `<svg class="chart line-chart" role="img" aria-label="${esc(title)}" data-crosshair${motionKey ? ` data-chart-scope="${esc(motionKey)}"` : ''} viewBox="0 0 ${w} ${h}">
     ${grid}${ticks}${inspect ? `<defs><clipPath id="${clipId}"><rect x="${l - 6}" y="${t - 6}" width="${w - l - r + 12}" height="${b - t + 12}"/></clipPath></defs>
-      <g clip-path="url(#${clipId})"><rect x="${l}" y="${t}" width="${w - l - r}" height="${b - t}" fill="transparent"/>
+      <g clip-path="url(#${clipId})"><rect data-plot-hit x="${l}" y="${t}" width="${w - l - r}" height="${b - t}" fill="transparent"/>
+      ${dates.length > 1 ? `<g data-period-mark visibility="hidden" aria-hidden="true" pointer-events="none">
+        <rect y="${t}" width="0" height="${b - t}"/><path/>
+      </g>` : ''}
       <g data-plot data-left="${l}" data-right="${w - r}">${traces}</g></g>` : traces}
     <g class="chart-cursor" aria-hidden="true"><line x1="0" x2="0" y1="${t}" y2="${b}"/></g></svg>`;
-  const dates = period ? [...new Map(points.filter((p) => day(p.date)).map((p) => [p.date, p])).values()] : [];
   const rangeOptions = (selected) => dates.map((p) => `<option value="${p.date}"${p.date === selected ? ' selected' : ''}>${day(p.date)}</option>`).join('');
   const tools = inspect ? `<div class="chart-tools" role="group" aria-label="Инструменты графика">
-    ${dates.length > 1 ? '<button type="button" class="button small" data-chart-command="period" aria-expanded="false">Период</button>' : ''}
+    ${dates.length > 1 ? `<button type="button" class="button small" data-chart-command="period" aria-expanded="false" aria-controls="${rangeId}">Период</button>` : ''}
     <button type="button" class="icon-button" data-chart-command="out" aria-label="Уменьшить масштаб" title="Уменьшить масштаб" disabled>−</button>
     <button type="button" class="icon-button" data-chart-command="in" aria-label="Увеличить масштаб" title="Увеличить масштаб">+</button>
     <button type="button" class="button small chart-reset" data-chart-command="reset" disabled>Сбросить</button>
     ${expandChart()}</div>` : '';
-  const range = dates.length > 1 ? `<div class="chart-range" hidden>
+  const range = dates.length > 1 ? `<div class="chart-range" id="${rangeId}" hidden>
+      <p class="note chart-range-help" id="${rangeId}-help">Проведите по графику или выберите две точки. С клавиатуры используйте стрелки и Enter.</p>
       <label class="field">Начало<select data-chart-before>${rangeOptions(dates.find((p) => p.selected)?.date ?? dates[0].date)}</select></label>
       <label class="field">Конец<select data-chart-after>${rangeOptions(dates.findLast((p) => p.selected)?.date ?? dates.at(-1).date)}</select></label>
       <button type="button" class="button small" data-chart-command="apply-period">К параметрам расчёта</button>
       <p class="note" data-chart-range-note role="status" hidden></p></div>` : '';
   return `<figure class="line-figure"${inspect ? ' data-chart-figure' : ''}><div class="line-heading">
     ${yLabel ? `<p class="line-caption">${esc(yLabel)}</p>` : '<span></span>'}${tools}</div>${range}
-    <div class="chart-scroll" tabindex="0" aria-label="${esc(title)}. Стрелки влево и вправо показывают значения${inspect ? ', Enter закрепляет подсказку' : ''}">${svg}<span class="sr-only" data-chart-announcement aria-live="polite"></span></div>${xLabel ? `<p class="axis-caption">${esc(xLabel)}</p>` : ''}</figure>`;
+    <div class="chart-scroll" tabindex="0" aria-label="${esc(title)}. Стрелки влево и вправо показывают значения${inspect ? ', Enter выбирает точку' : ''}">${svg}<span class="sr-only" data-chart-announcement aria-live="polite"></span></div>${xLabel ? `<p class="axis-caption">${esc(xLabel)}</p>` : ''}</figure>`;
 }

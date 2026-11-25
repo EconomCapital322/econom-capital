@@ -118,6 +118,36 @@
 .curve-app .results-panel--graph > [role="tabpanel"] { display: block; overflow: visible; }
 .curve-app .results-panel--table { height: 460px; }
 .curve-app .results-panel--empty, .curve-app .results-panel--error { min-height: 200px; height: auto; }
+.curve-table {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--control-line) transparent;
+}
+.curve-table .table {
+  display: table;
+  height: auto;
+  min-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.curve-table--source .table { min-width: 380px; }
+.curve-table thead { display: table-header-group; }
+.curve-table tbody { display: table-row-group; }
+.curve-table tr { display: table-row; }
+.curve-table tr > :is(th, td) { height: auto; padding: 9px 8px; line-height: 1.35; }
+.curve-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--ink);
+  background: var(--table-heading, var(--surface-subtle));
+  font-weight: 620;
+  border-radius: 0;
+  border-bottom: 1px solid var(--control-line);
+}
+.curve-table tbody tr + tr > * { border-top: 1px solid var(--rule); }
+.curve-table tbody tr:hover > * { background: var(--surface-subtle); }
 .results-panel__header {
   display: flex;
   justify-content: space-between;
