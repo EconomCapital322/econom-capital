@@ -96,6 +96,6 @@ test('chart gaps and absent amounts are rendered without invented points or amou
   ] }], { unit: '%' });
   assert.equal((plot.match(/<polyline /g) ?? []).length, 2);
   assert.doesNotMatch(plot, /data-point="2"/);
-  assert.match(numberMarkup('empty', undefined, ' ₽'), /data-number-value=""[^>]*>[\s\S]*>—</);
+  assert.match(numberMarkup('empty', undefined, ' ₽'), /data-number-value=""[^>]*>—<\/span>/);
   assert.deepEqual([1, 4, 8].map(dateCountLabel), ['1 дата', '4 даты', '8 дат']);
 });

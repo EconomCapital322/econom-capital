@@ -1,6 +1,7 @@
 :host {
   display: block;
   min-width: 0;
+  container: curve-ui / inline-size;
   --color-primary: var(--accent);
   --color-accent: var(--accent-dark);
   --color-white: var(--surface);
@@ -102,7 +103,7 @@
 }
 .app-button { transition-duration: var(--fast); }
 .app-button:active:not(:disabled) { transform: translateY(1px) scale(.987); }
-.curve-app .run-calculation { align-self: end; width: auto; min-height: 44px; padding-inline: 13px; font-size: 13px; white-space: normal; }
+.curve-app .run-calculation { align-self: end; width: auto; min-height: var(--density-row, 44px); padding-inline: 13px; font-size: 13px; white-space: normal; }
 .curve-app .run-calculation:disabled { --bs-btn-disabled-bg: var(--accent-solid); --bs-btn-disabled-color: #fff; }
 .curve-app .curve-preparation-error { padding: 10px 13px; border-radius: var(--control); background: var(--error-bg); }
 .curve-app .curve-preparation-error .run-calculation { margin-inline-start: auto; }
@@ -124,7 +125,7 @@
   flex-wrap: wrap;
   gap: 10px;
   min-height: 0;
-  padding: 17px 20px 13px;
+  padding: var(--density-pad, 16px) 20px 12px;
   margin-bottom: 7px;
   border-bottom: 1px solid var(--rule);
 }
@@ -141,6 +142,10 @@
 .curve-chart__plot > svg { height: 100%; }
 .curve-chart text { font-size: 12px; }
 .curve-chart__tooltip { max-width: min(85%, 290px); transition: left var(--fast) var(--ease-ui); }
+.curve-chart__tooltip small { display: block; margin-top: 4px; font-size: 11px; color: var(--muted-strong); }
+.curve-chart__hit[aria-pressed="true"] { cursor: pointer; }
+.curve-chart__plot polyline { animation: show-selected-curve var(--enter) var(--ease-ui) both; }
+@keyframes show-selected-curve { from { opacity: .25; } to { opacity: 1; } }
 .curve-legend { display: flex; flex-wrap: wrap; gap: 7px 12px; margin: 9px 15px 0; }
 .curve-legend-toggle { display: inline-flex; align-items: center; gap: 8px; width: auto; min-height: 36px; margin: 4px 15px 0; color: var(--accent-dark); font-size: 13px; }
 .curve-legend[hidden] { display: none; }
@@ -170,7 +175,7 @@
   }
 }
 
-@media (max-width: 550px) {
+@container curve-ui (max-width: 550px) {
   .calculation-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
   .calculation-toolbar .calculation-controls { display: contents; }
   .report-date { grid-column: 1; grid-row: 1; }

@@ -1,9 +1,9 @@
-import { displayNumber } from './charts.mjs';
-import { animateContent, motionAllowed } from './motion.mjs';
+import { motionAllowed, openPanel } from './motion.mjs';
 
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const plotCache = new WeakMap();
-const renderedNumbers = new WeakMap();
+const curveSettlers = new WeakMap();
+const chartViews = new WeakMap();
 
 function barsIn(scope) {
   return [...scope.querySelectorAll('[data-morph-key]')].map((element) => {
@@ -26,7 +26,7 @@ function curveGeometry(svg) {
 
 export function captureCharts(scope) {
   const numbers = [...scope.querySelectorAll('[data-number-key]')].map((element) => [element.dataset.numberKey,
-    renderedNumbers.get(element) ?? Number.parseFloat(element.dataset.numberValue)]);
+    Number.parseFloat(element.dataset.numberValue)]);
   const bars = barsIn(scope).map(({ key, group, element }) => {
     const style = getComputedStyle(element);
     return [key, { group, rect: element.getBoundingClientRect(), color: element.ownerSVGElement ? style.fill : style.backgroundColor }];
@@ -42,25 +42,11 @@ export function animateCharts(scope, previous) {
   if (!motionAllowed()) return;
   const tasks = [];
   for (const element of scope.querySelectorAll('[data-number-key]')) {
-    const { numberKey, numberValue, numberUnit, numberFormat } = element.dataset;
+    const { numberKey, numberValue } = element.dataset;
     const from = previous.numbers.get(numberKey), to = Number.parseFloat(numberValue);
     if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) continue;
-    const visual = element.querySelector('[data-number-visual]');
-    const overlay = document.createElement('span');
-    overlay.className = 'tween-number';
-    overlay.setAttribute('aria-hidden', 'true');
-    element.append(overlay);
-    visual.classList.add('during-tween');
-    const finish = () => {
-      visual.classList.remove('during-tween');
-      overlay.remove();
-      renderedNumbers.delete(element);
-    };
-    tasks.push({ element, finish, step(progress) {
-      const value = mix(from, to, progress);
-      renderedNumbers.set(element, value);
-      overlay.textContent = displayNumber(value, numberUnit, numberFormat);
-    } });
+    element.animate?.([{ transform: 'translateY(2px)', opacity: .74 }, { transform: 'none', opacity: 1 }],
+      { duration: 195, easing: 'cubic-bezier(.22,1,.36,1)' });
   }
   const currentBars = barsIn(scope);
   const groups = new Map(currentBars.map(({ group, chart }) => [group, chart]));
@@ -96,15 +82,24 @@ export function animateCharts(scope, previous) {
     const from = previous.curves.get(svg.dataset.chartScope);
     const to = curveGeometry(svg);
     if (!from || !to || from.key !== to.key || from.coordinates.some(([x], index) => Math.abs(x - to.coordinates[index][0]) > .01)) {
-      if (previous.hadCurves) animateContent(svg);
+      if (previous.hadCurves) svg.animate?.([{ opacity: .82 }, { opacity: 1 }], { duration: 160 });
       continue;
     }
     if (from.coordinates.every(([, y], index) => y === to.coordinates[index][1])) continue;
     const exact = to.line.getAttribute('points');
-    tasks.push({ element: svg, finish() {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
       to.line.setAttribute('points', exact);
       to.dots.forEach((dot, index) => dot.setAttribute('cy', to.coordinates[index][1]));
-    }, step(progress) {
+      curveSettlers.delete(svg);
+      delete svg.dataset.morphing;
+    };
+    curveSettlers.set(svg, finish);
+    svg.dataset.morphing = '';
+    tasks.push({ active: () => !settled && svg.isConnected, finish, step(progress) {
+      if (settled) return;
       const coordinates = to.coordinates.map(([x, y], index) => {
         const next = mix(from.coordinates[index][1], y, progress);
         to.dots[index].setAttribute('cy', next);
@@ -120,10 +115,10 @@ export function animateCharts(scope, previous) {
     const continueMotion = time < 1 && motionAllowed();
     const progress = 1 - (1 - time) ** 3;
     for (const task of tasks) {
-      if (task.element.isConnected && continueMotion) task.step(progress);
+      if (task.active() && continueMotion) task.step(progress);
       else task.finish();
     }
-    if (continueMotion && tasks.some((task) => task.element.isConnected)) requestAnimationFrame(frame);
+    if (continueMotion && tasks.some((task) => task.active())) requestAnimationFrame(frame);
   }
   frame(start);
 }
@@ -133,7 +128,7 @@ function plotPoints(svg) {
   const ticks = new Map();
   for (const dot of svg.querySelectorAll('[data-point]')) {
     const x = Number(dot.dataset.point);
-    if (!ticks.has(x)) ticks.set(x, { x: +dot.getAttribute('cx'), label: dot.dataset.label, dots: [] });
+    if (!ticks.has(x)) ticks.set(x, { key: x, x: +dot.getAttribute('cx'), label: dot.dataset.label, date: dot.dataset.date, dots: [] });
     ticks.get(x).dots.push(dot);
   }
   const points = [...ticks.values()].sort((a, b) => a.x - b.x);
@@ -151,13 +146,77 @@ function nearest(points, x) {
   return low;
 }
 
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+
+function viewport(svg) {
+  const figure = svg.closest('[data-chart-figure]');
+  const plot = svg.querySelector('[data-plot]');
+  if (!figure || !plot) return null;
+  if (!chartViews.has(figure)) chartViews.set(figure, { zoom: 1, offset: 0, pinned: null });
+  const view = chartViews.get(figure);
+  return { view, figure, plot, left: Number(plot.dataset.left), right: Number(plot.dataset.right) };
+}
+
+function toView(x, area) {
+  return area ? area.left + (x - area.left - area.view.offset) * area.view.zoom : x;
+}
+
+function fromView(x, area) {
+  return area ? area.left + area.view.offset + (x - area.left) / area.view.zoom : x;
+}
+
+function updateViewport(svg) {
+  const area = viewport(svg);
+  if (!area) return;
+  const { view, figure, plot, left, right } = area;
+  const { zoom, offset } = view;
+  plot.setAttribute('transform', 'translate(' + (left - (left + offset) * zoom) + ',0) scale(' + zoom + ',1)');
+  plot.style.setProperty('--chart-inverse-scale', 1 / zoom);
+  figure.classList.toggle('is-zoomed', zoom > 1);
+  for (const control of figure.querySelectorAll('[data-chart-command]')) {
+    if (control.dataset.chartCommand === 'out') control.disabled = zoom === 1;
+    if (control.dataset.chartCommand === 'in') control.disabled = zoom >= 8;
+    if (control.dataset.chartCommand === 'reset') control.disabled = zoom === 1 && view.pinned === null;
+  }
+  const candidates = [...svg.querySelectorAll('[data-axis-x]')].map(node => ({ node, x: toView(Number(node.dataset.axisX), area) }));
+  const last = candidates.findLast(item => item.x <= right + .01 && item.x >= left - .01);
+  let previous = -Infinity;
+  for (const { node, x } of candidates) {
+    const show = x >= left - .01 && x <= right + .01 && (node === last?.node || x - previous >= 67 && last.x - x >= 67);
+    node.setAttribute('visibility', show ? 'visible' : 'hidden');
+    if (!show) continue;
+    node.setAttribute('x', x);
+    node.setAttribute('text-anchor', x - left < 16 ? 'start' : right - x < 16 ? 'end' : 'middle');
+    previous = x;
+  }
+}
+
+export function updateChartPlot(figure, next, compatible) {
+  const existing = figure.querySelector('svg[data-crosshair]');
+  const incoming = next.querySelector('svg[data-crosshair]');
+  const stress = existing.querySelector('[data-morph-line]');
+  const nextStress = incoming.querySelector('[data-morph-line]');
+  if (compatible && stress && nextStress) {
+    curveSettlers.get(existing)?.();
+    stress.replaceWith(nextStress);
+    plotCache.delete(existing);
+  } else {
+    if (!compatible) chartViews.delete(figure);
+    existing.replaceWith(incoming);
+  }
+  updateViewport(figure.querySelector('svg[data-crosshair]'));
+}
+
 export function installChartInteraction(scope) {
   const tooltip = document.createElement('div');
   tooltip.setAttribute('aria-hidden', 'true');
   tooltip.className = 'chart-tooltip';
   tooltip.dataset.glass = 'dense';
   tooltip.hidden = true;
+  const focusDialog = document.querySelector('#chart-focus');
+  const focusBody = document.querySelector('#chart-focus-body');
   let active, index = -1, linked = [], pending, frame = 0;
+  let fullscreen, drag, dragged = false;
 
   function hide() {
     active?.querySelector('.chart-cursor')?.classList.remove('is-visible');
@@ -170,7 +229,7 @@ export function installChartInteraction(scope) {
   }
 
   function show(target, title, lines, left, top) {
-    const container = target.closest('dialog[open]') ?? document.body;
+    const container = target.closest('dialog:modal') ?? document.body;
     if (tooltip.parentNode !== container) container.append(tooltip);
     const heading = document.createElement('strong');
     heading.textContent = title;
@@ -182,16 +241,32 @@ export function installChartInteraction(scope) {
     tooltip.replaceChildren(heading, ...values);
     tooltip.hidden = false;
     const width = tooltip.offsetWidth, height = tooltip.offsetHeight;
-    tooltip.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left + 10))}px`;
-    tooltip.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, top - height - 12))}px`;
+    const panel = container === document.body ? null : container.getBoundingClientRect();
+    const sx = panel ? panel.width / container.offsetWidth : 1;
+    const sy = panel ? panel.height / container.offsetHeight : 1;
+    const localX = (left - (panel?.left ?? 0)) / sx;
+    const localY = (top - (panel?.top ?? 0)) / sy;
+    const plotTop = target.matches('[data-crosshair]') ? (target.getBoundingClientRect().top - (panel?.top ?? 0)) / sy : 8;
+    const above = localY - height - 12;
+    const tooltipTop = above < plotTop ? localY + 12 : above;
+    tooltip.style.position = panel ? 'absolute' : 'fixed';
+    tooltip.style.left = clamp(localX + 10, 8, (panel ? container.clientWidth : innerWidth) - width - 8) + 'px';
+    tooltip.style.top = clamp(tooltipTop, 8, (panel ? container.clientHeight : innerHeight) - height - 8) + 'px';
   }
 
   function selectPoint(svg, next, announce = false) {
     const point = plotPoints(svg)[next];
     if (!point || active === svg && index === next && !announce) return;
     if (active !== svg) hide();
+    const area = viewport(svg);
+    const x = toView(point.x, area);
+    if (area && (x < area.left - 1 || x > area.right + 1)) {
+      hide();
+      return;
+    }
+    curveSettlers.get(svg)?.();
     const guide = svg.querySelector('.chart-cursor');
-    guide.style.transform = `translateX(${point.x}px)`;
+    guide.style.transform = 'translateX(' + x + 'px)';
     guide.querySelectorAll('circle').forEach((dot) => dot.remove());
     const values = point.dots.slice(0, 8).map((dot) => {
       const marker = document.createElementNS(svgNamespace, 'circle');
@@ -199,13 +274,20 @@ export function installChartInteraction(scope) {
       marker.setAttribute('r', '4.5');
       marker.style.stroke = dot.parentElement.getAttribute('stroke');
       guide.append(marker);
-      return `${dot.parentElement.dataset.series} · ${dot.dataset.value}`;
+      return dot.parentElement.dataset.series + ' · ' + dot.dataset.value;
     });
-    if (point.dots.length > 8) values.push(`Ещё точек: ${point.dots.length - 8}`);
+    if (point.dots.length > 8) values.push('Ещё точек: ' + (point.dots.length - 8));
+    if (area) {
+      linked.forEach(item => item.classList.remove('is-linked'));
+      linked = [...area.figure.closest('.workspace')?.querySelectorAll('[data-plot-match]') ?? []]
+        .filter(item => item.dataset.plotMatch === point.label);
+      linked.forEach(item => item.classList.add('is-linked'));
+      if (area.view.pinned === point.key) values.push('Закреплено · Esc для сброса');
+    }
     guide.classList.add('is-visible');
     const matrix = svg.getScreenCTM();
     if (!matrix) return;
-    const anchor = new DOMPoint(point.x, Math.min(...point.dots.map((dot) => +dot.getAttribute('cy')))).matrixTransform(matrix);
+    const anchor = new DOMPoint(x, Math.min(...point.dots.map((dot) => +dot.getAttribute('cy')))).matrixTransform(matrix);
     show(svg, point.label, values, anchor.x, anchor.y);
     active = svg;
     index = next;
@@ -223,58 +305,271 @@ export function installChartInteraction(scope) {
     active = control;
   }
 
+  function selectHeat(control) {
+    if (active === control) return;
+    hide();
+    const cell = control.closest('td');
+    const table = cell.closest('table');
+    linked = [...table.rows].flatMap((row) => row === cell.parentElement
+      ? [...row.cells] : [row.cells[cell.cellIndex]].filter(Boolean));
+    linked.forEach(item => item.classList.add('is-linked'));
+    active = control;
+  }
+
+  function showBucket(control) {
+    const panel = control.closest('.workspace');
+    const svg = panel?.querySelector('.rate-panel svg[data-crosshair]');
+    if (!svg) return;
+    const area = viewport(svg);
+    if (area?.view.pinned !== null) return;
+    const point = plotPoints(svg).findIndex(item => item.label === control.dataset.plotMatch);
+    if (point >= 0) selectPoint(svg, point);
+  }
+
+  function activePin(svg) {
+    const area = svg?.matches('[data-crosshair]') ? viewport(svg) : null;
+    return area ? area.view.pinned !== null : false;
+  }
+
+  function resetHover() {
+    if (!activePin(active)) hide();
+    else pending = null;
+  }
+
+  function pointerIndex(svg, clientX, clientY) {
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return -1;
+    const x = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse()).x;
+    return nearest(plotPoints(svg), fromView(x, viewport(svg)));
+  }
+
   scope.addEventListener('pointermove', (event) => {
+    if (drag) return;
     const chart = event.target.closest('[data-crosshair]');
     const factor = event.target.closest('[data-action="factor"]');
-    if (!chart && !factor) {
-      if (active || pending) hide();
+    const heat = event.target.closest('.heat-cell');
+    const bucket = event.target.closest('[data-plot-match]');
+    if (!chart && !factor && !heat && !bucket) {
+      if (active || pending) resetHover();
       return;
     }
-    pending = { chart, factor, x: event.clientX, y: event.clientY };
+    pending = { chart, factor, heat, bucket, x: event.clientX, y: event.clientY };
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       if (!pending) return;
-      const { chart, factor, x, y } = pending;
-      if (chart) {
-        const matrix = chart.getScreenCTM();
-        if (matrix) selectPoint(chart, nearest(plotPoints(chart), new DOMPoint(x, y).matrixTransform(matrix.inverse()).x));
-        return;
-      }
-      selectFactor(factor, x, y);
+      const { chart, factor, heat, bucket, x, y } = pending;
+      if (chart?.isConnected) {
+        const pin = viewport(chart)?.view.pinned;
+        const next = pin != null ? plotPoints(chart).findIndex(point => point.key === pin) : pointerIndex(chart, x, y);
+        selectPoint(chart, next);
+      } else if (factor?.isConnected) selectFactor(factor, x, y);
+      else if (heat?.isConnected) selectHeat(heat);
+      else if (bucket?.isConnected) showBucket(bucket);
     });
   }, { passive: true });
-  scope.addEventListener('pointerleave', hide);
-  scope.addEventListener('focusout', hide);
+  scope.addEventListener('pointerleave', resetHover);
+  scope.addEventListener('focusout', resetHover);
   scope.addEventListener('focusin', (event) => {
-    const control = event.target.closest('[data-tip-title]');
-    if (!control || !event.target.matches(':focus-visible')) return;
-    const rect = control.getBoundingClientRect();
-    selectFactor(control, rect.left + rect.width / 2, rect.top);
+    if (!event.target.matches(':focus-visible')) return;
+    const factor = event.target.closest('[data-tip-title]');
+    const heat = event.target.closest('.heat-cell');
+    if (factor) {
+      const rect = factor.getBoundingClientRect();
+      selectFactor(factor, rect.left + rect.width / 2, rect.top);
+    }
+    if (heat) selectHeat(heat);
   });
-  scope.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { hide(); return; }
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const svg = event.target.querySelector?.('[data-crosshair]');
-    if (!svg || !event.target.matches('.chart-scroll')) return;
-    event.preventDefault();
-    const last = plotPoints(svg).length - 1;
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? last : Math.max(0,
-      Math.min(last, (active === svg ? index : -1) + (event.key === 'ArrowLeft' ? -1 : 1)));
+
+  function updateGuide(svg) {
+    const pin = viewport(svg)?.view.pinned;
+    const current = pin != null ? plotPoints(svg).findIndex(point => point.key === pin) : active === svg ? index : -1;
+    if (current < 0) return;
+    index = -1;
+    selectPoint(svg, current);
+  }
+
+  function shift(svg, next) {
+    const area = viewport(svg);
+    const span = area.right - area.left;
+    area.view.offset = clamp(next, 0, span * (1 - 1 / area.view.zoom));
+    updateViewport(svg);
+    updateGuide(svg);
+  }
+
+  function zoom(svg, next) {
+    const area = viewport(svg);
+    const center = area.left + area.view.offset + (area.right - area.left) / (2 * area.view.zoom);
+    area.view.zoom = clamp(next, 1, 8);
+    shift(svg, center - area.left - (area.right - area.left) / (2 * area.view.zoom));
+  }
+
+  function pin(svg, next) {
+    const area = viewport(svg);
+    const point = plotPoints(svg)[next];
+    if (!area || !point) return;
+    area.view.pinned = area.view.pinned === point.key ? null : point.key;
+    updateViewport(svg);
     selectPoint(svg, next, true);
-    const scroll = event.target;
-    const target = svg.getBoundingClientRect().width * plotPoints(svg)[next].x / svg.viewBox.baseVal.width;
-    if (target < scroll.scrollLeft || target > scroll.scrollLeft + scroll.clientWidth) {
-      scroll.scrollLeft = target - scroll.clientWidth / 2;
-      index = -1;
-      selectPoint(svg, next, true);
+  }
+
+  scope.addEventListener('pointerdown', (event) => {
+    dragged = false;
+    const svg = event.target.closest('[data-crosshair]');
+    if (!svg || event.button !== 0) return;
+    const area = viewport(svg);
+    const matrix = svg.getScreenCTM();
+    if (!area || !matrix || area.view.zoom === 1) return;
+    drag = { svg, pointer: event.pointerId, start: event.clientX, offset: area.view.offset, scale: matrix.a * area.view.zoom };
+  });
+  scope.addEventListener('pointermove', (event) => {
+    if (!drag || drag.pointer !== event.pointerId) return;
+    const distance = event.clientX - drag.start;
+    if (!dragged && Math.abs(distance) < 5) return;
+    if (!dragged) {
+      dragged = true;
+      drag.svg.setPointerCapture(event.pointerId);
+      drag.svg.closest('figure').classList.add('is-panning');
+      if (!activePin(drag.svg)) hide();
+    }
+    shift(drag.svg, drag.offset - distance / drag.scale);
+  }, { passive: true });
+
+  function stopDrag(event) {
+    if (drag?.pointer !== event.pointerId) return;
+    drag.svg.closest('figure')?.classList.remove('is-panning');
+    drag = null;
+  }
+  scope.addEventListener('pointerup', stopDrag);
+  scope.addEventListener('pointercancel', stopDrag);
+  scope.addEventListener('lostpointercapture', stopDrag);
+
+  function fullscreenChart(button, item) {
+    if (!item || fullscreen) return;
+    const marker = document.createComment('chart-place');
+    const origin = button.getBoundingClientRect();
+    const title = item.dataset.chartTitle ?? item.querySelector('svg[aria-label]')?.getAttribute('aria-label') ?? 'График';
+    focusDialog.querySelector('h2').textContent = title;
+    item.before(marker);
+    focusBody.append(item);
+    fullscreen = { marker, item, button };
+    hide();
+    openPanel(focusDialog, origin);
+  }
+
+  focusDialog.addEventListener('close', () => {
+    if (!fullscreen || focusDialog.open) return;
+    const { marker, item, button } = fullscreen;
+    fullscreen = null;
+    hide();
+    if (marker.isConnected) marker.replaceWith(item);
+    focusBody.replaceChildren();
+    if (button.isConnected && !document.querySelector('dialog:modal') && document.activeElement === document.body) {
+      button.focus({ preventScroll: true });
     }
   });
+
+  scope.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-chart-command]');
+    if (button) {
+      const command = button.dataset.chartCommand;
+      const figure = button.closest('[data-chart-figure]');
+      const svg = figure?.querySelector('[data-crosshair]');
+      if (command === 'expand') {
+        fullscreenChart(button, button.dataset.chartTarget ? document.querySelector(button.dataset.chartTarget) : figure);
+      } else if (command === 'in' || command === 'out') {
+        zoom(svg, viewport(svg).view.zoom * (command === 'in' ? 1.5 : 1 / 1.5));
+      } else if (command === 'reset') {
+        viewport(svg).view.pinned = null;
+        zoom(svg, 1);
+        hide();
+      } else if (command === 'period') {
+        const range = figure.querySelector('.chart-range');
+        range.hidden = !range.hidden;
+        button.setAttribute('aria-expanded', String(!range.hidden));
+        if (!range.hidden) range.querySelector('select').focus({ preventScroll: true });
+      } else if (command === 'apply-period') {
+        const before = figure.querySelector('[data-chart-before]').value;
+        const after = figure.querySelector('[data-chart-after]').value;
+        const note = figure.querySelector('[data-chart-range-note]');
+        note.hidden = before < after;
+        if (!note.hidden) {
+          note.textContent = 'Начало должно быть раньше конца.';
+          return;
+        }
+        const origin = button.getBoundingClientRect();
+        if (focusDialog.open) focusDialog.close();
+        document.dispatchEvent(new CustomEvent('spectrum-chart-period', { detail: { before, after, origin } }));
+      }
+      return;
+    }
+    const svg = event.target.closest('[data-crosshair]');
+    if (svg && !dragged) pin(svg, pointerIndex(svg, event.clientX, event.clientY));
+    dragged = false;
+  });
+
+  scope.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      const svg = event.target.closest('[data-chart-figure]')?.querySelector('[data-crosshair]');
+      if (activePin(svg)) {
+        const area = viewport(svg);
+        area.view.pinned = null;
+        updateViewport(svg);
+        event.preventDefault();
+      }
+      hide();
+      return;
+    }
+    const heat = event.target.closest('.heat-cell');
+    const directions = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] };
+    if (heat && directions[event.key]) {
+      const [row, column] = directions[event.key];
+      const cell = heat.closest('td');
+      const rows = cell.closest('tbody').rows;
+      const i = cell.parentElement.sectionRowIndex;
+      const j = cell.cellIndex;
+      for (let distance = 1; distance < rows.length; distance++) {
+        const next = rows[i + row * distance]?.cells[j + column * distance]?.querySelector('button');
+        if (next) { event.preventDefault(); next.focus(); break; }
+      }
+      return;
+    }
+    if (!event.target.matches('.chart-scroll')) return;
+    const svg = event.target.querySelector('[data-crosshair]');
+    if (!svg) return;
+    const area = viewport(svg);
+    if (area && ['+', '=', '-', '0', 'Enter'].includes(event.key)) {
+      event.preventDefault();
+      if (event.key === 'Enter') pin(svg, active === svg ? index : 0);
+      else zoom(svg, event.key === '0' ? 1 : area.view.zoom * (event.key === '-' ? 1 / 1.5 : 1.5));
+      return;
+    }
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const points = plotPoints(svg);
+    const last = points.length - 1;
+    const direction = event.key === 'ArrowLeft' ? -1 : 1;
+    const current = active === svg ? index : area?.view.pinned != null
+      ? points.findIndex(item => item.key === area.view.pinned) : direction < 0 ? points.length : -1;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? last : clamp(current + direction, 0, last);
+    if (area?.view.pinned != null) area.view.pinned = points[next].key;
+    if (area && area.view.zoom > 1) {
+      const x = toView(points[next].x, area);
+      if (x < area.left || x > area.right) shift(svg, points[next].x - area.left - (area.right - area.left) / (2 * area.view.zoom));
+    }
+    const scroll = event.target;
+    const target = svg.getBoundingClientRect().width * toView(points[next].x, area) / svg.viewBox.baseVal.width;
+    if (target < scroll.scrollLeft || target > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = target - scroll.clientWidth / 2;
+    selectPoint(svg, next, true);
+  });
+
   document.addEventListener('scroll', (event) => {
     if (active?.matches('[data-crosshair]') && event.target === active.parentElement && document.activeElement === event.target) {
-      const current = index;
-      index = -1;
-      selectPoint(active, current);
+      updateGuide(active);
+    } else if (activePin(active) && active.isConnected) {
+      const rect = active.getBoundingClientRect();
+      if (rect.bottom > 0 && rect.top < innerHeight) updateGuide(active);
+      else hide();
     } else hide();
   }, { capture: true, passive: true });
   return hide;

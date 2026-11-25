@@ -299,7 +299,7 @@ p.note + p.note { margin-top: 6px; }
 .chart-scroll, .table-wrap { overflow: auto; min-width: 0; scrollbar-width: thin; }
 .chart-scroll .line-chart { min-width: 490px; }
 .line-figure { margin: 10px 0; }
-.line-figure figcaption, .axis-caption { color: var(--muted-strong); font-size: 12px; font-weight: 555; }
+.axis-caption { color: var(--muted-strong); font-size: 12px; font-weight: 555; }
 .axis-caption { text-align: right; margin-top: 2px; }
 .legend { display: flex; flex-wrap: wrap; gap: 5px 13px; list-style: none; margin: 7px 0; padding: 0; color: var(--muted-strong); font-size: 12px; }
 .legend li { display: inline-flex; align-items: center; gap: 5px; }

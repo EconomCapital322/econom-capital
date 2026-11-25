@@ -31,9 +31,10 @@ function spring(element, kind, frame) {
   if (!motionAllowed() || !element.animate) return null;
   const profile = settings[kind];
   const end = response(1, profile);
-  const frames = Array.from({ length: 19 }, (_, index) => {
-    const time = index / 18;
-    return { ...frame(response(time, profile) / end, time), offset: time };
+  const frames = Array.from({ length: 25 }, (_, index) => {
+    const time = index / 24;
+    const progress = response(time, profile) / end;
+    return { ...frame(progress, time), offset: time };
   });
   return play(element, frames, { duration: profile.duration });
 }
@@ -72,7 +73,8 @@ export function syncIndicators(scope, previous = new Map(), animate = true) {
     if (Math.abs(dx) + Math.abs(dy) + Math.abs(sx) + Math.abs(sy) < 1) continue;
     spring(pill, 'indicator', (progress, time) => {
       const rem = 1 - progress;
-      const stretch = Math.sin(Math.PI * time) * Math.max(0, rem) * .1;
+      const travel = Math.max(Math.abs(dx), Math.abs(dy)) / Math.max(width, height);
+      const stretch = Math.sin(Math.PI * time) ** 2 * Math.max(0, rem) * Math.min(.24, travel * .12);
       return { transform: `translate(${x + dx * rem}px, ${y + dy * rem}px) scale(${1 + sx * rem + (Math.abs(dx) >= Math.abs(dy) ? stretch : 0)}, ${1 + sy * rem + (Math.abs(dx) < Math.abs(dy) ? stretch : 0)})` };
     });
   }
@@ -104,17 +106,28 @@ function panelTransform(dialog, source) {
 const panelFrame = ({ x, y, sx, sy }, rem) =>
   `translate3d(${x * rem}px, ${y * rem}px, 0) scale(${1 + (sx - 1) * rem}, ${1 + (sy - 1) * rem})`;
 
-export function openPanel(dialog, source = document.activeElement) {
-  if (dialog.open) return;
+export function openPanel(dialog, source = document.activeElement, { modal = true } = {}) {
+  if (dialog.open) {
+    if (closing.has(dialog)) animations.get(dialog)?.cancel();
+    return;
+  }
   const origin = source?.getBoundingClientRect ? panelOrigin(source) : source;
   origins.set(dialog, origin);
-  dialog.showModal();
+  if (modal) dialog.showModal();
+  else dialog.show();
   if (!motionAllowed()) return;
-  const state = panelTransform(dialog, origin);
-  spring(dialog, 'panel', (progress) => ({ transform: panelFrame(state, 1 - progress), opacity: Math.min(1, .32 + progress) }));
+  const geometry = panelTransform(dialog, origin);
+  if (!modal) {
+    spring(dialog, 'panel', (progress) => ({
+      transform: panelFrame({ x: Math.max(-32, Math.min(0, geometry.x)), y: 0, sx: .96, sy: .99 }, Math.max(0, 1 - progress)),
+      opacity: Math.min(1, .72 + progress),
+    }));
+  } else {
+    spring(dialog, 'panel', (progress) => ({ transform: panelFrame(geometry, 1 - progress), opacity: Math.min(1, .32 + progress) }));
+  }
 }
 
-function requestClose(dialog, value) {
+export function requestClose(dialog, value) {
   if (!dialog.open || closing.has(dialog)) return;
   if (!motionAllowed() || !dialog.animate) {
     dialog.close(value);
@@ -152,6 +165,11 @@ export function installPanels() {
   window.visualViewport?.addEventListener('resize', fitViewport, { passive: true });
   fitViewport();
   for (const dialog of dialogs) {
+    dialog.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || dialog.matches(':modal')) return;
+      event.preventDefault();
+      requestClose(dialog);
+    });
     dialog.addEventListener('cancel', (event) => {
       event.preventDefault();
       requestClose(dialog);
@@ -172,22 +190,29 @@ export function installPanels() {
 
 let viewTransition;
 let viewRevision = 0;
+export function settleChartTransition() {
+  viewRevision++;
+  viewTransition?.skipTransition();
+}
+
 export function transitionChart(element, update) {
   const revision = ++viewRevision;
   viewTransition?.skipTransition();
-  if (!motionAllowed() || !document.startViewTransition) {
+  if (!element || !motionAllowed() || !element.startViewTransition) {
     update();
-    if (motionAllowed()) animateContent(element);
+    if (motionAllowed()) {
+      const shape = element?.querySelector('.waterfall-frame, .contribution-chart');
+      if (shape) play(shape, [{ opacity: .86 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
+    }
     return;
   }
-  element.style.viewTransitionName = 'chart-switch';
-  const transition = document.startViewTransition(() => { if (revision === viewRevision) update(); });
+  const transition = element.startViewTransition(() => { if (revision === viewRevision) update(); });
   viewTransition = transition;
   const clear = () => {
     if (viewTransition !== transition) return;
     viewTransition = null;
-    element.style.viewTransitionName = '';
   };
+  transition.updateCallbackDone.catch(() => {});
   transition.finished.then(clear, clear);
 }
 
@@ -196,7 +221,7 @@ export function installLighting() {
   let frame = 0;
   let pointer;
   document.addEventListener('pointermove', (event) => {
-    const control = event.target.closest?.('[data-light], .button.primary');
+    const control = event.target.closest?.('[data-light], .button.primary, .workspace-nav');
     if (!control || root.dataset.transparency === 'reduced' || !motionAllowed()) return;
     pointer = { control, x: event.clientX, y: event.clientY };
     if (frame) return;

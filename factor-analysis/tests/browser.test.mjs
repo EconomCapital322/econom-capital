@@ -98,7 +98,8 @@ async function waitForJob(page, origin, id) {
 test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsive navigation', { timeout: 150_000 }, async () => {
   const data = await mkdtemp(join(tmpdir(), 'spectrum-browser-'));
   const server = spawn(python, ['-m', 'service.server', '--port', '0'], {
-    env: { ...process.env, SPECTRUM_DATA_DIR: data, SPECTRUM_LLM_ENABLED: '0', DEEPSEEK_API_KEY: '', SPECTRUM_CURVES_URL: 'http://127.0.0.1:1' },
+    env: { ...process.env, SPECTRUM_DATA_DIR: data, SPECTRUM_CURVES_DIR: join(data, 'curves-cache'),
+      SPECTRUM_LLM_ENABLED: '0', DEEPSEEK_API_KEY: '', SPECTRUM_CURVES_URL: 'http://127.0.0.1:1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let browser;
@@ -128,16 +129,21 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(origin);
     await page.getByRole('heading', { name: 'Подготовьте историю портфеля' }).waitFor();
+    await recordThemes(page, '00-empty-workspace');
     const appearance = page.locator('#appearance-dialog');
     const appearanceButton = page.getByRole('button', { name: 'Внешний вид', exact: true });
     await appearanceButton.click();
     await appearance.getByLabel('Тема').selectOption('dark');
     await appearance.getByLabel('Прозрачность').selectOption('reduced');
     await appearance.getByLabel('Анимация').selectOption('reduced');
+    await appearance.getByLabel('Плотность').selectOption('compact');
+    await appearance.getByLabel('Оптика блика').selectOption('enhanced');
     await page.reload();
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
     assert.equal(await page.locator('html').getAttribute('data-transparency'), 'reduced');
     assert.equal(await page.locator('html').getAttribute('data-motion'), 'reduced');
+    assert.equal(await page.locator('html').getAttribute('data-density'), 'compact');
+    assert.equal(await page.locator('html').getAttribute('data-optics'), 'enhanced');
     const navigationMaterial = await page.locator('.navigation-shell').evaluate((nav) => getComputedStyle(nav).backdropFilter);
     assert.equal(navigationMaterial, 'none');
     await appearanceButton.click();
@@ -146,6 +152,21 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await appearance.getByLabel('Анимация').selectOption('full');
     await page.keyboard.press('Escape');
     await appearance.waitFor({ state: 'hidden' });
+    await page.keyboard.press('Control+k');
+    const commands = page.locator('#command-palette');
+    const search = commands.getByRole('combobox');
+    await search.fill('параметры');
+    await search.press('Escape');
+    await commands.waitFor({ state: 'hidden' });
+    await page.keyboard.press('Control+k');
+    await search.fill('пустой поиск');
+    await commands.getByText('Действия не найдены.').waitFor();
+    await search.fill('плотность');
+    assert.equal(await commands.getByRole('option').count(), 2);
+    await search.press('ArrowDown');
+    await search.press('Enter');
+    await commands.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('html').getAttribute('data-density'), 'comfortable');
     const navMark = page.getByRole('link', { name: 'Анализ', exact: true }).locator('.icon');
     const beforeCollapse = await navMark.boundingBox();
     await page.getByRole('button', { name: 'Свернуть меню', exact: true }).click();
@@ -229,20 +250,54 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await drawer.getByRole('button', { name: 'Объяснить с помощью AI' }).click();
     assert.equal((await factorAnswer).postDataJSON().focusFactor, 'factor:cash_effect');
     await page.locator('#answer').getByText('Показаны проверенные факты расчёта.', { exact: true }).waitFor();
+    assert.equal(await assistant.evaluate(dialog => dialog.matches(':modal')), false);
+    await page.waitForFunction(() => {
+      const panel = document.querySelector('#assistant-drawer').getBoundingClientRect();
+      const workspace = document.querySelector('.workspace').getBoundingClientRect();
+      return panel.left >= workspace.right;
+    });
+    const grip = assistant.getByRole('separator', { name: 'Ширина помощника' });
+    const startWidth = Number(await grip.getAttribute('aria-valuenow'));
+    await grip.press('ArrowLeft');
+    assert.equal(Number(await grip.getAttribute('aria-valuenow')), startWidth + 24);
+    await page.waitForFunction((width) => Math.abs(document.querySelector('#assistant-drawer').getBoundingClientRect().width - width) < 1,
+      startWidth + 24);
+    const handle = await grip.boundingBox();
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2 + 30, handle.y + handle.height / 2, { steps: 4 });
+    await page.mouse.up();
+    assert.ok(Number(await grip.getAttribute('aria-valuenow')) < startWidth + 24);
+    await assistant.locator('#question').fill('Черновик вопроса');
+    await assistant.getByRole('button', { name: 'Свернуть помощника' }).click();
+    await assistant.waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Восстановить AI' }).click();
+    assert.equal(await assistant.locator('#question').inputValue(), 'Черновик вопроса');
+    await noOverflow(page, [[1920, 1080], [1440, 900], [1280, 800]]);
+    await page.setViewportSize({ width: 1440, height: 900 });
     await recordThemes(page, 'ai-valuation', undefined, false);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForFunction(() => document.querySelector('.assistant-composer').getBoundingClientRect().bottom <= innerHeight + 1);
+    await page.waitForFunction(() => document.querySelector('#assistant-drawer').matches(':modal'));
     await record(page, 'ai-valuation-mobile', undefined, false);
     await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForFunction(() => !document.querySelector('#assistant-drawer').matches(':modal'));
     await page.locator('#answer').getByRole('button', { name: /^Открыть источник/ }).first().click();
     await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await drawer.waitFor({ state: 'hidden' });
+    assert.equal(await assistant.isVisible(), true, 'Follow a verified source and keep the assistant visible.');
     await page.getByRole('button', { name: 'К вкладам', exact: true }).click();
     await page.getByRole('group', { name: 'Вклады факторов относительно нуля' }).waitFor();
     await page.getByRole('button', { name: 'Водопад', exact: true }).click();
     await page.getByRole('group', { name: /^Водопад изменения показателя/ }).waitFor();
     await record(page, '01-waterfall', '#waterfall');
+    await cash.click();
+    await drawer.getByRole('heading', { name: 'Денежные потоки', exact: true }).waitFor();
+    await drawer.getByRole('button', { name: 'Закрыть детали', exact: true }).click();
+    await drawer.waitFor({ state: 'hidden' });
+    await assistant.getByRole('button', { name: 'Закрыть помощника' }).click();
+    await assistant.waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'К вкладам', exact: true }).click();
     await openResearch.click();
     await page.getByRole('img', { name: 'История выбранного показателя' }).waitFor();
@@ -254,6 +309,33 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.locator('.tab-body .chart-scroll').focus();
     await page.keyboard.press('ArrowRight');
     assert.match(await page.locator('[data-chart-announcement]').textContent(), /₽/);
+    const trend = page.locator('#tab-body [data-chart-figure]');
+    await page.keyboard.press('Enter');
+    await page.locator('.chart-tooltip').getByText('Закреплено · Esc для сброса').waitFor();
+    await trend.getByRole('button', { name: 'Увеличить масштаб' }).click();
+    assert.match(await trend.locator('[data-plot]').getAttribute('transform'), /scale\(1.5,1\)/);
+    await trend.getByRole('button', { name: 'Развернуть график' }).click();
+    const chartFocus = page.locator('#chart-focus');
+    assert.match(await chartFocus.locator('[data-plot]').getAttribute('transform'), /scale\(1.5,1\)/);
+    const fullView = chartFocus.locator('.chart-scroll');
+    await fullView.press('End');
+    await page.waitForFunction(() => {
+      const modal = document.querySelector('#chart-focus').getBoundingClientRect();
+      const tip = document.querySelector('.chart-tooltip').getBoundingClientRect();
+      return tip.width > 0 && tip.left >= modal.left && tip.right <= modal.right && tip.top >= modal.top && tip.bottom <= modal.bottom;
+    });
+    await chartFocus.getByRole('button', { name: 'Закрыть полноэкранный график' }).click();
+    await trend.waitFor();
+    await trend.getByRole('button', { name: 'Сбросить' }).click();
+    await trend.getByRole('button', { name: 'Период', exact: true }).click();
+    const firstAnalysisDay = await trend.getByLabel('Начало').locator('option').first().getAttribute('value');
+    await trend.getByLabel('Начало').selectOption(firstAnalysisDay);
+    await trend.getByRole('button', { name: 'К параметрам расчёта' }).click();
+    assert.equal(await settings.locator('#from').inputValue(), firstAnalysisDay);
+    assert.equal(await applied.textContent(), actualPeriod);
+    await page.keyboard.press('Escape');
+    await settings.waitFor({ state: 'hidden' });
+    await trend.getByRole('button', { name: 'Период', exact: true }).click();
     if (screenshotDirectory) await page.keyboard.press('Escape');
     await recordThemes(page, '05-research');
     await page.getByRole('button', { name: 'Вклады', exact: true }).click();
@@ -275,7 +357,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('table', { name: 'Вклады в изменение денежных потоков' }).waitFor();
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '08-cash-details', '#cash-details');
+    await recordThemes(page, '08-cash-details', '#cash-details');
     const downloadedCash = page.waitForEvent('download');
     await page.getByRole('link', { name: 'Детализация CSV' }).click();
     assert.equal((await downloadedCash).suggestedFilename(), 'cash-details.csv');
@@ -312,13 +394,18 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const initialBuckets = await buckets.textContent();
     const steepener = page.getByRole('button', { name: /^Увеличение наклона кривой/ });
     const baseLine = await curve.locator('polyline').first().getAttribute('points');
+    await curve.locator('polyline').first().evaluate(line => { line.dataset.identity = 'unchanged'; });
     if (screenshotDirectory && engine === 'chromium') await page.context().tracing.start({ screenshots: true, snapshots: true });
     await steepener.click();
     assert.equal(await steepener.getAttribute('aria-pressed'), 'true');
+    const numberText = (input) => input.replace(/\s+/g, '');
+    assert.equal(numberText(await page.locator('.scenario-values dd').last().textContent()),
+      numberText(await steepener.locator('strong').textContent()), 'the selected amount stays exact during the visual transition');
     await page.waitForFunction((points) => document.querySelector('[data-morph-line] polyline').getAttribute('points') !== points, initialCurve);
     assert.equal(await curve.locator('polyline').first().getAttribute('points'), baseLine);
+    assert.equal(await curve.locator('polyline').first().getAttribute('data-identity'), 'unchanged');
     if (screenshotDirectory && engine === 'chromium') {
-      await page.locator('.tween-number').first().waitFor({ state: 'hidden' });
+      await page.locator('svg[data-morphing]').waitFor({ state: 'hidden' });
       await page.context().tracing.stop({ path: join(screenshotDirectory, 'scenario-transition.zip') });
     }
     assert.notEqual(await buckets.textContent(), initialBuckets);
@@ -360,6 +447,11 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('table', { name: 'Ошибки модели разложения' }).getByRole('columnheader', { name: 'RMSE' }).waitFor();
     await page.getByText('Устойчивость и ограничения', { exact: true }).click();
     await page.getByText(/Численная невязка проверяет/).waitFor();
+    await recordThemes(page, '10-model-quality');
+    if (await assistant.isVisible()) {
+      await assistant.getByRole('button', { name: 'Закрыть помощника' }).click();
+      await assistant.waitFor({ state: 'hidden' });
+    }
     await page.getByRole('link', { name: 'Портфель', exact: true }).click();
     await page.getByRole('searchbox', { name: 'ID сделки' }).fill('1');
     const results = page.waitForResponse((response) => response.url().includes('/api/deals/') && new URL(response.url()).searchParams.get('q') === '1');
@@ -387,6 +479,11 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const quote = (value) => '"' + value.replaceAll('"', '""') + '"';
     const renamed = example.replace('размер', quote(untrusted));
     const picker = page.locator('#import-form .file-picker');
+    await page.getByLabel('Файл истории').setInputFiles({ name: 'too-large.csv', mimeType: 'text/csv', buffer: Buffer.alloc(6_000_001) });
+    await page.getByRole('button', { name: 'Загрузить CSV' }).click();
+    await page.locator('#import-form').getByRole('alert').getByText('Выберите CSV размером до 6 МБ.').waitFor();
+    assert.equal(await page.getByLabel('Файл истории').getAttribute('aria-invalid'), 'true');
+    await recordThemes(page, '11-import-error');
     await picker.evaluate((target, csv) => {
       const transfer = new DataTransfer();
       transfer.items.add(new File([csv], 'данные.csv', { type: 'text/csv' }));
@@ -412,7 +509,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('heading', { name: 'Как меняется связь с показателем' }).waitFor();
     await noOverflow(page, cases);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await record(page, '06-nonlinearity');
+    await recordThemes(page, '06-nonlinearity');
     await page.locator('#effect-select').selectOption(untrusted);
     const effectChart = page.getByRole('combobox', { name: 'Вид графика', exact: true });
     await effectChart.selectOption('shap');
@@ -442,7 +539,7 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const pairKey = await newPair.getAttribute('data-key');
     await newPair.click();
     assert.equal(await page.getByLabel('Пара факторов').inputValue(), pairKey);
-    await record(page, '07-interactions');
+    await recordThemes(page, '07-interactions');
     await method.getByText('Методология и выгрузки', { exact: true }).click();
     assert.match(await method.locator('.formula').textContent(), /SHAP/);
     await method.getByRole('link', { name: 'Взаимодействия CSV', exact: true }).waitFor();
@@ -614,11 +711,13 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
   const date = '2026-08-25';
   const upstream = await contractServer(date);
   const data = await mkdtemp(join(tmpdir(), 'spectrum-embedded-'));
-  const env = { ...process.env, SPECTRUM_DATA_DIR: data, SPECTRUM_LLM_ENABLED: '0', DEEPSEEK_API_KEY: '',
-    SPECTRUM_CURVES_URL: upstream.url, SPECTRUM_CURVE_ASSETS: join(data, 'curve-ui') };
+  const prebuilt = process.env.SPECTRUM_TEST_CURVE_ASSETS;
+  const env = { ...process.env, SPECTRUM_DATA_DIR: data, SPECTRUM_CURVES_DIR: join(data, 'curves-cache'),
+    SPECTRUM_LLM_ENABLED: '0', DEEPSEEK_API_KEY: '',
+    SPECTRUM_CURVES_URL: upstream.url, SPECTRUM_CURVE_ASSETS: prebuilt || join(data, 'curve-ui') };
   let browser, server;
   try {
-    execFileSync(python, ['-m', 'service.curve_ui'], { env, timeout: 40_000 });
+    if (!prebuilt) execFileSync(python, ['-m', 'service.curve_ui'], { env, timeout: 40_000 });
     server = spawn(python, ['-m', 'service.server', '--port', '0'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const origin = await waitForServer(server);
     browser = await browserType.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
@@ -655,6 +754,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await dayPicker.getByRole('button', { name: 'Следующий месяц', exact: true }).click();
     await dayPicker.locator('[data-date="2026-08-24"]').click();
     await page.getByText('Нет публикации MOEX за выбранную дату.', { exact: true }).waitFor();
+    await recordThemes(page, '11-moex-no-publication');
     await page.getByRole('button', { name: /^Отчётная дата/ }).click();
     await dayPicker.locator('[data-date="2026-08-25"]').click();
     await use.waitFor();
@@ -665,10 +765,19 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await curveAssistant.getByText('Общий рост ставок', { exact: true }).waitFor();
     await curveAssistant.getByRole('button', { name: 'Что означают P, K и D?' }).click();
     await curveAssistant.locator('#answer').getByText(/P = 4,00, K = 5,00, D = 3,00/).waitFor();
+    await page.getByRole('button', { name: 'Общее снижение ставок', exact: true }).click();
+    await curveAssistant.getByText('Общее снижение ставок', { exact: true }).waitFor();
+    assert.equal(await curveAssistant.locator('#answer').textContent(), '');
+    await page.getByRole('button', { name: 'Общее снижение ставок', exact: true }).click();
+    await curveAssistant.locator('#answer').getByText(/P = 4,00, K = 5,00, D = 3,00/).waitFor();
+    await curveAssistant.locator('#question').focus();
     await page.keyboard.press('Escape');
     await curveAssistant.waitFor({ state: 'hidden' });
     await graph.locator('.curve-chart__hit').first().focus();
     await page.getByRole('tooltip').filter({ hasText: 'Общий рост ставок' }).waitFor();
+    await graph.locator('.curve-chart__hit').first().press('Enter');
+    await page.getByRole('tooltip').getByText('Закреплено · Esc для сброса').waitFor();
+    await graph.locator('.curve-chart__hit').first().press('Escape');
     await page.getByRole('button', { name: 'Показать исходную MOEX' }).click();
     await page.getByText('К расчётным кривым', { exact: true }).click();
     await page.getByRole('tab', { name: 'Таблица', exact: true }).click();
@@ -700,7 +809,9 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     const initialRequest = submitted();
     await page.getByRole('button', { name: 'Создать тестовый портфель', exact: true }).click();
     const portfolioFailure = page.locator('#portfolio-progress');
-    await portfolioFailure.getByRole('alert').filter({ hasText: /30\.06\.2026.*MOEX временно недоступен/ }).waitFor();
+    await portfolioFailure.getByRole('alert').waitFor({ timeout: 20_000 });
+    assert.match(await portfolioFailure.getByRole('alert').textContent(), /30\.06\.2026.*MOEX временно недоступен/);
+    await recordThemes(page, '11-moex-retry');
     assert.equal(upstream.retries(stalledDay), 1);
     const retryRequest = submitted();
     await portfolioFailure.getByRole('button', { name: 'Повторить расчёт', exact: true }).click();

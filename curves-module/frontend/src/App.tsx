@@ -22,13 +22,17 @@ export interface CurveLocation {
   workspaceId?: string
 }
 
+export type CurveExplainSelection = Required<Pick<CurveLocation, 'reportDate' | 'runId'>> &
+  Pick<CurveLocation, 'workspaceId'> & { scenario: string }
+
 export interface CurveEmbedding {
   active: boolean
   location: CurveLocation
   onLocation: (next: CurveLocation) => void
   onRunSelect: (reportDate: string, runId: string) => void
   onUse: (selection: { reportDate: string; runId: string }) => void
-  onExplain?: (selection: { reportDate: string; runId: string; workspaceId?: string; scenario: string }) => void
+  onExplain?: (selection: CurveExplainSelection) => void
+  onContext?: (selection: CurveExplainSelection | null) => void
   valuationRunId?: string
   portalTarget: ShadowRoot
 }
@@ -111,7 +115,8 @@ function App({ embedding }: { embedding?: CurveEmbedding } = {}): ReactElement {
   }
 
   if (embedding && archived) return <SavedCurvePanel active={active} workspaceId={archived} reportDate={reportDate}
-    runId={embedding.location.runId} onExplain={embedding.onExplain} onBack={() => embedding.onLocation({ reportDate })} />
+    runId={embedding.location.runId} onExplain={embedding.onExplain} onContext={embedding.onContext}
+    onBack={() => embedding.onLocation({ reportDate })} />
 
   const Page = embedding ? 'section' : 'main'
   const explainRunId = displayedCalculation && run?.status === 'ready' ? run.runId : previous?.id
@@ -164,7 +169,11 @@ function App({ embedding }: { embedding?: CurveEmbedding } = {}): ReactElement {
               : embedding ? rawPreview : null}
             calculation={displayedCalculation ?? previous?.result ?? null}
             compact={!!embedding}
+            runId={explainRunId}
             onExplain={explain && explainRunId ? scenario => explain({ reportDate, runId: explainRunId, scenario }) : undefined}
+            onContext={embedding?.onContext ? scenario => {
+              if (active) embedding.onContext?.(scenario && explainRunId ? { reportDate, runId: explainRunId, scenario } : null)
+            } : undefined}
             error={embedding || preparationFailure ? undefined : state.status === 'error' ? state.message : undefined}
             message={previous || (embedding && rawPreview) ? undefined : !validDate ? 'Выберите отчётную дату.'
               : sourceQuery.isPending ? 'Получаем данные за выбранную дату…'
