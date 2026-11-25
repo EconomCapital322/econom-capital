@@ -108,7 +108,18 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     browser = await browserType.launch({ headless: true, executablePath: process.env.SPECTRUM_CHROME || undefined });
     const brandPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await brandPage.route('**/spectrum.svg', (route) => route.fulfill({ status: 404 }));
-    await brandPage.goto(origin);
+    let releaseWorkspace;
+    const startupPending = new Promise(resolve => { releaseWorkspace = resolve; });
+    await brandPage.route('**/api/workspace', async route => { await startupPending; await route.continue(); });
+    try {
+      await brandPage.goto(origin);
+      await brandPage.waitForFunction(() => document.documentElement.hasAttribute('data-opening') &&
+        getComputedStyle(document.querySelector('.prism-incoming')).animationName === 'prism-beam');
+    } finally {
+      releaseWorkspace();
+    }
+    await brandPage.getByRole('heading', { name: 'Подготовьте историю портфеля' }).waitFor();
+    assert.equal(await brandPage.locator('html').getAttribute('data-opening'), null);
     const renderedMark = await brandPage.locator('.brand').evaluate((brand) => {
       const svg = brand.querySelector('svg');
       return svg ? svg.getBBox().width > 0 : brand.querySelector('img')?.naturalWidth > 0;
@@ -156,6 +167,16 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const commands = page.locator('#command-palette');
     const search = commands.getByRole('combobox');
     await search.fill('параметры');
+    const restoredQuery = await commands.evaluate((dialog) => {
+      const shortcut = () => dialog.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true,
+      }));
+      shortcut();
+      const closing = dialog.hasAttribute('data-closing');
+      shortcut();
+      return { closing, open: dialog.open && !dialog.hasAttribute('data-closing'), value: dialog.querySelector('input').value };
+    });
+    assert.deepEqual(restoredQuery, { closing: true, open: true, value: 'параметры' });
     await search.press('Escape');
     await commands.waitFor({ state: 'hidden' });
     await page.keyboard.press('Control+k');
@@ -196,6 +217,22 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.getByRole('heading', { name: 'Расчёт завершён', exact: true }).waitFor({ timeout: 40_000 });
     await page.getByRole('heading', { name: 'Состав портфеля', exact: true }).waitFor();
     await page.locator('#holding-overview').getByText(/^Активы ·/).waitFor();
+    const holdings = page.locator('#portfolio-holdings');
+    const holdingDate = holdings.locator('#portfolio-date');
+    const latestDate = await holdingDate.inputValue();
+    const earliestDate = await holdingDate.locator('option').first().getAttribute('value');
+    const distributions = holdings.getByText('Структура по ставкам, платежам и срокам', { exact: true });
+    await distributions.click();
+    await holdingDate.evaluate(select => { select.dataset.identity = 'retained'; });
+    await holdingDate.selectOption(earliestDate);
+    await page.locator('#portfolio-holdings[data-date="' + earliestDate + '"]').waitFor();
+    assert.equal(await holdingDate.getAttribute('data-identity'), 'retained');
+    assert.equal(await distributions.evaluate(summary => summary.parentElement.open), true);
+    assert.ok((await holdings.getByRole('link', { name: 'CSV для калькулятора' }).getAttribute('href'))
+      .endsWith('/' + earliestDate + '/calculator_input.csv'));
+    await holdingDate.selectOption(latestDate);
+    await page.locator('#portfolio-holdings[data-date="' + latestDate + '"]').waitFor();
+    await distributions.click();
     await page.getByRole('button', { name: 'Спросить AI', exact: true }).click();
     await page.getByRole('button', { name: 'Как распределяются сроки?' }).click();
     await page.locator('#answer').getByText(/Оставшиеся сроки на/).waitFor();
@@ -326,15 +363,77 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     });
     await chartFocus.getByRole('button', { name: 'Закрыть полноэкранный график' }).click();
     await trend.waitFor();
+    const lastPoint = trend.locator('[data-date]').last();
+    const lastPointValue = await lastPoint.getAttribute('data-value');
+    const tabs = page.getByRole('group', { name: 'Разделы аналитики' });
+    const indicatorJump = await tabs.evaluate(track => {
+      const pill = track.firstElementChild;
+      const [timeline, factors] = track.querySelectorAll('button');
+      factors.click();
+      const flight = pill.getAnimations()[0];
+      flight.pause();
+      flight.currentTime = 66;
+      const a = pill.getBoundingClientRect();
+      timeline.click();
+      const reversal = pill.getAnimations()[0];
+      reversal.pause();
+      reversal.currentTime = 0;
+      const b = pill.getBoundingClientRect();
+      reversal.play();
+      return Math.abs(a.x - b.x) + Math.abs(a.width - b.width);
+    });
+    assert.ok(indicatorJump <= 1, 'the tab capsule continues from the previous pose');
+    assert.match(await trend.locator('[data-plot]').getAttribute('transform'), /scale\(1.5,1\)/);
+    await page.locator('.chart-tooltip').getByText(lastPointValue, { exact: false }).waitFor();
     await trend.getByRole('button', { name: 'Сбросить' }).click();
     await trend.getByRole('button', { name: 'Период', exact: true }).click();
     const firstAnalysisDay = await trend.getByLabel('Начало').locator('option').first().getAttribute('value');
-    await trend.getByLabel('Начало').selectOption(firstAnalysisDay);
+    const lastAnalysisDay = await trend.getByLabel('Конец').locator('option').last().getAttribute('value');
+    const plot = trend.locator('[data-plot-hit]');
+    await plot.scrollIntoViewIfNeeded();
+    const hit = await plot.boundingBox();
+    const middlePoint = trend.locator('[data-date]').nth(3);
+    const middleDay = await middlePoint.getAttribute('data-date');
+    const first = await trend.locator('[data-date]').first().boundingBox();
+    const middle = await middlePoint.boundingBox();
+    const y = hit.y + hit.height / 2;
+    await page.mouse.move(middle.x + middle.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(first.x + first.width / 2 + 1, y, { steps: 8 });
+    await page.mouse.up();
+    assert.equal(await trend.getByLabel('Начало').inputValue(), firstAnalysisDay);
+    assert.equal(await trend.getByLabel('Конец').inputValue(), middleDay);
+    assert.equal(await trend.locator('[data-period-mark]').getAttribute('visibility'), 'visible');
+    const keyboardPlot = trend.locator('.chart-scroll');
+    await keyboardPlot.press('End');
+    await keyboardPlot.press('Enter');
+    await keyboardPlot.press('Home');
+    await keyboardPlot.press('Enter');
+    assert.equal(await trend.getByLabel('Начало').inputValue(), firstAnalysisDay);
+    assert.equal(await trend.getByLabel('Конец').inputValue(), lastAnalysisDay);
     await trend.getByRole('button', { name: 'К параметрам расчёта' }).click();
     assert.equal(await settings.locator('#from').inputValue(), firstAnalysisDay);
     assert.equal(await applied.textContent(), actualPeriod);
     await page.keyboard.press('Escape');
     await settings.waitFor({ state: 'hidden' });
+    if (engine === 'chromium') {
+      const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+      await phone.goto(origin + '/#analysis?view=details&tab=timeline');
+      const phoneTrend = phone.locator('#tab-body [data-chart-figure]');
+      await phoneTrend.getByRole('button', { name: 'Период', exact: true }).tap();
+      const phonePlot = phoneTrend.locator('[data-plot-hit]');
+      await phonePlot.scrollIntoViewIfNeeded();
+      const bounds = await phonePlot.boundingBox();
+      const endpoints = await phoneTrend.locator('[data-date]').evaluateAll(dots =>
+        [dots[1], dots.at(-2)].map(dot => {
+          const box = dot.getBoundingClientRect();
+          return { x: box.x + box.width / 2, date: dot.dataset.date };
+        }));
+      for (const endpoint of endpoints) await phone.touchscreen.tap(endpoint.x, bounds.y + bounds.height / 2);
+      assert.equal(await phoneTrend.getByLabel('Начало').inputValue(), endpoints[0].date);
+      assert.equal(await phoneTrend.getByLabel('Конец').inputValue(), endpoints[1].date);
+      await phone.close();
+    }
     await trend.getByRole('button', { name: 'Период', exact: true }).click();
     if (screenshotDirectory) await page.keyboard.press('Escape');
     await recordThemes(page, '05-research');
@@ -473,7 +572,11 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const downloadingHistory = page.waitForEvent('download');
     await page.getByRole('link', { name: 'Скачать историю ZIP' }).click();
     const history = await (await downloadingHistory).path();
+    const sources = page.locator('#data-sources');
+    await sources.evaluate(details => { details.dataset.identity = 'retained'; });
     await page.getByRole('button', { name: 'Таблица CSV', exact: true }).click();
+    assert.equal(await sources.getAttribute('data-identity'), 'retained');
+    assert.equal(await sources.evaluate(details => details.open), true);
     const example = await (await page.request.get(origin + '/api/example.csv')).text();
     const untrusted = '<b data-column-name="test">Длинное пользовательское название укладывается на мобильном экране</b>';
     const quote = (value) => '"' + value.replaceAll('"', '""') + '"';
@@ -781,7 +884,20 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     await page.getByRole('button', { name: 'Показать исходную MOEX' }).click();
     await page.getByText('К расчётным кривым', { exact: true }).click();
     await page.getByRole('tab', { name: 'Таблица', exact: true }).click();
-    assert.equal(await page.getByRole('table').getByRole('row').count(), 24);
+    const rates = page.getByRole('region', { name: 'Таблица ставок с прокруткой', exact: true });
+    assert.equal(await rates.getByRole('row').count(), 24);
+    const headerGeometry = await rates.evaluate(region => {
+      const header = region.querySelector('thead');
+      const cell = header.querySelector('th');
+      const fits = header.scrollHeight <= header.clientHeight + 1;
+      const before = cell.getBoundingClientRect();
+      region.scrollTop = 180;
+      const after = cell.getBoundingClientRect();
+      const scrolled = region.scrollTop > 0 && Math.abs(before.top - after.top) < 1;
+      region.scrollTop = 0;
+      return { fits, scrolled };
+    });
+    assert.deepEqual(headerGeometry, { fits: true, scrolled: true });
     const curveDownload = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Скачать CSV' }).click();
     assert.match((await curveDownload).suggestedFilename(), /\.csv$/);

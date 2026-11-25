@@ -54,6 +54,11 @@ export function commandPalette(dialog, available) {
   }
 
   function open(source = document.activeElement) {
+    if (dialog.open && dialog.hasAttribute('data-closing')) {
+      openPanel(dialog, source);
+      search.focus({ preventScroll: true });
+      return;
+    }
     if (dialog.open) { requestClose(dialog); return; }
     commands = available(source);
     search.value = '';

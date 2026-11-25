@@ -1,4 +1,4 @@
-import { openPanel } from './motion.mjs';
+import { openPanel, requestClose } from './motion.mjs';
 
 export function assistantDock(dialog, restoreButton) {
   const root = document.documentElement;
@@ -9,6 +9,7 @@ export function assistantDock(dialog, restoreButton) {
   let opener;
   let drag;
   let collapsedScroll;
+  let minimizePending = false;
   let frame = 0;
   try { desiredWidth = Number(localStorage.getItem(widthKey)) || desiredWidth; } catch { /* Use the default width. */ }
 
@@ -19,7 +20,8 @@ export function assistantDock(dialog, restoreButton) {
 
   function resize() {
     const size = width();
-    root.style.setProperty('--assistant-width', size + 'px');
+    const cssWidth = size + 'px';
+    if (root.style.getPropertyValue('--assistant-width') !== cssWidth) root.style.setProperty('--assistant-width', cssWidth);
     const grip = dialog.querySelector('[data-assistant-resize]');
     if (grip) {
       grip.setAttribute('aria-valuemin', minimum);
@@ -40,6 +42,7 @@ export function assistantDock(dialog, restoreButton) {
   }
 
   function open(source, focus = true) {
+    minimizePending = false;
     if (source?.focus) opener = source;
     const presentation = desktop.matches ? 'docked' : 'modal';
     const needsOpen = !dialog.open || dialog.dataset.presentation !== presentation;
@@ -64,13 +67,11 @@ export function assistantDock(dialog, restoreButton) {
   }
 
   function minimize() {
-    if (!dialog.open || !isDocked()) return;
+    if (!dialog.open || !isDocked() || dialog.hasAttribute('data-closing')) return;
     const body = dialog.querySelector('.drawer-body');
     collapsedScroll = { body, top: body?.scrollTop };
-    dialog.close('minimized');
-    root.dataset.assistant = 'minimized';
-    restoreButton.hidden = false;
-    restoreButton.focus({ preventScroll: true });
+    minimizePending = true;
+    requestClose(dialog, 'minimized');
   }
 
   function clearDrag(event) {
@@ -116,6 +117,14 @@ export function assistantDock(dialog, restoreButton) {
 
   dialog.addEventListener('close', () => {
     if (dialog.open || minimized()) return;
+    if (minimizePending && dialog.returnValue === 'minimized') {
+      minimizePending = false;
+      root.dataset.assistant = 'minimized';
+      restoreButton.hidden = false;
+      restoreButton.focus({ preventScroll: true });
+      return;
+    }
+    minimizePending = false;
     delete root.dataset.assistant;
     if (document.activeElement === document.body && opener?.isConnected && !opener.closest('[hidden]')) {
       opener.focus({ preventScroll: true });

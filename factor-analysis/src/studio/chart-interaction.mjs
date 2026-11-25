@@ -4,6 +4,7 @@ const svgNamespace = 'http://www.w3.org/2000/svg';
 const plotCache = new WeakMap();
 const curveSettlers = new WeakMap();
 const chartViews = new WeakMap();
+const scopedViews = new Map();
 
 function barsIn(scope) {
   return [...scope.querySelectorAll('[data-morph-key]')].map((element) => {
@@ -95,6 +96,7 @@ export function animateCharts(scope, previous) {
       to.dots.forEach((dot, index) => dot.setAttribute('cy', to.coordinates[index][1]));
       curveSettlers.delete(svg);
       delete svg.dataset.morphing;
+      svg.dispatchEvent(new Event('spectrum-chart-settled', { bubbles: true }));
     };
     curveSettlers.set(svg, finish);
     svg.dataset.morphing = '';
@@ -152,7 +154,16 @@ function viewport(svg) {
   const figure = svg.closest('[data-chart-figure]');
   const plot = svg.querySelector('[data-plot]');
   if (!figure || !plot) return null;
-  if (!chartViews.has(figure)) chartViews.set(figure, { zoom: 1, offset: 0, pinned: null });
+  if (!chartViews.has(figure)) {
+    const key = svg.dataset.chartScope;
+    const view = scopedViews.get(key) ?? { zoom: 1, offset: 0, pinned: null, rangeOpen: false, dateRange: null, anchor: null };
+    chartViews.set(figure, view);
+    if (key) {
+      scopedViews.delete(key);
+      scopedViews.set(key, view);
+      if (scopedViews.size > 18) scopedViews.delete(scopedViews.keys().next().value);
+    }
+  }
   const view = chartViews.get(figure);
   return { view, figure, plot, left: Number(plot.dataset.left), right: Number(plot.dataset.right) };
 }
@@ -163,6 +174,52 @@ function toView(x, area) {
 
 function fromView(x, area) {
   return area ? area.left + area.view.offset + (x - area.left) / area.view.zoom : x;
+}
+
+function paintPeriod(svg, area) {
+  const mark = svg.querySelector('[data-period-mark]');
+  if (!mark) return;
+  const selected = area.view.dateRange ?? [];
+  const positions = plotPoints(svg).filter(point => selected.includes(point.date)).map(point => toView(point.x, area));
+  const start = positions[0], end = positions.at(-1);
+  const visible = area.view.rangeOpen && start <= area.right && end >= area.left;
+  mark.setAttribute('visibility', visible ? 'visible' : 'hidden');
+  if (!visible) return;
+  const rect = mark.firstElementChild;
+  const left = clamp(start, area.left, area.right);
+  const right = clamp(end, area.left, area.right);
+  rect.setAttribute('x', left);
+  rect.setAttribute('width', right - left);
+  const y = rect.getAttribute('y');
+  const bottom = Number(y) + Number(rect.getAttribute('height'));
+  mark.lastElementChild.setAttribute('d', [...new Set(positions)].filter(x => x >= area.left && x <= area.right)
+    .map(x => 'M' + x + ' ' + y + 'V' + bottom).join(' '));
+}
+
+function setPeriod(svg, dates) {
+  const area = viewport(svg);
+  const before = area.figure.querySelector('[data-chart-before]');
+  const after = area.figure.querySelector('[data-chart-after]');
+  before.value = dates[0];
+  after.value = dates[1];
+  area.view.dateRange = [before.value, after.value];
+  area.figure.querySelector('[data-chart-range-note]').hidden = true;
+  paintPeriod(svg, area);
+}
+
+function showPeriod(svg, open) {
+  const { view, figure } = viewport(svg);
+  const range = figure.querySelector('.chart-range');
+  const plot = svg.parentElement;
+  view.rangeOpen = open;
+  range.hidden = !open;
+  figure.classList.toggle('is-selecting-period', open);
+  figure.querySelector('[data-chart-command="period"]').setAttribute('aria-expanded', String(open));
+  if (open) {
+    plot.setAttribute('aria-describedby', range.id + '-help');
+    setPeriod(svg, view.dateRange ?? [range.querySelector('[data-chart-before]').value, range.querySelector('[data-chart-after]').value]);
+  } else plot.removeAttribute('aria-describedby');
+  paintPeriod(svg, viewport(svg));
 }
 
 function updateViewport(svg) {
@@ -189,6 +246,7 @@ function updateViewport(svg) {
     node.setAttribute('text-anchor', x - left < 16 ? 'start' : right - x < 16 ? 'end' : 'middle');
     previous = x;
   }
+  paintPeriod(svg, area);
 }
 
 export function updateChartPlot(figure, next, compatible) {
@@ -216,9 +274,12 @@ export function installChartInteraction(scope) {
   const focusDialog = document.querySelector('#chart-focus');
   const focusBody = document.querySelector('#chart-focus-body');
   let active, index = -1, linked = [], pending, frame = 0;
-  let fullscreen, drag, dragged = false;
+  let fullscreen, drag, dragged = false, dragFrame = 0, awaitingPin;
+  const pinResize = new ResizeObserver(() => { if (activePin(active)) updateGuide(active); });
 
   function hide() {
+    awaitingPin = null;
+    pinResize.disconnect();
     active?.querySelector('.chart-cursor')?.classList.remove('is-visible');
     for (const item of linked) item.classList.remove('is-linked');
     linked = [];
@@ -291,6 +352,7 @@ export function installChartInteraction(scope) {
     show(svg, point.label, values, anchor.x, anchor.y);
     active = svg;
     index = next;
+    if (area?.view.pinned != null) pinResize.observe(svg);
     if (announce) svg.parentElement.querySelector('[data-chart-announcement]').textContent = [point.label, ...values].join('. ');
   }
 
@@ -360,7 +422,8 @@ export function installChartInteraction(scope) {
       if (!pending) return;
       const { chart, factor, heat, bucket, x, y } = pending;
       if (chart?.isConnected) {
-        const pin = viewport(chart)?.view.pinned;
+        const view = viewport(chart)?.view;
+        const pin = view?.rangeOpen ? null : view?.pinned;
         const next = pin != null ? plotPoints(chart).findIndex(point => point.key === pin) : pointerIndex(chart, x, y);
         selectPoint(chart, next);
       } else if (factor?.isConnected) selectFactor(factor, x, y);
@@ -389,6 +452,25 @@ export function installChartInteraction(scope) {
     selectPoint(svg, current);
   }
 
+  function restore(container) {
+    for (const svg of container.querySelectorAll('[data-crosshair][data-chart-scope]')) {
+      if (!scopedViews.has(svg.dataset.chartScope)) continue;
+      const { view } = viewport(svg);
+      updateViewport(svg);
+      if (view.rangeOpen) showPeriod(svg, true);
+      const rect = svg.getBoundingClientRect();
+      if (view.pinned == null || rect.bottom <= 0 || rect.top >= innerHeight) continue;
+      if (svg.hasAttribute('data-morphing')) awaitingPin = svg;
+      else updateGuide(svg);
+    }
+  }
+
+  scope.addEventListener('spectrum-chart-settled', (event) => {
+    if (awaitingPin !== event.target) return;
+    awaitingPin = null;
+    updateGuide(event.target);
+  });
+
   function shift(svg, next) {
     const area = viewport(svg);
     const span = area.right - area.left;
@@ -413,11 +495,36 @@ export function installChartInteraction(scope) {
     selectPoint(svg, next, true);
   }
 
+  function dateAt(svg, index) {
+    return plotPoints(svg)[index]?.date;
+  }
+
+  function chooseDate(svg, date) {
+    if (!date) return;
+    const { view } = viewport(svg);
+    const start = view.anchor ?? date;
+    view.anchor = view.anchor ? null : date;
+    setPeriod(svg, [start, date].sort());
+    const message = view.anchor ? 'Начальная точка выбрана. Выберите вторую.' : 'Диапазон выбран.';
+    svg.parentElement.querySelector('[data-chart-announcement]').textContent = message;
+  }
+
   scope.addEventListener('pointerdown', (event) => {
     dragged = false;
     const svg = event.target.closest('[data-crosshair]');
     if (!svg || event.button !== 0) return;
     const area = viewport(svg);
+    if (area?.view.rangeOpen) {
+      const plot = svg.querySelector('[data-plot-hit]').getBoundingClientRect();
+      if (event.clientX < plot.left - 2 || event.clientX > plot.right + 2 || event.clientY < plot.top || event.clientY > plot.bottom) return;
+      const date = dateAt(svg, pointerIndex(svg, event.clientX, event.clientY));
+      if (!date) return;
+      event.preventDefault();
+      hide();
+      svg.setPointerCapture(event.pointerId);
+      drag = { svg, pointer: event.pointerId, date, start: event.clientX, original: area.view.dateRange };
+      return;
+    }
     const matrix = svg.getScreenCTM();
     if (!area || !matrix || area.view.zoom === 1) return;
     drag = { svg, pointer: event.pointerId, start: event.clientX, offset: area.view.offset, scale: matrix.a * area.view.zoom };
@@ -428,16 +535,40 @@ export function installChartInteraction(scope) {
     if (!dragged && Math.abs(distance) < 5) return;
     if (!dragged) {
       dragged = true;
-      drag.svg.setPointerCapture(event.pointerId);
-      drag.svg.closest('figure').classList.add('is-panning');
-      if (!activePin(drag.svg)) hide();
+      if (!drag.date) {
+        drag.svg.setPointerCapture(event.pointerId);
+        drag.svg.closest('figure').classList.add('is-panning');
+        if (!activePin(drag.svg)) hide();
+      }
     }
-    shift(drag.svg, drag.offset - distance / drag.scale);
+    drag.pending = { x: event.clientX, y: event.clientY };
+    if (dragFrame) return;
+    dragFrame = requestAnimationFrame(() => {
+      dragFrame = 0;
+      if (drag?.svg.isConnected) moveDrag(drag);
+    });
   }, { passive: true });
+
+  function moveDrag(gesture) {
+    const { svg, pending, date } = gesture;
+    if (date) {
+      const last = dateAt(svg, pointerIndex(svg, pending.x, pending.y));
+      if (last) setPeriod(svg, [date, last].sort());
+    } else shift(svg, gesture.offset - (pending.x - gesture.start) / gesture.scale);
+  }
 
   function stopDrag(event) {
     if (drag?.pointer !== event.pointerId) return;
+    if (dragFrame) cancelAnimationFrame(dragFrame);
+    dragFrame = 0;
     drag.svg.closest('figure')?.classList.remove('is-panning');
+    if (drag.svg.isConnected && event.type === 'pointerup') {
+      if (dragged) {
+        drag.pending = { x: event.clientX, y: event.clientY };
+        moveDrag(drag);
+        viewport(drag.svg).view.anchor = null;
+      } else if (drag.date) chooseDate(drag.svg, drag.date);
+    } else if (drag.date && drag.original && drag.svg.isConnected) setPeriod(drag.svg, drag.original);
     drag = null;
   }
   scope.addEventListener('pointerup', stopDrag);
@@ -455,6 +586,7 @@ export function installChartInteraction(scope) {
     fullscreen = { marker, item, button };
     hide();
     openPanel(focusDialog, origin);
+    restore(focusBody);
   }
 
   focusDialog.addEventListener('close', () => {
@@ -464,6 +596,7 @@ export function installChartInteraction(scope) {
     hide();
     if (marker.isConnected) marker.replaceWith(item);
     focusBody.replaceChildren();
+    if (item.isConnected) restore(item);
     if (button.isConnected && !document.querySelector('dialog:modal') && document.activeElement === document.body) {
       button.focus({ preventScroll: true });
     }
@@ -484,10 +617,10 @@ export function installChartInteraction(scope) {
         zoom(svg, 1);
         hide();
       } else if (command === 'period') {
-        const range = figure.querySelector('.chart-range');
-        range.hidden = !range.hidden;
-        button.setAttribute('aria-expanded', String(!range.hidden));
-        if (!range.hidden) range.querySelector('select').focus({ preventScroll: true });
+        const view = viewport(svg).view;
+        view.anchor = null;
+        showPeriod(svg, !view.rangeOpen);
+        if (view.rangeOpen) svg.parentElement.focus({ preventScroll: true });
       } else if (command === 'apply-period') {
         const before = figure.querySelector('[data-chart-before]').value;
         const after = figure.querySelector('[data-chart-after]').value;
@@ -504,14 +637,26 @@ export function installChartInteraction(scope) {
       return;
     }
     const svg = event.target.closest('[data-crosshair]');
-    if (svg && !dragged) pin(svg, pointerIndex(svg, event.clientX, event.clientY));
+    if (svg && !dragged && !viewport(svg)?.view.rangeOpen) pin(svg, pointerIndex(svg, event.clientX, event.clientY));
     dragged = false;
+  });
+
+  scope.addEventListener('change', (event) => {
+    if (!event.target.matches('[data-chart-before], [data-chart-after]')) return;
+    const figure = event.target.closest('[data-chart-figure]');
+    const svg = figure.querySelector('[data-crosshair]');
+    viewport(svg).view.anchor = null;
+    setPeriod(svg, [figure.querySelector('[data-chart-before]').value, figure.querySelector('[data-chart-after]').value]);
   });
 
   scope.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       const svg = event.target.closest('[data-chart-figure]')?.querySelector('[data-crosshair]');
-      if (activePin(svg)) {
+      if (svg && viewport(svg)?.view.rangeOpen) {
+        showPeriod(svg, false);
+        svg.closest('figure').querySelector('[data-chart-command="period"]').focus({ preventScroll: true });
+        event.preventDefault();
+      } else if (activePin(svg)) {
         const area = viewport(svg);
         area.view.pinned = null;
         updateViewport(svg);
@@ -540,19 +685,21 @@ export function installChartInteraction(scope) {
     const area = viewport(svg);
     if (area && ['+', '=', '-', '0', 'Enter'].includes(event.key)) {
       event.preventDefault();
-      if (event.key === 'Enter') pin(svg, active === svg ? index : 0);
+      if (event.key === 'Enter' && area.view.rangeOpen) chooseDate(svg, dateAt(svg, active === svg ? index : 0));
+      else if (event.key === 'Enter') pin(svg, active === svg ? index : 0);
       else zoom(svg, event.key === '0' ? 1 : area.view.zoom * (event.key === '-' ? 1 / 1.5 : 1.5));
       return;
     }
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
     const points = plotPoints(svg);
+    if (!points.length) return;
+    event.preventDefault();
     const last = points.length - 1;
     const direction = event.key === 'ArrowLeft' ? -1 : 1;
     const current = active === svg ? index : area?.view.pinned != null
       ? points.findIndex(item => item.key === area.view.pinned) : direction < 0 ? points.length : -1;
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? last : clamp(current + direction, 0, last);
-    if (area?.view.pinned != null) area.view.pinned = points[next].key;
+    if (area?.view.pinned != null && !area.view.rangeOpen) area.view.pinned = points[next].key;
     if (area && area.view.zoom > 1) {
       const x = toView(points[next].x, area);
       if (x < area.left || x > area.right) shift(svg, points[next].x - area.left - (area.right - area.left) / (2 * area.view.zoom));
@@ -572,5 +719,5 @@ export function installChartInteraction(scope) {
       else hide();
     } else hide();
   }, { capture: true, passive: true });
-  return hide;
+  return { hide, restore };
 }

@@ -24,6 +24,9 @@
   --embedded-glass: var(--glass-dense);
   --prism-cold: #bcb8fa9e;
   --prism-warm: #edc9dc8c;
+  --table-heading: #edf0f8;
+  --scroll-thumb: #a4a5ba;
+  --press-size: .985;
   --density-pad: 16px;
   --density-row: 44px;
 }
@@ -71,6 +74,8 @@
   --chart-guide: #959ab7;
   --prism-cold: #aaa3fb79;
   --prism-warm: #ba8ec35d;
+  --table-heading: #282b3b;
+  --scroll-thumb: #555970;
 }
 
 :root[data-sidebar="collapsed"] { --rail-width: 68px; }
@@ -86,9 +91,22 @@ body {
 }
 :root[data-interactive] body { transition: grid-template-columns var(--motion-pane) var(--ease-ui), background-color var(--motion-tab) ease, color var(--fast) ease; }
 .workspace { min-width: 0; container: workspace / inline-size; }
-main { padding-top: clamp(23px, 4vh, 38px); }
+main,
+.alert-container { --page-width: clamp(1200px, 83cqi, 1700px); }
+main {
+  --report-width: clamp(1140px, 77cqi, 1536px);
+  padding-top: clamp(23px, 4vh, 38px);
+}
 .page-heading { margin-bottom: 23px; }
-.report-layout { --report-width: 1140px; }
+.report-layout { container: report / inline-size; }
+:root[data-density="compact"] main { --report-width: clamp(1140px, 81cqi, 1600px); }
+@container report (min-width: 1300px) {
+  .attribution:has(.business-conclusion:not(:empty)) {
+    display: grid; grid-template-columns: minmax(0, 1fr) clamp(180px, 17%, 255px); gap: 5px 25px; align-items: center;
+  }
+  .attribution .chart-head { grid-column: 1 / -1; }
+  .attribution .business-conclusion { align-self: center; margin: 0; padding-inline-start: 17px; }
+}
 .overview-tools { justify-content: flex-end; }
 .overview-tools .segmented { flex-wrap: nowrap; }
 .overview-tools .segmented button { white-space: nowrap; }
@@ -121,6 +139,8 @@ main { padding-top: clamp(23px, 4vh, 38px); }
 }
 .brand { min-height: 43px; max-width: 100%; padding-inline: 9px; white-space: nowrap; overflow: hidden; }
 .brand-mark { width: 32px; height: 32px; }
+.prism-glass { transition: fill-opacity var(--fast) ease, stroke-opacity var(--fast) ease; }
+.brand:is(:hover, :focus-visible) .prism-glass { fill-opacity: .86; stroke-opacity: 1; }
 .workspace-nav, .motion-track { position: relative; isolation: isolate; overflow: clip; overflow-clip-margin: 3px; }
 .workspace-nav { display: grid; gap: 2px; }
 .workspace-nav a, .rail-action {
@@ -150,16 +170,24 @@ main { padding-top: clamp(23px, 4vh, 38px); }
   background: var(--glass-reflection), var(--glass-accent);
   box-shadow: inset 0 1px 0 var(--glass-rim), inset 0 -1px 0 var(--glass-edge), 0 2px 5px #3a2c7e1c;
 }
-[data-motion-track] > .selection-pill::after {
-  position: absolute; inset: 0; padding: 1px; border-radius: inherit; content: "";
-  background: conic-gradient(from 230deg at var(--light-x, 50%) var(--light-y, 38%), transparent 0 12%, var(--prism-cold) 23%, var(--glass-rim) 34%, transparent 55%, var(--prism-warm) 72%, transparent 91%);
+:where([data-motion-track] > .selection-pill, .assistant-button, .chart-expand)::after {
+  position: absolute; inset: 0; z-index: -1; padding: 1px; border-radius: inherit; content: ""; pointer-events: none;
+  background: conic-gradient(from 230deg at var(--light-x, 50%) var(--light-y, 38%), transparent 0 13%, var(--prism-cold) 25%, var(--glass-rim) 35%, transparent 55%, var(--prism-warm) 72%, transparent 91%);
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-  opacity: .74;
+  opacity: var(--lens-edge-opacity, .72);
 }
-:root[data-optics="enhanced"]:not([data-transparency="reduced"]) .workspace-nav .selection-pill::after {
-  filter: url(#glass-rim-refraction);
+.chart-expand { position: relative; isolation: isolate; --lens-edge-opacity: .44; }
+.assistant-button { --lens-edge-opacity: .68; }
+@supports (backdrop-filter: url("#glass-lens")) {
+  :root[data-optics="enhanced"]:not([data-transparency="reduced"])
+    :is(.workspace-nav > .selection-pill, [data-motion-track="change-mode"] > .selection-pill,
+    [data-motion-track="analysis-mode"] > .selection-pill, .assistant-button, .chart-expand)::after {
+    padding: 4px;
+    background: conic-gradient(from 220deg at var(--light-x, 50%) var(--light-y, 38%), transparent 0 12%, var(--prism-cold) 23%, var(--glass-rim) 34%, transparent 56%, var(--prism-warm) 74%, transparent 92%);
+    backdrop-filter: url("#glass-lens");
+  }
 }
-:root[data-transparency="reduced"] .selection-pill::after { content: none; }
+:root[data-transparency="reduced"] :is(.selection-pill, .assistant-button, .chart-expand)::after { content: none; }
 [data-indicator-ready] > .selection-pill { visibility: visible; }
 :root[data-transparency="reduced"] .selection-pill { background: var(--accent-soft); }
 
@@ -193,7 +221,8 @@ main { padding-top: clamp(23px, 4vh, 38px); }
   opacity: 0; transition: opacity var(--fast) ease;
 }
 .button.primary:hover:not(:disabled)::before, [data-light]:hover::before { opacity: .32; }
-.button:active:not(:disabled), .icon-button:active { transform: translateY(1px) scale(.985); }
+.button:active:not(:disabled), .icon-button:active { transform: translateY(1px) scale(var(--press-size)); }
+.segmented button:active:not(:disabled) { background: var(--accent-soft); }
 .button.assistant-button { position: relative; isolation: isolate; border-color: var(--glass-edge); }
 :root[data-transparency="reduced"] .button.primary { background-image: none; }
 :root[data-transparency="reduced"] :is([data-light], .button.primary)::before { content: none; }
@@ -304,7 +333,7 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 #command-palette[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .command-search { display: flex; align-items: center; gap: 11px; padding: 12px 14px 12px 17px; border-bottom: 1px solid var(--rule); color: var(--accent); }
 .command-search input { flex: 1; width: 100%; min-width: 0; min-height: 38px; border: 0; outline: 0; background: transparent; color: var(--ink); }
-.command-search:focus-within { border-color: var(--accent-line); }
+.command-search:focus-within { border-color: var(--accent-line); box-shadow: inset 0 -1px 0 var(--accent-line); }
 .command-search .icon-button { width: 36px; height: 30px; border-radius: 7px; font-size: 11px; }
 #command-list { max-height: min(45dvh, 340px); overflow: auto; overscroll-behavior: contain; padding: 7px; }
 #command-list [role="option"] {
@@ -325,10 +354,27 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
   height: clamp(235px, 50vh, 455px); border: 1px solid var(--rule); border-radius: var(--radius);
   background: linear-gradient(var(--rule) 1px, transparent 1px) 0 90px / 100% 20% var(--surface);
 }
-:root[data-calculating] .brand-mark path { animation: prism-calculating 1200ms ease-in-out infinite alternate; }
-:root[data-calculating] .brand-mark path:nth-child(3) { animation-delay: -300ms; }
-:root[data-calculating] .brand-mark path:nth-child(4) { animation-delay: -500ms; }
-@keyframes prism-calculating { from { opacity: .62; } to { opacity: 1; } }
+:root:is([data-opening], [data-calculating]) .prism-incoming {
+  stroke-dasharray: 1; animation: prism-beam 260ms cubic-bezier(.3,.05,.47,1) both;
+}
+:root:is([data-opening], [data-calculating]) .prism-outgoing {
+  stroke-dasharray: 1; animation: prism-beam 390ms var(--ease-ui) 180ms both;
+}
+@keyframes prism-beam {
+  from { stroke-dashoffset: 1; opacity: .28; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+
+:is(.table-wrap, .chart-scroll, .drawer-body, #chart-focus-body, #command-list) {
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+.datagrid thead th { background: var(--table-heading); color: var(--ink); border-bottom-color: var(--control-line); }
+.datagrid tbody tr:focus-within { background: var(--accent-soft); }
+.field :is(input, select):focus-visible, .ask-input input:focus-visible, .file-picker:focus-within { outline-offset: 2px; }
+.field select:enabled { cursor: pointer; }
+.empty { align-content: center; padding-block: clamp(26px, 4vh, 44px); }
+.empty h2 + .note { max-width: 60ch; }
+.alert-container .status { border-block: 1px solid var(--rule); }
 
 :root[data-density="compact"] { --density-pad: 11px; --density-row: 36px; --s5: 18px; --s6: 24px; }
 :root[data-density="compact"] :is(.datagrid th, .datagrid td) { padding-block: 6px; }
@@ -369,12 +415,17 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 .line-figure[data-chart-figure] .chart-scroll:focus-visible { outline-offset: 1px; border-radius: 5px; }
 .line-figure.is-zoomed svg { cursor: grab; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
 .line-figure.is-panning svg { cursor: grabbing; }
+.line-figure.is-selecting-period svg { cursor: crosshair; touch-action: none; -webkit-user-select: none; user-select: none; }
+[data-period-mark] rect { fill: var(--accent); fill-opacity: .13; }
+[data-period-mark] path { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 [data-plot] polyline, [data-plot] circle { vector-effect: non-scaling-stroke; }
 [data-plot] circle { transform: scaleX(var(--chart-inverse-scale, 1)); transform-box: fill-box; transform-origin: center; }
 .chart-range { display: flex; flex-wrap: wrap; align-items: end; gap: 6px 10px; margin: 7px 0 8px; padding: 10px 0; border-block: 1px solid var(--rule); }
 .chart-range select { min-height: 34px; }
 .chart-range .button { min-height: 34px; }
-.chart-range .note { flex-basis: 100%; color: var(--negative); }
+.chart-range .note { flex-basis: 100%; }
+.chart-range [data-chart-range-note] { color: var(--negative); }
+.chart-tools [aria-expanded="true"] { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent-line); }
 .heat-legend .chart-expand { margin-inline-start: auto; }
 .heatmap .is-linked { box-shadow: inset 0 -1px 0 var(--accent), inset 0 1px 0 var(--accent-line); }
 .heatmap th.is-linked { color: var(--accent-dark); }
@@ -389,12 +440,12 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 #chart-focus-body [data-crosshair], #chart-focus-body .chart-waterfall { max-height: 65dvh; }
 .chart-tooltip {
   position: fixed; z-index: 18; max-width: min(282px, calc(100vw - 24px)); padding: 9px 12px;
-  border-radius: 12px; color: var(--ink); font-size: 12px; line-height: 1.45; pointer-events: none;
+  border-radius: 10px; color: var(--ink); font-size: 12px; line-height: 1.5; pointer-events: none;
   transform-origin: bottom left; animation: tooltip-in 130ms var(--ease-ui) both;
 }
 .chart-tooltip strong { display: block; font-weight: 670; }
 .chart-tooltip span { display: block; color: var(--muted-strong); font-variant-numeric: tabular-nums; }
-.chart-cursor { opacity: 0; pointer-events: none; transition: opacity var(--fast) ease, transform var(--fast) var(--ease-ui); }
+.chart-cursor { opacity: 0; pointer-events: none; transition: opacity var(--fast) ease; }
 .chart-cursor.is-visible { opacity: 1; }
 .chart-cursor line { stroke: var(--chart-guide); stroke-width: 1; stroke-dasharray: 4 4; }
 .chart-cursor circle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
@@ -450,6 +501,11 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 @media (max-width: 430px) {
   #assistant-drawer[data-presentation="modal"] { inset: 0; width: 100%; height: min(100dvh, var(--panel-viewport, 100dvh)); border-radius: 0; }
 }
+@media (pointer: coarse) {
+  .chart-tools .icon-button, .chart-tools > .button { min-height: 44px; }
+  .chart-tools .icon-button { min-width: 44px; }
+  .drawer-tools .icon-button { min-width: 44px; min-height: 44px; }
+}
 
 :root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before,
 :root[data-motion="reduced"] *::after, :root[data-motion="reduced"] dialog::backdrop {
@@ -460,7 +516,7 @@ dialog[data-closing]::backdrop { animation: fade-veil var(--motion-exit) ease-ou
 @media (forced-colors: active) {
   [data-glass], .selection-pill { border-color: CanvasText; box-shadow: none; }
   .selection-pill { background: Canvas; }
-  .selection-pill::after, .context-bar::before { content: none !important; }
+  :is(.selection-pill, .assistant-button, .chart-expand)::after, .context-bar::before { content: none !important; }
   .workspace-nav a[aria-current="page"] { outline: 1px solid Highlight; outline-offset: -1px; }
   .chart .bar-hit { stroke: transparent; }
   .chart :focus-visible .bar-hit { stroke: Highlight; }

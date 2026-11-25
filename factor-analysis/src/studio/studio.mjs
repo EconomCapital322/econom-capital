@@ -4,8 +4,8 @@ import { assistantDock } from './assistant-dock.mjs';
 import { commandPalette } from './command-palette.mjs';
 import { animateContent, captureIndicators, installLighting, installPanels, motionAllowed, openPanel, settleChartTransition, syncIndicators, transitionChart } from './motion.mjs';
 import { analysisChart, analysisPage, analysisTab, assistantConversation, assistantPanel, assistantStatus, comparisonPanel,
-  codes, dataPage, dateCountLabel, dealTable, factorDetails, flowDialog, holdingsOverview, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
-  portfolioPreview, portfolioProgress, portfolioSources, reportTabs, scenarioPage, servicesList, titleOf } from './views.mjs';
+  codes, dataPage, dateCountLabel, dealTable, factorDetails, flowDialog, holdingsDateNote, holdingsOverview, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
+  portfolioPreview, portfolioProgress, portfolioSources, reportTabs, scenarioPage, servicesList, titleOf, uploadBox } from './views.mjs';
 
 const main = document.querySelector('#content');
 const studioScreen = document.querySelector('#studio-screen');
@@ -23,7 +23,7 @@ const root = document.documentElement;
 const locationLabel = document.querySelector('#page-location');
 const workspaceContext = document.querySelector('#workspace-context');
 const serviceLink = document.querySelector('.service-link');
-const hideChartTooltip = installChartInteraction(document);
+const { hide: hideChartTooltip, restore: restoreChartViews } = installChartInteraction(document);
 installPanels();
 installLighting();
 
@@ -211,6 +211,7 @@ function render() {
   studioScreen.innerHTML = { analysis: analysisPage, scenarios: scenarioPage, portfolio: portfolioPage, data: dataPage }[state.route](state);
   syncIndicators(studioScreen, previousIndicators);
   if (previousCharts) animateCharts(studioScreen, previousCharts);
+  restoreChartViews(studioScreen);
   if (state.route === 'portfolio') void loadDeals();
   syncDockContext();
 }
@@ -427,6 +428,7 @@ function selectTab(tab, focus = false) {
   if (state.research) history.replaceState(history.state, '', '#' + analysisLocation());
   hideChartTooltip();
   target.innerHTML = analysisTab(state);
+  restoreChartViews(target);
   for (const control of document.querySelectorAll('[data-action="tab"]')) {
     control.setAttribute('aria-pressed', String(control.dataset.key === tab));
     if (focus && control.dataset.key === tab) control.focus({ preventScroll: true });
@@ -810,16 +812,47 @@ async function loadDeals() {
   if (!panel || !work?.periods?.length) return;
   const serial = ++dealsRequest;
   const selected = document.querySelector('#portfolio-date').value;
+  const holdings = document.querySelector('#portfolio-holdings');
+  const loading = holdings.querySelector('[data-holdings-loading]');
+  const dateChanged = holdings.dataset.date !== selected;
+  const scroll = panel.querySelector('.table-wrap')?.scrollLeft;
+  if (dateChanged) {
+    loading.textContent = 'Загружаем сделки на ' + day(selected) + '…';
+    loading.hidden = false;
+    panel.inert = true;
+    panel.setAttribute('aria-busy', 'true');
+  }
   const params = new URLSearchParams({ date: selected, q: state.dealQuery, page: state.dealPage });
-  if (summary && !summary.children.length) params.set('overview', '1');
+  if (dateChanged || !summary.children.length) params.set('overview', '1');
   try {
     const data = await api('/api/deals/' + work.id + '?' + params);
     if (panel.isConnected && serial === dealsRequest) {
+      if (dateChanged) {
+        const date = work.periods.find(period => period.date === selected);
+        holdings.querySelector('[data-holdings-date]').textContent = holdingsDateNote(date);
+        for (const link of holdings.querySelectorAll('a[href^="/api/export/"]')) {
+          const path = link.getAttribute('href');
+          link.setAttribute('href', path.replace('/' + holdings.dataset.date + '/', '/' + selected + '/'));
+        }
+        holdings.dataset.date = selected;
+      }
       panel.innerHTML = dealTable(data);
-      if (data.overview && summary) summary.innerHTML = holdingsOverview(data.overview, work.periods);
+      if (scroll) panel.querySelector('.table-wrap')?.scrollTo({ left: scroll });
+      if (data.overview) {
+        const expanded = summary.querySelector('details')?.open;
+        summary.innerHTML = holdingsOverview(data.overview, work.periods);
+        if (expanded) summary.querySelector('details').open = true;
+      }
     }
   } catch (error) {
     if (panel.isConnected && serial === dealsRequest) panel.innerHTML = `<p class="status error">${esc(error.message)}</p>`;
+  } finally {
+    if (panel.isConnected && serial === dealsRequest) {
+      loading.hidden = true;
+      panel.inert = false;
+      panel.removeAttribute('aria-busy');
+      syncDockContext();
+    }
   }
 }
 
@@ -883,6 +916,7 @@ function refreshScenarios(focus) {
     if (scroll) details.querySelector('.table-wrap').scrollLeft = scroll;
   }
   if (previous) animateCharts(studioScreen, previous);
+  restoreChartViews(studioScreen);
   main.querySelector(focus)?.focus({ preventScroll: true });
   syncDockContext();
 }
@@ -1001,10 +1035,19 @@ function action(element) {
     applyComparison(form, true);
     settings.querySelector('[data-action="analysis-mode"][aria-pressed="true"]')?.focus({ preventScroll: true });
   }
-  if (kind === 'source-format' || kind === 'portfolio-tab') {
+  if (kind === 'source-format') {
     if (element.getAttribute('aria-pressed') === 'true') return;
-    if (kind === 'source-format') state.sourceFormat = key;
-    else state.portfolioTab = key;
+    state.sourceFormat = key;
+    const importer = element.closest('.data-import');
+    importer.querySelector('.upload-box').replaceWith(fragment(uploadBox(key)));
+    for (const control of importer.querySelectorAll('[data-action="source-format"]')) {
+      control.setAttribute('aria-pressed', String(control.dataset.key === key));
+    }
+    syncIndicators(importer);
+  }
+  if (kind === 'portfolio-tab') {
+    if (element.getAttribute('aria-pressed') === 'true') return;
+    state.portfolioTab = key;
     render();
     main.querySelector('[data-action="' + kind + '"][aria-pressed="true"]')?.focus({ preventScroll: true });
   }
@@ -1167,8 +1210,7 @@ document.addEventListener('change', (event) => {
     if (inspector.open) inspector.close();
     state.portfolioDay = element.value;
     state.dealPage = 0;
-    render();
-    document.querySelector('#portfolio-date')?.focus({ preventScroll: true });
+    void loadDeals();
   }
   if (element.form?.id === 'mapping-form') {
     mappingRequest?.abort();
@@ -1299,6 +1341,8 @@ async function start() {
   } catch (error) {
     notice(error.message, 'error');
     render();
+  } finally {
+    delete root.dataset.opening;
   }
   void updateHealth();
   healthTimer = window.setInterval(updateHealth, 30_000);
