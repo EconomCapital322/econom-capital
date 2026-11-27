@@ -114,17 +114,14 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     try {
       await brandPage.goto(origin);
       await brandPage.waitForFunction(() => document.documentElement.hasAttribute('data-opening') &&
-        getComputedStyle(document.querySelector('.prism-incoming')).animationName === 'prism-beam');
+        document.querySelector('.brand-title')?.textContent.includes('Econom Capital'));
     } finally {
       releaseWorkspace();
     }
     await brandPage.getByRole('heading', { name: 'Подготовьте историю портфеля' }).waitFor();
     assert.equal(await brandPage.locator('html').getAttribute('data-opening'), null);
-    const renderedMark = await brandPage.locator('.brand').evaluate((brand) => {
-      const svg = brand.querySelector('svg');
-      return svg ? svg.getBBox().width > 0 : brand.querySelector('img')?.naturalWidth > 0;
-    });
-    assert.ok(renderedMark, 'The sidebar logo is visible when the standalone SVG is unavailable.');
+    const renderedMark = await brandPage.locator('.partner-mark').evaluate((mark) => mark.naturalWidth > 0);
+    assert.ok(renderedMark, 'The T1 mark is visible without the retired Spectrum logo.');
     await brandPage.evaluate(() => document.fonts.ready);
     const mobileAction = brandPage.getByRole('link', { name: 'Портфель', exact: true });
     await mobileAction.evaluate((control) => { control.style.fontSize = '16px'; });
@@ -141,28 +138,23 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.goto(origin);
     await page.getByRole('heading', { name: 'Подготовьте историю портфеля' }).waitFor();
     await recordThemes(page, '00-empty-workspace');
-    const appearance = page.locator('#appearance-dialog');
-    const appearanceButton = page.getByRole('button', { name: 'Внешний вид', exact: true });
-    await appearanceButton.click();
-    await appearance.getByLabel('Тема').selectOption('dark');
-    await appearance.getByLabel('Прозрачность').selectOption('reduced');
-    await appearance.getByLabel('Анимация').selectOption('reduced');
-    await appearance.getByLabel('Плотность').selectOption('compact');
-    await appearance.getByLabel('Оптика блика').selectOption('enhanced');
+    const themeToggle = page.locator('[data-action="toggle-theme"]');
+    const initialTheme = await page.locator('html').getAttribute('data-theme');
+    const alternateTheme = initialTheme === 'dark' ? 'light' : 'dark';
+    await themeToggle.click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), alternateTheme);
+    assert.equal(await page.locator('#appearance-dialog').count(), 0);
     await page.reload();
-    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
-    assert.equal(await page.locator('html').getAttribute('data-transparency'), 'reduced');
-    assert.equal(await page.locator('html').getAttribute('data-motion'), 'reduced');
-    assert.equal(await page.locator('html').getAttribute('data-density'), 'compact');
-    assert.equal(await page.locator('html').getAttribute('data-optics'), 'enhanced');
-    const navigationMaterial = await page.locator('.navigation-shell').evaluate((nav) => getComputedStyle(nav).backdropFilter);
-    assert.equal(navigationMaterial, 'none');
-    await appearanceButton.click();
-    await appearance.getByLabel('Тема').selectOption('system');
-    await appearance.getByLabel('Прозрачность').selectOption('full');
-    await appearance.getByLabel('Анимация').selectOption('full');
-    await page.keyboard.press('Escape');
-    await appearance.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('html').getAttribute('data-theme'), alternateTheme);
+    await themeToggle.click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), initialTheme);
+    const nextThemeName = initialTheme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему';
+    assert.equal(await themeToggle.getAttribute('aria-label'), nextThemeName);
+    await page.keyboard.press('Control+k');
+    const themeSearch = page.locator('#command-palette').getByRole('combobox');
+    await themeSearch.fill('Системная тема');
+    await themeSearch.press('Enter');
+    await page.locator('#command-palette').waitFor({ state: 'hidden' });
     await page.keyboard.press('Control+k');
     const commands = page.locator('#command-palette');
     const search = commands.getByRole('combobox');
@@ -188,12 +180,11 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await search.press('Enter');
     await commands.waitFor({ state: 'hidden' });
     assert.equal(await page.locator('html').getAttribute('data-density'), 'comfortable');
-    const navMark = page.getByRole('link', { name: 'Анализ', exact: true }).locator('.icon');
-    const beforeCollapse = await navMark.boundingBox();
-    await page.getByRole('button', { name: 'Свернуть меню', exact: true }).click();
-    await page.waitForFunction(() => Math.abs(document.querySelector('.navigation-shell').getBoundingClientRect().width - 68) < 1);
-    assert.equal(Math.round((await navMark.boundingBox()).x), Math.round(beforeCollapse.x));
-    await page.getByRole('button', { name: 'Развернуть меню', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: 'Разделы' });
+    assert.equal(await navigation.getByRole('link').count(), 5);
+    const [navBox, brandBox] = await Promise.all([navigation.boundingBox(), page.locator('.brand').boundingBox()]);
+    assert.ok(navBox.x >= brandBox.x + brandBox.width || navBox.y >= brandBox.y + brandBox.height,
+      'The horizontal navigation does not overlap the Economic Capital wordmark.');
     await page.getByRole('link', { name: 'Создать тестовый портфель' }).click();
     await page.getByRole('link', { name: 'Загрузить снимки ZIP' }).click();
     await page.getByLabel('Архив снимков').waitFor({ state: 'attached' });
@@ -233,6 +224,31 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     const holdingDate = holdings.locator('#portfolio-date');
     assert.deepEqual(await holdingDate.locator('option').evaluateAll(options => options.map(option => option.value)), previewDates);
     const latestDate = await holdingDate.inputValue();
+    const geometry = await holdings.locator('#deal-search').evaluate(form => {
+      const date = form.querySelector('#portfolio-date').getBoundingClientRect();
+      const id = form.querySelector('[name="query"]').getBoundingClientRect();
+      return { sameHeight: Math.abs(date.height - id.height) < 1, aligned: Math.abs(date.top - id.top) < 1 };
+    });
+    assert.deepEqual(geometry, { sameHeight: true, aligned: true });
+    const paymentFilter = holdings.getByLabel('Схема платежей', { exact: true });
+    await paymentFilter.locator('option').nth(1).waitFor({ state: 'attached' });
+    const payment = await paymentFilter.locator('option').nth(1).getAttribute('value');
+    const filterReply = page.waitForResponse(reply => reply.url().includes('/api/deals/') && new URL(reply.url()).searchParams.get('payment_type') === payment);
+    await paymentFilter.selectOption(payment);
+    const filtered = await (await filterReply).json();
+    assert.ok(filtered.rows.length && filtered.rows.every(row => row.payment_type === payment));
+    const rateFilter = holdings.getByLabel('Тип ставки', { exact: true });
+    const rate = await rateFilter.locator('option').nth(1).getAttribute('value');
+    const combinedReply = page.waitForResponse(reply => reply.url().includes('/api/deals/') && new URL(reply.url()).searchParams.get('rate_type') === rate);
+    await rateFilter.selectOption(rate);
+    const combined = await (await combinedReply).json();
+    assert.ok(combined.rows.length && combined.rows.every(row => row.payment_type === payment && row.rate_type === rate));
+    assert.ok(combined.size <= filtered.size);
+    const resetReply = page.waitForResponse(reply => reply.url().includes('/api/deals/') && !new URL(reply.url()).searchParams.has('payment_type') && !new URL(reply.url()).searchParams.has('rate_type'));
+    await holdings.getByRole('button', { name: 'Сбросить', exact: true }).click();
+    const reset = await (await resetReply).json();
+    assert.ok(reset.size >= filtered.size);
+    assert.equal(await paymentFilter.inputValue(), '');
     const earliestDate = await holdingDate.locator('option').first().getAttribute('value');
     const distributions = holdings.getByText('Структура по ставкам, платежам и срокам', { exact: true });
     await distributions.click();
@@ -274,6 +290,13 @@ test('portfolio, valuation, stress, CSV and ZIP analysis, exports, and responsiv
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.setViewportSize({ width: 1440, height: 900 });
     await recordThemes(page, '01-valuation');
+    const heroHint = page.locator('.report-hero .hero-value');
+    const hintText = await heroHint.getAttribute('title');
+    await heroHint.hover();
+    await page.locator('.ui-tooltip').getByText(hintText, { exact: true }).waitFor();
+    assert.equal(await heroHint.getAttribute('title'), null);
+    await page.keyboard.press('Escape');
+    await page.locator('.ui-tooltip').waitFor({ state: 'hidden' });
     const edit = page.getByRole('button', { name: 'Изменить параметры', exact: true });
     const settings = page.locator('#settings-dialog');
     const openResearch = page.getByRole('button', { name: 'Подробный анализ', exact: true });
@@ -961,6 +984,37 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     const curveDownload = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Скачать CSV' }).click();
     assert.match((await curveDownload).suggestedFilename(), /\.csv$/);
+    const excelDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Скачать Excel', exact: true }).click();
+    const excel = await excelDownload;
+    assert.equal(excel.suggestedFilename(), `curves_${date}.xlsx`);
+    const workbook = JSON.parse(execFileSync(python, ['-c', `
+import json, sys, zipfile, xml.etree.ElementTree as E
+ns={'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert z.testzip() is None
+    sheets=E.fromstring(z.read('xl/workbook.xml')).findall('s:sheets/s:sheet',ns)
+    grids=[]
+    for i in range(1,4):
+        root=E.fromstring(z.read(f'xl/worksheets/sheet{i}.xml'))
+        assert not root.findall('.//s:f',ns)
+        rows=[]
+        for row in root.findall('s:sheetData/s:row',ns):
+            rows.append([float(c.find('s:v',ns).text) if c.get('t')!='inlineStr' else c.find('s:is/s:t',ns).text for c in row])
+        grids.append(rows)
+    print(json.dumps({'sheets':[x.get('name') for x in sheets], 'grids':grids}))
+`, await excel.path()], { encoding: 'utf8' }));
+    assert.deepEqual(workbook.sheets, ['Ставки, % годовых', 'Дисконт-факторы', 'Параметры']);
+    const exported = await (await page.request.get(origin + '/api/v1/curve-runs/standard-result?reportDate=' + date)).json();
+    const scenarioCodes = ['base', 'parallel_up', 'parallel_down', 'steepener', 'flattener', 'short_rate_up', 'short_rate_down'];
+    for (const [sheet, field] of [[0, 'ratePercent'], [1, 'discountFactor']]) {
+      assert.equal(workbook.grids[sheet].length, 24);
+      for (let i = 0; i < 23; i++) {
+        const points = scenarioCodes.map(code => exported.curves.find(curve => curve.curveCode === code).points[i]);
+        assert.deepEqual(workbook.grids[sheet][i + 1], [points[0].bucketLabel, points[0].tenorYears, ...points.map(point => point[field])]);
+      }
+    }
+    assert.deepEqual(workbook.grids[2][1], ['Отчётная дата', date]);
     await page.getByRole('tab', { name: 'График', exact: true }).click();
     await noOverflow(page, [[1440, 900], [390, 844], [320, 720]]);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1051,6 +1105,7 @@ test('embedded curves share the shell and pin a validated run to portfolio valua
     const controlledPanel = await runHistory.getAttribute('aria-controls');
     assert.ok(controlledPanel);
     assert.equal(await page.locator('.run-history__panel').getAttribute('id'), controlledPanel);
+    assert.match(await page.locator('.run-history__panel time').first().textContent(), /\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}:\d{2}/);
     await page.getByRole('button', { name: /Стандартные · Автоматический/ }).click();
     await use.waitFor();
     assert.ok(page.url().endsWith(upstream.original));

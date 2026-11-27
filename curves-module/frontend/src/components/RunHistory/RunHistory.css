@@ -21,7 +21,7 @@
 .run-history__list li + li { margin-top: 6px; }
 .run-history__run { display: block; text-align: left; width: 100%; padding: 12px; border: 1px solid transparent; border-radius: 12px; background: var(--curve-controls-bg); color: var(--color-text-primary); cursor: pointer; font: inherit; font-size: 13px; line-height: 20px; }
 .run-history__run:hover, .run-history__run[aria-current="true"] { border-color: var(--color-primary); background: var(--curve-table-head-bg); }
-.run-history__row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.run-history__row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 .run-history__row time { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .run-history__kind, .run-history__parameters, .run-history__current { display: block; overflow-wrap: anywhere; }
 .run-history__kind { font-size: 12px; color: var(--color-text-secondary-strong); }

@@ -1,11 +1,12 @@
 import { day, esc } from './charts.mjs';
 import { animateCharts, captureCharts, installChartInteraction, updateChartPlot } from './chart-interaction.mjs';
 import { assistantDock } from './assistant-dock.mjs';
+import { installTooltips } from './tooltips.mjs';
 import { commandPalette } from './command-palette.mjs';
 import { animateContent, captureIndicators, installLighting, installPanels, motionAllowed, openPanel, settleChartTransition, syncIndicators, transitionChart } from './motion.mjs';
 import { analysisChart, analysisPage, analysisTab, assistantConversation, assistantPanel, assistantStatus, comparisonPanel,
-  codes, dataPage, dateCountLabel, dealTable, factorDetails, flowDialog, holdingsDateNote, holdingsOverview, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
-  portfolioPreview, portfolioProgress, portfolioSources, reportTabs, scenarioPage, servicesList, titleOf, uploadBox } from './views.mjs';
+  codes, dataPage, dealTable, factorDetails, flowDialog, holdingsDateNote, holdingsOverview, methodologyContent, metricName, pages, portfolioCurveNote, portfolioPage,
+  portfolioPreview, portfolioProgress, reportTabs, scenarioPage, servicesList, titleOf, uploadBox } from './views.mjs';
 
 const main = document.querySelector('#content');
 const studioScreen = document.querySelector('#studio-screen');
@@ -16,20 +17,17 @@ const drawer = document.querySelector('#factor-drawer');
 const assistant = document.querySelector('#assistant-drawer');
 const dock = assistantDock(assistant, document.querySelector('#assistant-restore'));
 const settings = document.querySelector('#settings-dialog');
-const appearance = document.querySelector('#appearance-dialog');
 const palette = document.querySelector('#command-palette');
 const chartFocus = document.querySelector('#chart-focus');
 const root = document.documentElement;
-const locationLabel = document.querySelector('#page-location');
-const workspaceContext = document.querySelector('#workspace-context');
-const serviceLink = document.querySelector('.service-link');
 const { hide: hideChartTooltip, restore: restoreChartViews } = installChartInteraction(document);
 installPanels();
 installLighting();
+installTooltips(document);
 
 const state = {
   workspace: null, route: 'analysis', tab: 'timeline', factor: null, effect: null, effectPlot: 'ale', scenarioCode: null,
-  scenarioDay: null, portfolioDay: null, dealQuery: '', dealPage: 0, draft: null, answer: null,
+  scenarioDay: null, portfolioDay: null, dealQuery: '', dealFilters: {}, dealPage: 0, draft: null, answer: null,
   mapping: null, preview: null, comparison: null, pair: null, pairDeal: null, health: null, generating: false,
   chart: 'waterfall', research: false, portfolioTab: 'builder', portfolioJob: null, sourceFormat: 'csv',
   question: '', assistantFactor: null, allowExternal: false, asking: false, assistantMessage: '',
@@ -192,13 +190,6 @@ function render() {
     if (anchor.dataset.route === state.route) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
   }
-  locationLabel.textContent = state.route === 'analysis' ? 'Анализ' : '';
-  locationLabel.hidden = state.route !== 'analysis';
-  const portfolioType = state.workspace?.periods ? portfolioSources[state.workspace.portfolioSource] ?? 'Загруженный портфель'
-    : state.workspace?.filename;
-  const dateCount = state.workspace?.periods?.length;
-  workspaceContext.textContent = portfolioType ? portfolioType + (dateCount ? ` · ${dateCountLabel(dateCount)}` : '') : '';
-  workspaceContext.hidden = !portfolioType;
   hideChartTooltip();
   const curvesActive = state.route === 'curves';
   curveScreen.hidden = !curvesActive;
@@ -217,7 +208,7 @@ function render() {
 }
 
 function closeDialogs() {
-  for (const dialog of [inspector, drawer, assistant, settings, appearance, palette, chartFocus]) {
+  for (const dialog of [inspector, drawer, assistant, settings, palette, chartFocus]) {
     if (dialog === assistant && dock.isDocked()) continue;
     if (dialog.open) dialog.close();
   }
@@ -373,8 +364,6 @@ async function updateHealth() {
   }
   const host = document.querySelector('#services');
   if (host) host.innerHTML = servicesList(state.health);
-  serviceLink.dataset.online = String(Boolean(state.health.calculator && state.health.curves));
-  serviceLink.title = state.health.calculator && state.health.curves ? 'Калькулятор и кривые доступны' : 'Проверить подключения';
   refreshAssistant();
 }
 
@@ -463,7 +452,6 @@ const openCommands = commandPalette(palette, (source) => {
       run: () => openAssistant(null, currentCurveContext(), source) });
   }
   commands.push(
-    { title: 'Настроить внешний вид', group: 'Внешний вид', run: () => openPanel(appearance, source) },
     appearanceCommand('theme', 'light', 'Светлая тема', 'light'),
     appearanceCommand('theme', 'dark', 'Тёмная тема', 'dark'),
     appearanceCommand('theme', 'system', 'Системная тема', 'system'),
@@ -518,6 +506,7 @@ async function followJob(id, kind = 'report', portfolioSettings = null) {
           state.portfolioDay = null;
           state.dealPage = 0;
           state.dealQuery = '';
+          state.dealFilters = {};
           if (kind === 'portfolio') {
             if (latest.periods.some((p) => p.date === state.curveSelection?.reportDate && p.runId === state.curveSelection.runId)) {
               state.portfolioDay = state.curveSelection.reportDate;
@@ -825,6 +814,7 @@ async function loadDeals() {
     panel.setAttribute('aria-busy', 'true');
   }
   const params = new URLSearchParams({ date: selected, q: state.dealQuery, page: state.dealPage });
+  for (const [key, value] of Object.entries(state.dealFilters)) if (value) params.set(key, value);
   if (dateChanged || !summary.children.length) params.set('overview', '1');
   try {
     const data = await api('/api/deals/' + work.id + '?' + params);
@@ -837,6 +827,14 @@ async function loadDeals() {
           link.setAttribute('href', path.replace('/' + holdings.dataset.date + '/', '/' + selected + '/'));
         }
         holdings.dataset.date = selected;
+      }
+      for (const select of document.querySelectorAll('[data-deal-filter]')) {
+        const key = select.dataset.dealFilter;
+        const label = value => key === 'side' ? ({ ASSET: 'Активы', LIABILITY: 'Обязательства' }[value] ?? value) : value;
+        const values = [...new Set([...(data.facets?.[key] ?? []), ...(state.dealFilters[key] ? [state.dealFilters[key]] : [])])];
+        select.innerHTML = '<option value="">Все</option>' + values.map(value =>
+          `<option value="${esc(value)}" ${state.dealFilters[key] === value ? 'selected' : ''}>${esc(label(value))}</option>`).join('');
+        select.disabled = !values.length;
       }
       panel.innerHTML = dealTable(data);
       if (scroll) panel.querySelector('.table-wrap')?.scrollTo({ left: scroll });
@@ -1042,7 +1040,12 @@ function action(element) {
   if (kind === 'open-assistant') openAssistant(null, null, element);
   if (kind === 'minimize-assistant') dock.minimize();
   if (kind === 'restore-assistant') { syncDockContext(); dock.open(element); }
-  if (kind === 'appearance') openPanel(appearance, element);
+  if (kind === 'deal-reset') {
+    state.dealQuery = ''; state.dealFilters = {}; state.dealPage = 0;
+    document.querySelector('#deal-search [name="query"]').value = '';
+    for (const select of document.querySelectorAll('[data-deal-filter]')) select.value = '';
+    void loadDeals();
+  }
   if (kind === 'commands') openCommands(element);
   if (kind === 'service-status') navigate('data', () => reveal(main.querySelector('#data-services')));
   if (kind === 'change-mode') void changeReportMode(key);
@@ -1184,7 +1187,9 @@ document.addEventListener('submit', (event) => {
     'history-form': importHistory,
     'explain-form': ask,
     'deal-search': (form) => {
-      state.dealQuery = String(new FormData(form).get('query') || '').trim();
+      const values = new FormData(form);
+      state.dealQuery = String(values.get('query') || '').trim();
+      state.dealFilters = Object.fromEntries(['side', 'payment_type', 'rate_type'].map(key => [key, String(values.get(key) || '')]));
       state.dealPage = 0;
       return loadDeals();
     },
@@ -1238,6 +1243,12 @@ document.addEventListener('change', (event) => {
   if (element.form?.id === 'compare-form') {
     applyComparison(element.form, element.id === 'metric');
     if (element.id === 'metric') document.getElementById(element.id)?.focus({ preventScroll: true });
+  }
+  if (element.matches('[data-deal-filter]')) {
+    state.dealFilters[element.dataset.dealFilter] = element.value;
+    state.dealQuery = document.querySelector('#deal-search [name="query"]').value.trim();
+    state.dealPage = 0;
+    void loadDeals();
   }
   if (element.id === 'portfolio-date') {
     flowRequest++;

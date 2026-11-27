@@ -906,9 +906,14 @@ export function portfolioPage(state) {
         ${link(exportUrl(work, date.date + '/cashflows.csv'), 'Платежи CSV')}
         ${link(exportUrl(work, date.date + '/discounted_deal_summary.csv'), 'PV по сделкам')}
       </div></details>
-      <form class="toolbar" id="deal-search"><label class="field">Дата<select id="portfolio-date">${dateOpts(work.periods.map((p) => p.date), date.date)}</select></label>
+      <form class="toolbar deal-search" id="deal-search"><label class="field">Дата<select id="portfolio-date">${dateOpts(work.periods.map((p) => p.date), date.date)}</select></label>
         <label class="field">ID сделки<input type="search" name="query" value="${esc(state.dealQuery ?? '')}" placeholder="Например, 120"></label>
-        <button class="button" type="submit">Найти</button></form>
+        <button class="button primary" type="submit">Найти</button>
+        <button class="button" type="button" data-action="deal-reset">Сбросить</button>
+        <div class="deal-filters" aria-label="Фильтры сделок">
+          ${[['side', 'Сторона сделки'], ['payment_type', 'Схема платежей'], ['rate_type', 'Тип ставки']].map(([key, label]) =>
+            `<label class="field">${label}<select name="${key}" aria-label="${label}" data-deal-filter="${key}"><option value="">Все</option></select></label>`).join('')}
+        </div></form>
       <p class="note" data-holdings-loading role="status" hidden></p>
       <div id="deal-table" aria-live="polite"><p class="note">Загрузка списка сделок…</p></div></section>`;
   }

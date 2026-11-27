@@ -11,8 +11,8 @@ import './RunHistory.css'
 const statuses: Record<RunStatus, string> = {
   queued: 'В очереди', running: 'Выполняется', ready: 'Готов', failed: 'Ошибка',
 }
-const time = new Intl.DateTimeFormat('ru-RU', {
-  timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', second: '2-digit',
+const generatedAt = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
 })
 const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('ru-RU')
 
@@ -42,7 +42,7 @@ function HistoryPanel({ reportDate, selectedRunId, onSelect, panelId, panelRef }
   return (
     <div className="run-history__panel" id={panelId} role="dialog" aria-labelledby={`${panelId}-title`} ref={panelRef} tabIndex={-1}>
       <h2 id={`${panelId}-title`}>Запуски за {dateLabel(reportDate)}</h2>
-      <p className="run-history__caption">Последние 10 запусков · время МСК</p>
+      <p className="run-history__caption">Последние 10 запусков · дата генерации и время МСК</p>
       {query.isPending ? <p role="status" className="run-history__message">Получаем историю…</p>
         : query.isError ? <div className="run-history__message" role="alert"><p>Не удалось получить историю запусков.</p><button type="button" onClick={() => void query.refetch()} disabled={query.isFetching}>Повторить</button></div>
         : !query.data?.length ? <p className="run-history__message" role="status">За эту дату запусков пока нет</p>
@@ -50,7 +50,7 @@ function HistoryPanel({ reportDate, selectedRunId, onSelect, panelId, panelRef }
           {query.data.slice(0, 10).map(run => (
             <li key={run.runId}>
               <button type="button" className="run-history__run" aria-current={run.runId === selectedRunId ? 'true' : undefined} onClick={() => onSelect(run.runId)}>
-                <span className="run-history__row"><time dateTime={run.createdAt}>{run.createdAt ? time.format(new Date(run.createdAt)) : 'Время не указано'}</time><span className={`run-history__status run-history__status--${run.status}`}>{statuses[run.status]}</span></span>
+                <span className="run-history__row"><time aria-label="Дата и время генерации" dateTime={run.createdAt}>{run.createdAt && Number.isFinite(Date.parse(run.createdAt)) ? generatedAt.format(new Date(run.createdAt)) : 'Дата не указана'}</time><span className={`run-history__status run-history__status--${run.status}`}>{statuses[run.status]}</span></span>
                 <span className="run-history__kind">{run.usedParameters.mode === 'standard' ? 'Стандартные' : 'Пользовательские'} · {run.runOrigin === 'automatic' ? 'Автоматический' : 'Ручной'} запуск</span>
                 <span className="run-history__parameters">P = {formatParameter(run.usedParameters.p)} · K = {formatParameter(run.usedParameters.k)} · D = {formatParameter(run.usedParameters.d)} п. п.</span>
                 {run.runId === selectedRunId && <span className="run-history__current">Выбранный запуск</span>}
