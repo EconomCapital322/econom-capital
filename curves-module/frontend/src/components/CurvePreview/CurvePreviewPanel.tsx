@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { CurveCalculation, CurvePreview, StressScenarioCode } from '../../utils/curveTypes'
 import { formatRate, formatParameter } from '../../utils/parameters'
 import { canExportCurveCalculation, downloadCurveCsv } from '../../utils/curveCsv'
+import { downloadCurveXlsx } from '../../utils/curveXlsx'
 import { Button } from '../ui/Button'
 
 const exportIcon = new URL('../../assets/images/export.svg', import.meta.url).href
@@ -187,6 +188,9 @@ export function CurvePreviewPanel({ preview, calculation, error, message, graphR
         </div>
         <div className="result-export">
           {onExplain && result && !showSource && <Button variant="outline" onClick={() => onExplain(scenarioCode)}>Спросить AI</Button>}
+          <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveXlsx(result) }} title="Книга Excel: ставки, дисконт-факторы и параметры расчёта">
+            <img src={exportIcon} alt="" width="18" height="20" />Скачать Excel
+          </Button>
           <Button variant="outline" disabled={!exportAvailable} onClick={() => { if (canExportCurveCalculation(result)) downloadCurveCsv(result) }} aria-describedby={`${panelId}-export-note`} title="CSV — формат прототипа. Окончательный формат ещё согласуется.">
             <img src={exportIcon} alt="" width="18" height="20" />Скачать CSV
           </Button>

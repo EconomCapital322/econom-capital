@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f3f4f8">
-  <title>Спектр · Аналитика финансовых рисков</title>
-  <link rel="icon" type="image/svg+xml" href="/spectrum.svg">
-  <link rel="preload" href="/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#ffffff">
+  <title>Econom Capital · Аналитика финансовых рисков</title>
+  <link rel="icon" type="image/svg+xml" href="/t1-mark.svg">
+  <link rel="preload" href="/Geologica-400.ttf" as="font" type="font/ttf" crossorigin>
   <script src="/appearance.js"></script>
   <link rel="stylesheet" href="/studio.css">
   <link rel="stylesheet" href="/glass.css">
@@ -37,23 +37,8 @@
     </filter>
   </svg>
   <a class="skip" href="#content">К содержимому</a>
-  <aside class="navigation-shell" aria-label="Рабочая область" data-glass="frosted">
-      <a class="brand" href="#analysis" data-action="overview">
-        <svg class="brand-mark" width="29" height="29" viewBox="0 0 40 40" fill="none" aria-hidden="true" focusable="false">
-          <defs><linearGradient id="prism-fill" x1="13" y1="10" x2="25" y2="33" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#DBD6FF" stop-opacity=".62"/><stop offset="1" stop-color="#9280F2" stop-opacity=".12"/>
-          </linearGradient></defs>
-          <rect width="40" height="40" rx="10" fill="#29254F"/>
-          <path class="prism-glass" d="M17.5 9 28 29H9.5Z" fill="url(#prism-fill)" stroke="#D3CBFF" stroke-opacity=".67" stroke-width=".75" stroke-linejoin="round"/>
-          <g fill="none" stroke-width="1.5" stroke-linecap="round">
-            <path class="prism-incoming" d="M4.8 22 19 19.5" pathLength="1" stroke="#F7F4FF"/>
-            <path class="prism-outgoing" d="M19 19.5 34.7 13.5" pathLength="1" stroke="#A6DBE4"/>
-            <path class="prism-outgoing" d="M19 19.5 35.1 21" pathLength="1" stroke="#C7B8FF"/>
-            <path class="prism-outgoing" d="M19 19.5 33.7 29.4" pathLength="1" stroke="#E6ACCD"/>
-          </g>
-        </svg>
-        <span>Спектр</span>
-      </a>
+  <aside class="navigation-shell" aria-label="Рабочая область">
+      <a class="brand" href="#analysis" data-action="overview"><span class="brand-title">Econom <span class="brand-capital">Capital</span><span class="brand-subtitle">Аналитика финансовых рисков</span></span></a>
       <nav class="workspace-nav" aria-label="Разделы" data-motion-track="navigation">
         <span class="selection-pill" aria-hidden="true"></span>
         <a href="#analysis" data-route="analysis" data-action="overview" aria-current="page" title="Анализ"><svg class="icon" aria-hidden="true"><use href="#icon-analysis"/></svg><span>Анализ</span></a>
@@ -63,19 +48,11 @@
         <a href="#data" data-route="data" title="Данные"><svg class="icon" aria-hidden="true"><use href="#icon-data"/></svg><span>Данные</span></a>
       </nav>
       <div class="rail-footer">
-        <button class="rail-action" type="button" data-action="commands" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Быстрые действия" title="Быстрые действия"><svg class="icon" aria-hidden="true"><use href="#icon-search"/></svg><span>Быстрые действия</span></button>
-        <button class="rail-action" type="button" data-action="appearance" aria-haspopup="dialog" aria-label="Внешний вид" title="Внешний вид"><svg class="icon" aria-hidden="true"><use href="#icon-appearance"/></svg><span>Внешний вид</span></button>
-        <button class="rail-action rail-toggle" type="button" id="rail-toggle" aria-label="Свернуть меню" aria-expanded="true" title="Свернуть меню"><svg class="icon" aria-hidden="true"><use href="#icon-layout"/></svg><span>Свернуть меню</span></button>
+        <img class="partner-mark" src="/t1-mark.svg" alt="Т1" width="48" height="38">
+        <button class="rail-action" type="button" data-action="toggle-theme" aria-label="Включить тёмную тему"><svg class="icon" aria-hidden="true"><use href="#icon-appearance"/></svg><span>Переключить тему</span></button>
       </div>
   </aside>
   <div class="workspace">
-    <header class="context-bar" data-glass="frosted">
-      <div class="context-inner">
-        <span id="page-location">Анализ</span>
-        <span id="workspace-context" hidden></span>
-        <button class="text-button service-link" type="button" data-action="service-status"><i aria-hidden="true"></i>Сервисы</button>
-      </div>
-    </header>
     <div class="alert-container" id="activity" aria-live="polite"></div>
     <main id="content" tabindex="-1">
       <div id="studio-screen"><div class="report-skeleton"><p class="loading" role="status">Открываем последний расчёт…</p><div class="skeleton-heading" aria-hidden="true"></div><div class="skeleton-report" aria-hidden="true"></div></div></div>
@@ -103,18 +80,6 @@
   </dialog>
   <dialog id="settings-dialog" aria-labelledby="settings-title" data-glass="dense"></dialog>
   <dialog id="inspector" aria-labelledby="inspector-title" data-glass="dense"></dialog>
-  <dialog id="appearance-dialog" aria-labelledby="appearance-title" data-glass="dense">
-    <header class="drawer-head"><h2 id="appearance-title">Внешний вид</h2>
-      <form method="dialog"><button class="icon-button" aria-label="Закрыть настройки внешнего вида"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></form>
-    </header>
-    <div class="appearance-settings">
-      <label class="field" for="appearance-theme">Тема</label><select id="appearance-theme" data-preference="theme"><option value="system">Системная</option><option value="light">Светлая</option><option value="dark">Тёмная</option></select>
-      <label class="field" for="appearance-transparency">Прозрачность</label><select id="appearance-transparency" data-preference="transparency"><option value="full">Обычная</option><option value="reduced">Уменьшенная</option></select>
-      <label class="field" for="appearance-motion">Анимация</label><select id="appearance-motion" data-preference="motion"><option value="full">Полная</option><option value="reduced">Сокращённая</option></select>
-      <label class="field" for="appearance-density">Плотность</label><select id="appearance-density" data-preference="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option></select>
-      <label class="field" for="appearance-optics">Оптика блика</label><select id="appearance-optics" data-preference="optics"><option value="standard">Стандартная</option><option value="enhanced">Расширенная</option></select>
-    </div>
-  </dialog>
   <noscript>Включите JavaScript, чтобы открыть «Спектр».</noscript>
 </body>
 </html>

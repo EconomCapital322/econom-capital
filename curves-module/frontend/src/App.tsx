@@ -138,7 +138,7 @@ function App({ embedding }: { embedding?: CurveEmbedding } = {}): ReactElement {
           <ReportDatePicker value={reportDate} onChange={changeDate} />
           <ParametersControl onOpen={() => setHistoryOpen(false)} value={parameters}
             onChange={value => setDraft({ date: reportDate, value })} disabled={isRunning}
-            portalTarget={embedding?.portalTarget} active={active} compact={!!embedding} errors={server.validation &&
+            portalTarget={embedding?.portalTarget} active={active} errors={server.validation &&
             ['p', 'k', 'd'].every(key => parameters[key as keyof ScenarioParameters] === server.validation?.parameters[key as keyof ScenarioParameters])
             ? server.validation.fields : undefined} />
           {!preparationFailure && calculateButton}

@@ -523,11 +523,12 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 return self.static("index.html", "text/html")
             mime = {"/studio.css": "text/css", "/glass.css": "text/css", "/studio.mjs": "text/javascript",
-                    "/appearance.js": "text/javascript", "/motion.mjs": "text/javascript",
+                    "/appearance.js": "text/javascript", "/tooltips.mjs": "text/javascript", "/motion.mjs": "text/javascript",
                     "/assistant-dock.mjs": "text/javascript", "/command-palette.mjs": "text/javascript",
                     "/portfolio-dates.mjs": "text/javascript",
                     "/charts.mjs": "text/javascript", "/chart-interaction.mjs": "text/javascript", "/views.mjs": "text/javascript",
-                    "/spectrum.svg": "image/svg+xml", "/lens-map.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2"}
+                    "/spectrum.svg": "image/svg+xml", "/lens-map.svg": "image/svg+xml", "/InterVariable.woff2": "font/woff2", "/t1-mark.svg": "image/svg+xml",
+                    **{f"/Geologica-{weight}.ttf": "font/ttf" for weight in (400, 500, 600, 700)}}
             if path in mime:
                 return self.static(path[1:], mime[path])
             if path in ("/curve-ui/curves.js", "/curve-ui/curves.css"):
@@ -696,12 +697,18 @@ class Handler(BaseHTTPRequestHandler):
         if not date_col or not id_col:
             raise ValueError("Сначала выберите колонки даты и ID.")
         dataset = extract_csv(text_of(folder))
-        selected_rows = [
-            row for row in dataset.rows if iso_date(row[date_col]) == selected and query in row[id_col].casefold()
-        ]
+        date_rows = [row for row in dataset.rows if iso_date(row[date_col]) == selected]
+        filter_fields = ('side', 'payment_type', 'rate_type')
+        facets = {field: sorted({row.get(field, '') for row in date_rows if row.get(field)})
+                  for field in filter_fields}
+        filters = {field: args.get(field, [''])[0] for field in filter_fields}
+        if any(len(value) > 100 for value in filters.values()):
+            raise ValueError('Слишком длинное значение фильтра.')
+        selected_rows = [row for row in date_rows if query in row[id_col].casefold()
+                         and all(not value or row.get(field, '') == value for field, value in filters.items())]
         selected_rows.sort(key=lambda row: (row[id_col].casefold() != query, -(number(row.get("principal", "")) or 0)))
         result = {"date": selected, "size": len(selected_rows), "page": index, "pageSize": 25,
-                  "rows": selected_rows[index * 25:(index + 1) * 25]}
+                  "rows": selected_rows[index * 25:(index + 1) * 25], "facets": facets}
         if args.get('overview') == ['1'] and any(period['date'] == selected for period in workspace.get('periods', [])):
             contracts = read_rows(folder / selected / 'calculator_input.csv', ';')
             principal = {'ASSET': Decimal(0), 'LIABILITY': Decimal(0)}
